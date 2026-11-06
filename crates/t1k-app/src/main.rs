@@ -71,6 +71,7 @@ fn main() {
         })
         .detach();
         menus::install(cx);
+        platform::init_notifications();
         cx.on_window_closed(|cx| {
             if cx.windows().is_empty() {
                 cx.quit();

@@ -24,6 +24,7 @@ toml_edit = "0.22"
 nucleo-matcher = "0.3"
 libc = "0.2"
 objc = "0.2"
+block = "0.1"
 cocoa = "0.26"
 
 [lints.rust]

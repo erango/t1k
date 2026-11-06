@@ -548,6 +548,13 @@ impl Workspace {
             Some(Err(e)) => log::error!("config not applied: {e}"),
             None => {}
         }
+        // A clicked banner brings its tab forward.
+        for id in crate::platform::take_clicked() {
+            if let Some(ix) = self.tabs.iter().position(|t| t.id == id) {
+                window.activate_window();
+                self.activate(ix, window, cx);
+            }
+        }
         let mut changed = false;
         let now = SystemTime::now();
         for t in &mut self.tabs {
@@ -555,7 +562,7 @@ impl Workspace {
                 t.reminder_due = true;
                 changed = true;
                 if self.config.notify.reminder {
-                    crate::platform::notify("T1K", "Reminder", &t.title());
+                    crate::platform::notify_tab(&t.id, "T1K", "Reminder", &t.title());
                 }
             }
         }
@@ -610,7 +617,7 @@ impl Workspace {
                 _ => None,
             };
             if let Some((what, body)) = msg {
-                crate::platform::notify(&format!("T1K · {what}"), &tab.title(), &body);
+                crate::platform::notify_tab(&tab.id, &format!("T1K · {what}"), &tab.title(), &body);
             }
         }
         true

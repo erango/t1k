@@ -5580,6 +5580,7 @@ name = "t1k-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "block",
  "cocoa 0.26.0",
  "env_logger",
  "gpui",
