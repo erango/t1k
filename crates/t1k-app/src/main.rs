@@ -1,6 +1,7 @@
 //! T1K: agent-first terminal.
 
 mod actions;
+mod app_icon;
 mod cli;
 mod config;
 mod input;

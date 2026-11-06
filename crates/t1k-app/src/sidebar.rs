@@ -342,6 +342,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         .items_center()
         .gap(px(9.))
         .child(glyph)
+        .when(ws.config.sidebar.app_icons, |d| d.child(crate::app_icon::badge(tab, ui)))
         .child(title)
         .children(pending)
         .children(waiting.map(|w| {

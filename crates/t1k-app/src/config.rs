@@ -43,6 +43,8 @@ text_size = 13
 width = 300
 # How long the pointer rests on a tab before its detail card appears.
 hover_intent_ms = 300
+# A small badge for what's running in each tab (Claude, shell, vim, ssh...).
+app_icons = true
 
 [links]
 # ⌘-click a file path to open it. Empty picks the first of Zed, Cursor, VS Code, else the
@@ -157,6 +159,7 @@ pub struct FontCfg {
 pub struct SidebarCfg {
     pub width: f32,
     pub hover_intent_ms: u64,
+    pub app_icons: bool,
 }
 
 impl Default for Config {
@@ -196,7 +199,7 @@ impl Default for FontCfg {
 }
 impl Default for SidebarCfg {
     fn default() -> Self {
-        Self { width: 300., hover_intent_ms: 300 }
+        Self { width: 300., hover_intent_ms: 300, app_icons: true }
     }
 }
 
