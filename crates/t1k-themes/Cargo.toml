@@ -1,0 +1,8 @@
+[package]
+name = "t1k-themes"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+gpui = { workspace = true }
+t1k-terminal = { path = "../t1k-terminal" }

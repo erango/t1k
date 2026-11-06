@@ -6,3 +6,4 @@ pub mod view;
 
 pub use terminal::{SpawnOptions, Terminal};
 pub use view::{TerminalEvent, TerminalStyle, TerminalView};
+pub use alacritty_terminal::vte::ansi::Rgb;

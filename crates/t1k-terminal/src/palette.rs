@@ -67,15 +67,15 @@ impl Palette {
             N::Foreground | N::BrightForeground => self.foreground,
             N::Background => self.background,
             N::Cursor => self.cursor,
-            N::DimForeground => dim(self.foreground),
-            N::DimBlack => dim(self.ansi[0]),
-            N::DimRed => dim(self.ansi[1]),
-            N::DimGreen => dim(self.ansi[2]),
-            N::DimYellow => dim(self.ansi[3]),
-            N::DimBlue => dim(self.ansi[4]),
-            N::DimMagenta => dim(self.ansi[5]),
-            N::DimCyan => dim(self.ansi[6]),
-            N::DimWhite => dim(self.ansi[7]),
+            N::DimForeground => dim(self.foreground, self.background),
+            N::DimBlack => dim(self.ansi[0], self.background),
+            N::DimRed => dim(self.ansi[1], self.background),
+            N::DimGreen => dim(self.ansi[2], self.background),
+            N::DimYellow => dim(self.ansi[3], self.background),
+            N::DimBlue => dim(self.ansi[4], self.background),
+            N::DimMagenta => dim(self.ansi[5], self.background),
+            N::DimCyan => dim(self.ansi[6], self.background),
+            N::DimWhite => dim(self.ansi[7], self.background),
             other => self.ansi[(other as usize).min(15)],
         }
     }
@@ -90,8 +90,10 @@ impl Palette {
     }
 }
 
-pub fn dim(c: Rgb) -> Rgb {
-    Rgb { r: (c.r as u16 * 2 / 3) as u8, g: (c.g as u16 * 2 / 3) as u8, b: (c.b as u16 * 2 / 3) as u8 }
+/// Faint text: blend 40% toward the background, so it fades on dark and light themes alike.
+pub fn dim(c: Rgb, bg: Rgb) -> Rgb {
+    let m = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * 0.4).round() as u8;
+    Rgb { r: m(c.r, bg.r), g: m(c.g, bg.g), b: m(c.b, bg.b) }
 }
 
 #[cfg(test)]

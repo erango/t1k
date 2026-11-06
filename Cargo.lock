@@ -5518,6 +5518,7 @@ dependencies = [
  "gpui",
  "log",
  "t1k-terminal",
+ "t1k-themes",
  "uuid",
 ]
 
@@ -5530,6 +5531,14 @@ dependencies = [
  "futures",
  "gpui",
  "log",
+]
+
+[[package]]
+name = "t1k-themes"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "t1k-terminal",
 ]
 
 [[package]]

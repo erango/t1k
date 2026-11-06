@@ -3,15 +3,24 @@
 use std::collections::HashMap;
 
 use gpui::{
-    actions, div, prelude::*, px, rgb, size, App, Application, Bounds, Context, Entity,
+    actions, div, prelude::*, px, size, Action, App, Application, Bounds, Context, Entity,
     FocusHandle, Focusable, KeyBinding, Menu, MenuItem, SharedString, Subscription, Window,
-    WindowBounds, WindowOptions,
+    WindowAppearance, WindowBounds, WindowOptions,
 };
+use t1k_themes::{Appearance, AppearanceMode, Theme, UiColors, BUILTIN};
 use t1k_terminal::view::{ClearScrollback, Copy, Paste, ScrollPageDown, ScrollPageUp};
 use t1k_terminal::{SpawnOptions, TerminalEvent, TerminalView};
 
 actions!(t1k, [Quit, NewTab, CloseTab, NextTab, PrevTab, SelectTab1, SelectTab2, SelectTab3,
-    SelectTab4, SelectTab5, SelectTab6, SelectTab7, SelectTab8, SelectTab9]);
+    SelectTab4, SelectTab5, SelectTab6, SelectTab7, SelectTab8, SelectTab9,
+    ToggleAppearance, FollowSystemAppearance]);
+
+/// Pick a theme by name. It fills the dark or light slot, matching the theme's appearance.
+#[derive(Clone, PartialEq, Debug, Action)]
+#[action(namespace = t1k, no_json)]
+struct SelectTheme {
+    name: SharedString,
+}
 
 struct Tab {
     id: String,
@@ -24,13 +33,92 @@ struct Workspace {
     tabs: Vec<Tab>,
     active: usize,
     focus_handle: FocusHandle,
+    mode: AppearanceMode,
+    dark: &'static Theme,
+    light: &'static Theme,
+    /// Theme currently applied (resolved from mode + system appearance).
+    theme: &'static Theme,
+    ui: UiColors,
 }
 
 impl Workspace {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let mut this = Self { tabs: Vec::new(), active: 0, focus_handle: cx.focus_handle() };
+        let mut dark = t1k_themes::default_for(Appearance::Dark);
+        let mut light = t1k_themes::default_for(Appearance::Light);
+        let mut mode = match std::env::var("T1K_APPEARANCE").as_deref() {
+            Ok("dark") => AppearanceMode::Dark,
+            Ok("light") => AppearanceMode::Light,
+            _ => AppearanceMode::System,
+        };
+        // Until config.toml lands (M3), T1K_THEME picks a starting theme.
+        if let Some(t) = std::env::var("T1K_THEME").ok().and_then(|n| t1k_themes::find(&n)) {
+            if t.is_dark() { dark = t } else { light = t }
+            if mode == AppearanceMode::System {
+                mode = if t.is_dark() { AppearanceMode::Dark } else { AppearanceMode::Light };
+            }
+        }
+        let theme = dark;
+        let mut this = Self {
+            tabs: Vec::new(),
+            active: 0,
+            focus_handle: cx.focus_handle(),
+            mode,
+            dark,
+            light,
+            theme,
+            ui: theme.ui(),
+        };
+        cx.observe_window_appearance(window, |this, window, cx| this.apply_theme(window, cx)).detach();
+        this.apply_theme(window, cx);
         this.open_tab(None, window, cx);
         this
+    }
+
+    fn system_is_dark(window: &Window) -> bool {
+        matches!(window.appearance(), WindowAppearance::Dark | WindowAppearance::VibrantDark)
+    }
+
+    fn resolve_theme(&self, window: &Window) -> &'static Theme {
+        match self.mode {
+            AppearanceMode::Dark => self.dark,
+            AppearanceMode::Light => self.light,
+            AppearanceMode::System => if Self::system_is_dark(window) { self.dark } else { self.light },
+        }
+    }
+
+    /// Resolve the active theme and push it to the chrome and every terminal.
+    fn apply_theme(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.theme = self.resolve_theme(window);
+        self.ui = self.theme.ui();
+        let palette = self.theme.palette();
+        for tab in &self.tabs {
+            tab.view.update(cx, |v, cx| {
+                v.palette = palette.clone();
+                cx.notify();
+            });
+        }
+        cx.notify();
+    }
+
+    fn toggle_appearance(&mut self, _: &ToggleAppearance, window: &mut Window, cx: &mut Context<Self>) {
+        self.mode = if self.theme.is_dark() { AppearanceMode::Light } else { AppearanceMode::Dark };
+        self.apply_theme(window, cx);
+    }
+
+    fn follow_system(&mut self, _: &FollowSystemAppearance, window: &mut Window, cx: &mut Context<Self>) {
+        self.mode = AppearanceMode::System;
+        self.apply_theme(window, cx);
+    }
+
+    fn select_theme(&mut self, a: &SelectTheme, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(t) = t1k_themes::find(&a.name) else { return };
+        if t.is_dark() { self.dark = t } else { self.light = t }
+        // Show the pick now. In System mode, only switch if the system shows the other slot.
+        let showing_slot = self.resolve_theme(window).is_dark() == t.is_dark();
+        if !(self.mode == AppearanceMode::System && showing_slot) {
+            self.mode = if t.is_dark() { AppearanceMode::Dark } else { AppearanceMode::Light };
+        }
+        self.apply_theme(window, cx);
     }
 
     fn open_tab(&mut self, cwd: Option<std::path::PathBuf>, window: &mut Window, cx: &mut Context<Self>) {
@@ -40,7 +128,12 @@ impl Workspace {
             env: HashMap::new(),
             tab_id: id.clone(),
         };
-        let view = cx.new(|cx| TerminalView::new(opts, window, cx).expect("failed to spawn shell in pty"));
+        let palette = self.theme.palette();
+        let view = cx.new(|cx| {
+            let mut v = TerminalView::new(opts, window, cx).expect("failed to spawn shell in pty");
+            v.palette = palette;
+            v
+        });
         let sub = cx.subscribe_in(&view, window, |this: &mut Self, view, ev: &TerminalEvent, window, cx| {
             let Some(ix) = this.tabs.iter().position(|t| &t.view == view) else { return };
             match ev {
@@ -103,6 +196,7 @@ impl Workspace {
     }
 
     fn render_tab_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let ui = self.ui;
         div()
             .flex()
             .flex_row()
@@ -110,9 +204,9 @@ impl Workspace {
             .pl(px(78.)) // room for the traffic lights
             .items_center()
             .gap_1()
-            .bg(rgb(0x0f1114))
+            .bg(ui.bg_chrome)
             .border_b_1()
-            .border_color(rgb(0x23272e))
+            .border_color(ui.border)
             .children(self.tabs.iter().enumerate().map(|(ix, tab)| {
                 let active = ix == self.active;
                 div()
@@ -123,9 +217,9 @@ impl Workspace {
                     .overflow_hidden()
                     .rounded_md()
                     .text_size(px(12.))
-                    .text_color(if active { rgb(0xe6e9ef) } else { rgb(0x8a919c) })
-                    .when(active, |d| d.bg(rgb(0x1d2127)))
-                    .hover(|d| d.bg(rgb(0x191c21)))
+                    .text_color(if active { ui.text_primary } else { ui.text_tertiary })
+                    .when(active, |d| d.bg(ui.bg_selected))
+                    .hover(move |d| d.bg(ui.bg_hover))
                     .child(format!("{}  {}", ix + 1, tab.title))
                     .on_click(cx.listener(move |this, _, window, cx| this.activate(ix, window, cx)))
             }))
@@ -162,12 +256,15 @@ impl Render for Workspace {
             .size_full()
             .flex()
             .flex_col()
-            .bg(rgb(0x14161a))
+            .bg(self.ui.bg_terminal)
             .font_family("Menlo")
             .on_action(cx.listener(Self::new_tab))
             .on_action(cx.listener(Self::close_tab))
             .on_action(cx.listener(Self::next_tab))
-            .on_action(cx.listener(Self::prev_tab));
+            .on_action(cx.listener(Self::prev_tab))
+            .on_action(cx.listener(Self::toggle_appearance))
+            .on_action(cx.listener(Self::follow_system))
+            .on_action(cx.listener(Self::select_theme));
         let root = select!(root, SelectTab1 => 0, SelectTab2 => 1, SelectTab3 => 2, SelectTab4 => 3,
             SelectTab5 => 4, SelectTab6 => 5, SelectTab7 => 6, SelectTab8 => 7, SelectTab9 => 8);
         root.child(self.render_tab_bar(cx))
@@ -195,6 +292,7 @@ fn main() {
             KeyBinding::new("cmd-7", SelectTab7, None),
             KeyBinding::new("cmd-8", SelectTab8, None),
             KeyBinding::new("cmd-9", SelectTab9, None),
+            KeyBinding::new("cmd-shift-l", ToggleAppearance, None),
             KeyBinding::new("cmd-c", Copy, Some("Terminal")),
             KeyBinding::new("cmd-v", Paste, Some("Terminal")),
             KeyBinding::new("cmd-k", ClearScrollback, Some("Terminal")),
@@ -202,10 +300,29 @@ fn main() {
             KeyBinding::new("shift-pagedown", ScrollPageDown, Some("Terminal")),
         ]);
         cx.on_action(|_: &Quit, cx| cx.quit());
-        cx.set_menus(vec![Menu {
-            name: "T1K".into(),
-            items: vec![MenuItem::action("New Tab", NewTab), MenuItem::action("Quit T1K", Quit)],
-        }]);
+        let theme_items = |dark: bool| {
+            BUILTIN
+                .iter()
+                .filter(|t| t.is_dark() == dark)
+                .map(|t| MenuItem::action(t.name, SelectTheme { name: t.name.into() }))
+                .collect::<Vec<_>>()
+        };
+        cx.set_menus(vec![
+            Menu {
+                name: "T1K".into(),
+                items: vec![MenuItem::action("New Tab", NewTab), MenuItem::action("Quit T1K", Quit)],
+            },
+            Menu {
+                name: "View".into(),
+                items: vec![
+                    MenuItem::action("Toggle Dark / Light", ToggleAppearance),
+                    MenuItem::action("Follow System Appearance", FollowSystemAppearance),
+                    MenuItem::separator(),
+                    MenuItem::submenu(Menu { name: "Dark Theme".into(), items: theme_items(true) }),
+                    MenuItem::submenu(Menu { name: "Light Theme".into(), items: theme_items(false) }),
+                ],
+            },
+        ]);
         cx.on_window_closed(|cx| {
             if cx.windows().is_empty() {
                 cx.quit();

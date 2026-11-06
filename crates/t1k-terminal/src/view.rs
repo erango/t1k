@@ -498,7 +498,7 @@ fn build_frame(view: &TerminalView, focused: bool) -> Frame {
             std::mem::swap(&mut fg, &mut bg);
         }
         if flags.contains(Flags::DIM) {
-            fg = dim(fg);
+            fg = dim(fg, palette.background);
         }
         let selected = selection.is_some_and(|s| s.contains(indexed.point));
         if selected {
