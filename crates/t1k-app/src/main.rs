@@ -177,8 +177,8 @@ impl Workspace {
     }
 
     fn new_tab(&mut self, _: &NewTab, window: &mut Window, cx: &mut Context<Self>) {
-        // TODO(M1): inherit cwd of the active tab via OSC 7 / proc cwd.
-        self.open_tab(None, window, cx);
+        let cwd = self.tabs.get(self.active).and_then(|t| t.view.read(cx).terminal.cwd());
+        self.open_tab(cwd, window, cx);
     }
 
     fn close_tab(&mut self, _: &CloseTab, window: &mut Window, cx: &mut Context<Self>) {

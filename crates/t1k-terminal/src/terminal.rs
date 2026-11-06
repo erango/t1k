@@ -1,6 +1,7 @@
 //! Terminal model: owns the pty, the alacritty `Term` grid, and the reader thread.
 
 use std::collections::HashMap;
+use std::os::fd::{AsRawFd, RawFd};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -56,6 +57,9 @@ pub struct Terminal {
     pub size: GridSize,
     pub title: Option<String>,
     pub exited: bool,
+    /// Master side of the pty (owned by the event loop; valid while it runs).
+    pty_fd: RawFd,
+    shell_pid: i32,
 }
 
 /// The user's shell as a login session, without the "Last login" banner.
@@ -98,6 +102,8 @@ impl Terminal {
             env,
         };
         let pty = tty::new(&pty_opts, size.window_size(), 0)?;
+        let pty_fd = pty.file().as_raw_fd();
+        let shell_pid = pty.child().id() as i32;
 
         let config = Config { scrolling_history: 10_000, ..Config::default() };
         let term = Term::new(config, &TermSize::new(size.cols, size.rows), listener.clone());
@@ -107,7 +113,25 @@ impl Terminal {
         let notifier = Notifier(event_loop.channel());
         event_loop.spawn();
 
-        Ok((Self { term, notifier, size, title: None, exited: false }, rx))
+        Ok((Self { term, notifier, size, title: None, exited: false, pty_fd, shell_pid }, rx))
+    }
+
+    /// Pid of the foreground process (falls back to the shell).
+    pub fn foreground_pid(&self) -> i32 {
+        crate::process::foreground_pid(self.pty_fd).unwrap_or(self.shell_pid)
+    }
+
+    /// Working directory of the foreground process, else of the shell.
+    pub fn cwd(&self) -> Option<PathBuf> {
+        crate::process::cwd(self.foreground_pid()).or_else(|| crate::process::cwd(self.shell_pid))
+    }
+
+    /// Name of the foreground process ("zsh", "claude", "nvim").
+    pub fn foreground_name(&self) -> Option<String> {
+        if self.exited {
+            return None;
+        }
+        crate::process::name(self.foreground_pid())
     }
 
     pub fn write(&self, bytes: impl Into<std::borrow::Cow<'static, [u8]>>) {

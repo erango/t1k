@@ -5530,6 +5530,7 @@ dependencies = [
  "anyhow",
  "futures",
  "gpui",
+ "libc",
  "log",
 ]
 
