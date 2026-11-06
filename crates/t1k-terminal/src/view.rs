@@ -1,6 +1,9 @@
 //! GPUI view that renders a `Terminal` grid and routes input to it.
 
+use std::collections::HashMap;
+
 use alacritty_terminal::event::Event as AlacEvent;
+use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::Side;
 use alacritty_terminal::selection::SelectionType;
 use alacritty_terminal::term::cell::Flags;
@@ -9,13 +12,14 @@ use alacritty_terminal::vte::ansi::{Color as AnsiColor, CursorShape, NamedColor,
 use futures::StreamExt;
 use gpui::{
     actions, canvas, div, fill, point, prelude::*, px, size, App, Bounds, ClipboardItem, Context,
-    EventEmitter, FocusHandle, Focusable, Font, FontStyle, FontWeight, Hsla, KeyDownEvent,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Rgba,
+    CursorStyle, EventEmitter, FocusHandle, Focusable, Font, FontStyle, FontWeight, Hsla, KeyDownEvent,
+    ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Rgba,
     ScrollDelta, ScrollWheelEvent, SharedString, StrikethroughStyle, Task, TextRun,
     UnderlineStyle, Window,
 };
 
 use crate::input::to_esc;
+use crate::links::find_urls;
 use crate::palette::{dim, Palette};
 use crate::terminal::{GridSize, SpawnOptions, Terminal};
 
@@ -58,6 +62,12 @@ pub struct TerminalView {
     /// Last painted content bounds and grid geometry, used for mouse → cell mapping.
     layout: Option<(Bounds<Pixels>, GridSize)>,
     scroll_accum: f32,
+    /// Links found in the last painted frame: viewport (col, row) -> index into `links`.
+    link_map: HashMap<(usize, usize), usize>,
+    links: Vec<String>,
+    /// Viewport cell under the mouse, and whether cmd is held (cmd-hover arms a link).
+    hover_cell: Option<(usize, usize)>,
+    cmd_down: bool,
     _events: Task<()>,
 }
 
@@ -116,6 +126,10 @@ impl TerminalView {
             style: TerminalStyle::default(),
             layout: None,
             scroll_accum: 0.,
+            link_map: HashMap::new(),
+            links: Vec::new(),
+            hover_cell: None,
+            cmd_down: false,
             _events: task,
         })
     }
@@ -243,6 +257,12 @@ impl TerminalView {
     fn on_mouse_down(&mut self, ev: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus_handle);
         let Some((col, row, side)) = self.cell_at(ev.position) else { return };
+        if ev.modifiers.platform {
+            if let Some(url) = self.link_at(col, row) {
+                cx.open_url(&url);
+                return;
+            }
+        }
         if self.mouse_reporting(ev.modifiers.shift) {
             self.report_mouse(0, col, row, true);
             return;
@@ -259,7 +279,27 @@ impl TerminalView {
         cx.notify();
     }
 
+    fn link_at(&self, col: usize, row: usize) -> Option<String> {
+        self.link_map.get(&(col, row)).map(|&i| self.links[i].clone())
+    }
+
+    fn set_hover(&mut self, cell: Option<(usize, usize)>, cmd: bool, cx: &mut Context<Self>) {
+        let armed_before = self.cmd_down && self.hover_cell.is_some_and(|c| self.link_map.contains_key(&c));
+        self.hover_cell = cell;
+        self.cmd_down = cmd;
+        let armed_now = cmd && cell.is_some_and(|c| self.link_map.contains_key(&c));
+        if armed_before || armed_now {
+            cx.notify();
+        }
+    }
+
+    fn on_modifiers_changed(&mut self, ev: &ModifiersChangedEvent, _: &mut Window, cx: &mut Context<Self>) {
+        self.set_hover(self.hover_cell, ev.modifiers.platform, cx);
+    }
+
     fn on_mouse_move(&mut self, ev: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
+        let cell = self.cell_at(ev.position).map(|(c, r, _)| (c, r));
+        self.set_hover(cell, ev.modifiers.platform, cx);
         if ev.pressed_button != Some(MouseButton::Left) {
             return;
         }
@@ -332,6 +372,7 @@ struct TextBatch {
     fg: Hsla,
     flags: Flags,
     underline_color: Option<Hsla>,
+    link: Option<usize>,
 }
 
 struct BgRect {
@@ -345,6 +386,77 @@ struct Frame {
     bg_rects: Vec<BgRect>,
     batches: Vec<TextBatch>,
     cursor: Option<(usize, usize, CursorShape, bool)>,
+    links: Vec<String>,
+    link_map: HashMap<(usize, usize), usize>,
+    /// Link under the mouse while cmd is held.
+    hovered: Option<usize>,
+}
+
+/// Detect links in the viewport: OSC 8 hyperlinks first, then plain-text URLs.
+/// URLs that soft-wrap across rows are joined and detected as one link.
+fn detect_links(
+    cells: &[alacritty_terminal::grid::Indexed<&alacritty_terminal::term::cell::Cell>],
+    offset: i32,
+    rows: usize,
+    cols: usize,
+) -> (Vec<String>, HashMap<(usize, usize), usize>) {
+    let mut grid = vec![vec!['\0'; cols]; rows];
+    let mut wraps = vec![false; rows];
+    let mut links: Vec<String> = Vec::new();
+    let mut map: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut osc_ids: HashMap<String, usize> = HashMap::new();
+
+    for ind in cells {
+        let row_i = ind.point.line.0 + offset;
+        let col = ind.point.column.0;
+        if row_i < 0 || row_i as usize >= rows || col >= cols {
+            continue;
+        }
+        let row = row_i as usize;
+        let flags = ind.cell.flags;
+        if !flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
+            grid[row][col] = ind.cell.c;
+        }
+        if flags.contains(Flags::WRAPLINE) {
+            wraps[row] = true;
+        }
+        if let Some(h) = ind.cell.hyperlink() {
+            let uri = h.uri().to_string();
+            let id = *osc_ids.entry(uri.clone()).or_insert_with(|| {
+                links.push(uri);
+                links.len() - 1
+            });
+            map.insert((col, row), id);
+        }
+    }
+
+    let mut r = 0;
+    while r < rows {
+        let mut chars = Vec::with_capacity(cols);
+        let mut pos = Vec::with_capacity(cols);
+        loop {
+            for c in 0..cols {
+                chars.push(grid[r][c]);
+                pos.push((c, r));
+            }
+            let wrapped = wraps[r];
+            r += 1;
+            if !wrapped || r >= rows {
+                break;
+            }
+        }
+        for (a, b) in find_urls(&chars) {
+            if pos[a..b].iter().any(|p| map.contains_key(p)) {
+                continue;
+            }
+            links.push(chars[a..b].iter().collect());
+            let id = links.len() - 1;
+            for &p in &pos[a..b] {
+                map.insert(p, id);
+            }
+        }
+    }
+    (links, map)
 }
 
 /// Snapshot the visible grid into paint-ready batches. Holds the term lock briefly.
@@ -359,11 +471,14 @@ fn build_frame(view: &TerminalView, focused: bool) -> Frame {
     let show_cursor = content.mode.contains(TermMode::SHOW_CURSOR) && cursor.shape != CursorShape::Hidden;
     let cursor_vp = (cursor.point.line.0 + offset, cursor.point.column.0);
     let selection = content.selection;
+    let cells: Vec<_> = content.display_iter.collect();
+    let (links, link_map) = detect_links(&cells, offset, term.screen_lines(), term.columns());
+    let hovered = if view.cmd_down { view.hover_cell.and_then(|c| link_map.get(&c).copied()) } else { None };
 
     let mut bg_rects: Vec<BgRect> = Vec::new();
     let mut batches: Vec<TextBatch> = Vec::new();
 
-    for indexed in content.display_iter {
+    for indexed in &cells {
         let cell = &indexed.cell;
         let flags = cell.flags;
         if flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
@@ -393,6 +508,10 @@ fn build_frame(view: &TerminalView, focused: bool) -> Frame {
             }
         }
         let is_cursor = show_cursor && focused && cursor.shape == CursorShape::Block && (row_i, col) == cursor_vp;
+        let link = link_map.get(&(col, row)).copied();
+        if link.is_some() && !selected {
+            fg = palette.link;
+        }
         if is_cursor {
             fg = palette.cursor_text;
         }
@@ -419,6 +538,7 @@ fn build_frame(view: &TerminalView, focused: bool) -> Frame {
                     && b.fg == fg_h
                     && b.flags == style_flags
                     && b.underline_color == underline_color
+                    && b.link == link
                     && !b.text.chars().any(|c| c.len_utf8() > 1 && unicode_wide(c))
             });
         if can_join {
@@ -429,13 +549,13 @@ fn build_frame(view: &TerminalView, focused: bool) -> Frame {
             if let Some(zw) = cell.zerowidth() {
                 text.extend(zw);
             }
-            batches.push(TextBatch { col, row, text, fg: fg_h, flags: style_flags, underline_color });
+            batches.push(TextBatch { col, row, text, fg: fg_h, flags: style_flags, underline_color, link });
         }
     }
 
     let cursor = (show_cursor && cursor_vp.0 >= 0)
         .then(|| (cursor_vp.1, cursor_vp.0 as usize, cursor.shape, focused));
-    Frame { bg_rects, batches, cursor }
+    Frame { bg_rects, batches, cursor, links, link_map, hovered }
 }
 
 /// Wide glyphs (CJK, emoji) are painted on their own so they don't shift neighbors.
@@ -447,6 +567,9 @@ impl Render for TerminalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let focused = self.focus_handle.is_focused(window) && window.is_window_active();
         let frame = build_frame(self, focused);
+        self.links = frame.links.clone();
+        self.link_map = frame.link_map.clone();
+        let pointer = frame.hovered.is_some();
         let palette = self.palette.clone();
         let style = self.style.clone();
         let entity = cx.entity();
@@ -468,6 +591,8 @@ impl Render for TerminalView {
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_scroll_wheel(cx.listener(Self::on_scroll))
+            .on_modifiers_changed(cx.listener(Self::on_modifiers_changed))
+            .when(pointer, |d| d.cursor(CursorStyle::PointingHand))
             .child(
                 canvas(
                     {
@@ -532,6 +657,17 @@ fn paint_frame(
         }
     }
 
+    let link_color = hsla(palette.link);
+    if let Some(h) = frame.hovered {
+        for b in frame.batches.iter().filter(|b| b.link == Some(h) && b.row < g.rows) {
+            let cols = b.text.chars().count();
+            window.paint_quad(fill(
+                Bounds::new(at(b.col, b.row), size(px(cols as f32 * cw), px(ch))),
+                link_color.opacity(0.16),
+            ));
+        }
+    }
+
     let base = gpui::font(style.font_family.clone());
     for b in &frame.batches {
         if b.row >= g.rows {
@@ -542,11 +678,16 @@ fn paint_frame(
             style: if b.flags.contains(Flags::ITALIC) { FontStyle::Italic } else { FontStyle::Normal },
             ..base.clone()
         };
-        let underline = b.flags.intersects(Flags::ALL_UNDERLINES).then(|| UnderlineStyle {
-            thickness: px(1.),
-            color: Some(b.underline_color.unwrap_or(b.fg)),
-            wavy: b.flags.contains(Flags::UNDERCURL),
-        });
+        // Link underlines are painted per span below, so they don't break at spaces.
+        let underline = if b.link.is_some() {
+            None
+        } else {
+            b.flags.intersects(Flags::ALL_UNDERLINES).then(|| UnderlineStyle {
+                thickness: px(1.),
+                color: Some(b.underline_color.unwrap_or(b.fg)),
+                wavy: b.flags.contains(Flags::UNDERCURL),
+            })
+        };
         let strikethrough = b
             .flags
             .contains(Flags::STRIKEOUT)
@@ -566,6 +707,29 @@ fn paint_frame(
             Some(px(cw)),
         );
         let _ = shaped.paint(at(b.col, b.row), px(ch), window, cx);
+    }
+
+    // Links always carry an underline so they scan at a glance; cmd-hover makes it solid.
+    let mut spans: Vec<(usize, usize, usize)> = frame.link_map.iter().map(|(&(c, r), &id)| (r, c, id)).collect();
+    spans.sort_unstable();
+    let mut i = 0;
+    while i < spans.len() {
+        let (row, start, id) = spans[i];
+        let mut end = start + 1;
+        while i + 1 < spans.len() && spans[i + 1] == (row, end, id) {
+            end += 1;
+            i += 1;
+        }
+        i += 1;
+        if row >= g.rows {
+            continue;
+        }
+        let alpha = if frame.hovered == Some(id) { 1. } else { 0.5 };
+        let o = at(start, row);
+        window.paint_quad(fill(
+            Bounds::new(point(o.x, o.y + px(ch - 3.)), size(px((end - start) as f32 * cw), px(1.))),
+            link_color.opacity(alpha),
+        ));
     }
 
     if let Some((col, row, shape, focused)) = frame.cursor {

@@ -1,4 +1,5 @@
 pub mod input;
+pub mod links;
 pub mod palette;
 pub mod terminal;
 pub mod view;

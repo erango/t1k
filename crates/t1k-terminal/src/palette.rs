@@ -13,6 +13,8 @@ pub struct Palette {
     pub cursor_text: Rgb,
     pub selection_bg: Rgb,
     pub selection_fg: Option<Rgb>,
+    /// Color for detected links (URLs, OSC 8 hyperlinks).
+    pub link: Rgb,
     /// ANSI 0-15.
     pub ansi: [Rgb; 16],
 }
@@ -31,6 +33,7 @@ impl Default for Palette {
             cursor_text: hex(0x121316),
             selection_bg: hex(0x2a3442),
             selection_fg: None,
+            link: hex(0x7fb4ff),
             ansi: [
                 hex(0x1a1c20), hex(0xef6b73), hex(0x5fcb8e), hex(0xe8c468),
                 hex(0x6ca6f5), hex(0xc99af0), hex(0x5fc6d0), hex(0xd5d9de),
