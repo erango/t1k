@@ -121,3 +121,117 @@ Amber and red are used only for states where a person needs to act.
 - The ⌘J heads-up display stays for 1.6 s.
 - The jump-to-output highlight lasts 1.2 s.
 - With Reduce Motion turned on, the Working arc is drawn as a static ¾ ring.
+
+## v2: calm sidebar (supersedes the v1 sidebar)
+
+### Modes
+
+- **Calm** (the default): rows are 32px high and show only the status glyph and the title. Only NeedsInput rows show elapsed time.
+  - The attention queue collapses into a single bar ("Needs you N · ⌘J").
+  - Idle and seen-done tabs fold into a "+N quiet" row.
+- **Detail**: rows are 52px high and add a second line, the identity chip and elapsed time. Detail mode turns on when any of these is true:
+  - the pointer has rested over the sidebar for 150 ms while moving slower than 0.3 px/ms
+  - ⌥ is held down
+  - the sidebar has keyboard focus
+- **Transition**: rows grow over 120 ms. The second line fades in during the last 60 ms. The width never changes, and the row under the pointer stays in place.
+  - The sidebar returns to calm 400 ms after the pointer leaves, or on the first key sent to the terminal.
+
+### Selected tab
+
+The selected row fills with `bg.terminal` and runs flush to the sidebar's right edge. The sidebar itself uses `bg.sidebar` and has no border, so the selected tab looks connected to the terminal. The row also gets a 3px accent bar (inset 7px top and bottom) and a weight-600 title in `text.primary`.
+
+### States
+
+- **Loud** states are NeedsInput (amber), Error (red), and Unread or Reminder due (accent).
+- **Quiet** states are Working (a gray spinner), plus seen-done and Idle (no glyph). Ended tabs live in the Recent section.
+- The queue and the Dock badge count NeedsInput, Error and Reminder due. Unread tabs are not counted.
+
+### New and changed tokens
+
+| Token | Dark | Light |
+|---|---|---|
+| bg.sidebar | #0B0C0E | #EDEEF1 |
+| status.unread (= accent) | #A9C1DE | #3F6A99 |
+| status.working (now gray) | #7A818B | #8A9099 |
+| text.quiet | #8C939C | #5E656E |
+
+`status.done` is now used only for CI checks and diffs.
+
+### Sizes
+
+| Element | Size |
+|---|---|
+| Row height (calm / detail) | 32 / 52 |
+| Row height, compact density | 28 / 44 |
+| Row height, spacious density | 36 / 60 |
+| Gap between rows | 2 |
+| Gap between groups | 20 (8 + hairline + 12) |
+| Row padding | 0 12 |
+| Second-line indent | 21 |
+| Group header | 28 high, 13/600 |
+| Needs-you bar | 30 |
+| Queue row | 28 |
+| Quiet-fold row | 26 |
+| Glyph slot | 12×12 |
+
+### Tab context menu
+
+The menu has these items:
+
+- Open in split
+- Mark as unread
+- Rename
+- Reset to auto title
+- Remind me in, with a submenu: 15m, 30m, 1h, 3h, Tomorrow 9:00, Custom…
+- Move to group
+- Copy branch
+- Copy resume command
+- Reveal in Finder
+- Close
+
+Sidebar keys:
+
+| Key | Action |
+|---|---|
+| u | Mark as unread |
+| ↵ | Rename |
+| r1–r5 / rc | Set a reminder (preset or custom) |
+| m | Move to group |
+
+### Group header
+
+- Expanded: shows counts for loud states only.
+- Collapsed: shows a summary line.
+- The header is sticky while scrolling.
+- It can be renamed inline. The real folder name stays visible as a small label.
+- The group menu offers rename, color, sort, mark all read, collapse others, and close quiet tabs.
+
+## Appearance
+
+- The mode is Dark, Light or System, with one theme slot for each of dark and light. ⌘⇧L or the moon button in the title bar toggles between them.
+- When an imported theme is active, the chrome colors are derived from it:
+  - chrome = the theme's background mixed 4% toward black or gray
+  - borders = the foreground at 10%
+  - text tiers = the foreground at 100%, 65% and 48%
+
+## config.toml
+
+```toml
+appearance = "system"          # "system" | "dark" | "light"
+[theme]     dark = "Mercury Dark"; light = "Mercury Light"
+[window]    chrome_follows_theme, opacity
+[ui]        density, text_size
+[sidebar]   mode, hover_intent_ms = 150, show_elapsed, fold_quiet, position, width
+[outputs]   default_open, width
+[groups]    by, sort, follow_cwd
+[tabs]      recent_after_min, new_tab_cwd, title_sources = ["manual","ai_title","osc_title","process"], auto_unread
+[reminders] presets, snooze
+[terminal]  padding, scrollback, option_as_meta, copy_on_select, bell
+[terminal.font]   family, size, line_height, letter_spacing, ligatures, fallbacks
+[terminal.cursor] style, blink
+[shell]     program, args, login, cwd, term
+[shell.env]
+[agents]    badge, focus_reporting, helper_model
+[notify]    needs/error/reminder/done = { banner, sound }
+[keys]      # overrides only
+```
