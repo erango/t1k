@@ -45,7 +45,9 @@ pub struct TerminalStyle {
     pub font_fallbacks: Vec<String>,
     pub font_size: Pixels,
     pub line_height: f32,
+    /// Vertical and horizontal padding around the grid.
     pub padding: Pixels,
+    pub padding_x: Pixels,
     pub option_as_meta: bool,
     /// Copy the selection to the clipboard as soon as the mouse is released.
     pub copy_on_select: bool,
@@ -72,8 +74,9 @@ impl Default for TerminalStyle {
                 "Apple Color Emoji".into(),
             ],
             font_size: px(13.),
-            line_height: 1.3,
-            padding: px(10.),
+            line_height: 1.45,
+            padding: px(14.),
+            padding_x: px(20.),
             option_as_meta: false,
             copy_on_select: false,
         }
@@ -1078,7 +1081,8 @@ impl Render for TerminalView {
             .relative()
             .overflow_hidden()
             .bg(hsla(palette.background))
-            .p(style.padding)
+            .py(style.padding)
+            .px(style.padding_x)
             .on_key_down(cx.listener(Self::on_key_down))
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::paste))

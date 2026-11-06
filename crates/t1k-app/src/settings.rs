@@ -146,7 +146,8 @@ fn swatch(t: &t1k_themes::Theme) -> impl IntoElement {
 fn theme_grid(ws: &Workspace, dark: bool, cx: &mut Context<Workspace>) -> impl IntoElement {
     let ui = ws.ui;
     let current = if dark { &ws.config.theme.dark } else { &ws.config.theme.light };
-    let mut grid = div().flex().flex_wrap().gap(px(8.)).py(px(8.));
+    // Wrapped lines must not stretch to fill the scroll area's height.
+    let mut grid = div().w_full().flex().flex_wrap().content_start().items_start().gap(px(8.)).py(px(8.));
     for t in t1k_themes::all().into_iter().filter(|t| t.is_dark() == dark) {
         let on = t.name.eq_ignore_ascii_case(current);
         let name = t.name.to_string();
@@ -178,7 +179,7 @@ fn section_body(ws: &Workspace, section: Section, window: &mut Window, cx: &mut 
     let ui = ws.ui;
     let c = &ws.config;
     let heading = |s: &str| div().pt(px(18.)).pb(px(4.)).text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_tertiary).child(s.to_uppercase());
-    let mut body = div().flex().flex_col();
+    let mut body = div().w_full().min_w_0().flex().flex_col();
     match section {
         Section::Appearance => {
             let mode = c.appearance.clone();
@@ -325,7 +326,7 @@ fn claude_hooks_installed() -> bool {
 
 pub fn render(ws: &Workspace, section: Section, window: &mut Window, cx: &mut Context<Workspace>) -> AnyElement {
     let ui = ws.ui;
-    let mut nav = div().w(px(190.)).flex_none().p(px(10.)).flex().flex_col().gap(px(2.)).bg(ui.bg_sidebar);
+    let mut nav = div().w(px(220.)).flex_none().p(px(10.)).flex().flex_col().gap(px(2.)).bg(ui.bg_sidebar);
     nav = nav.child(div().px(px(10.)).pt(px(6.)).pb(px(12.)).text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).child("Settings"));
     for s in Section::ALL {
         let on = s == section;
@@ -349,10 +350,14 @@ pub fn render(ws: &Workspace, section: Section, window: &mut Window, cx: &mut Co
         );
     }
     let body = section_body(ws, section, window, cx);
+    // Design: 1100×740, shrunk to fit smaller windows.
+    let vp = window.viewport_size();
+    let w = (f32::from(vp.width) - 64.).clamp(560., 1100.);
+    let h = (f32::from(vp.height) - 96.).clamp(400., 740.);
     div()
-        .w(px(860.))
-        .h(px(600.))
-        .mt(px(60.))
+        .w(px(w))
+        .h(px(h))
+        .mt(px(48.))
         .rounded(px(12.))
         .overflow_hidden()
         .bg(ui.bg_raised)
@@ -362,6 +367,6 @@ pub fn render(ws: &Workspace, section: Section, window: &mut Window, cx: &mut Co
         .flex()
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(nav)
-        .child(div().id("settings-body").flex_1().overflow_y_scroll().px(px(24.)).py(px(16.)).child(body))
+        .child(div().id("settings-body").flex_1().min_w_0().overflow_y_scroll().px(px(28.)).py(px(20.)).child(body))
         .into_any_element()
 }

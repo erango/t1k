@@ -15,7 +15,7 @@ use crate::workspace::Workspace;
 const CARD_W: f32 = 320.;
 const ROW_GAP: f32 = 2.;
 const HEADER: f32 = 28.;
-const INSET: f32 = 6.;
+const INSET: f32 = 8.;
 
 pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
     let k = ws.config.interface.text_scale();
@@ -33,7 +33,6 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         let label = ws.group_label(&key);
         let renamed = ws.group_names.contains_key(&key);
         let folder = crate::groups::label(&key);
-        let count = tabs.len();
         let has_active = tabs.contains(&ws.active);
         let toggle_key = key.clone();
         list = list.child(
@@ -46,7 +45,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 .rounded(px(6.))
                 .flex()
                 .items_center()
-                .gap(px(6.))
+                .gap(px(7.))
                 .hover(move |d| d.bg(ui.bg_hover))
                 .on_mouse_down(MouseButton::Right, cx.listener({
                     let key = key.clone();
@@ -62,35 +61,50 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                         this.open_overlay(crate::overlay::Overlay::RenameGroup { key: toggle_key.clone(), text }, window, cx);
                     }
                 }))
-                .child(
-                    div()
-                        .w(px(12.))
-                        .text_size(px(9. * k))
-                        .text_color(ui.text_tertiary)
-                        .child(if collapsed { "▶" } else { "▼" }),
-                )
-                .children(ws.group_color(&key).map(|c| div().size(px(8.)).flex_none().rounded_full().bg(c)))
+                .child(chevron(!collapsed, ui.text_disabled))
+                .child(folder_icon(ws.group_color(&key).unwrap_or(ui.text_tertiary), ws.group_color(&key)))
                 .child(
                     div()
                         .flex_1()
+                        .min_w_0()
                         .truncate()
-                        .text_size(px(12. * k))
+                        .text_size(px(13. * k))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(ui.text_secondary)
+                        .text_color(ui.text_primary)
                         .child(label),
                 )
                 .when(renamed, |d| {
                     // Renamed groups keep the real folder name visible.
                     d.child(div().flex_none().text_size(px(10. * k)).font_family("JetBrains Mono").text_color(ui.text_disabled).child(folder.clone()))
                 })
-                .when(collapsed, |d| {
-                    // Collapsed summary: tab count, accent if it hides the active tab.
-                    d.child(
-                        div()
-                            .text_size(px(11. * k))
-                            .text_color(if has_active { ui.accent } else { ui.text_tertiary })
-                            .child(format!("{count}")),
-                    )
+                .map(|d| {
+                    let tally = Tally::of(ws, &tabs);
+                    if collapsed {
+                        // Collapsed: a summary, loud part in amber first.
+                        let (loud, quiet) = tally.summary();
+                        d.child(
+                            div()
+                                .flex_none()
+                                .flex()
+                                .text_size(px(12. * k))
+                                .when(!loud.is_empty(), |d| d.child(div().text_color(ui.status_needs).child(loud.clone())))
+                                .when(!quiet.is_empty(), |d| {
+                                    let sep = if loud.is_empty() { "" } else { " · " };
+                                    d.child(div().text_color(if has_active { ui.accent } else { ui.text_tertiary }).child(format!("{sep}{quiet}")))
+                                }),
+                        )
+                    } else {
+                        // Open: counts of loud states only, glyph + number.
+                        let mut agg = div().flex_none().flex().items_center().gap(px(9.));
+                        for (glyph, n) in tally.loud_glyphs(ui) {
+                            agg = agg.child(
+                                div().flex().items_center().gap(px(4.)).child(glyph).child(
+                                    div().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(ui.text_quiet).child(n.to_string()),
+                                ),
+                            );
+                        }
+                        d.child(agg)
+                    }
                 }),
         );
         if collapsed {
@@ -128,7 +142,13 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                         cx.notify();
                     }))
                     .child(div().w(px(12.)))
-                    .child(format!("+{} quiet", quiet.len())),
+                    .child(div().flex_none().child(format!("+{} quiet", quiet.len())))
+                    .child(div().flex_none().text_color(ui.text_disabled).child("·"))
+                    .child(
+                        div().flex_1().min_w_0().truncate().text_color(ui.text_disabled).child(
+                            quiet.iter().map(|&i| ws.tabs[i].title()).collect::<Vec<_>>().join(", "),
+                        ),
+                    ),
             );
         } else if ws.show_quiet.contains(&key) && quiet.len() >= 2 {
             let gk = key.clone();
@@ -237,6 +257,16 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                         window.start_window_move();
                     }
                 })
+                .child(
+                    // Wordmark (design: mercury gradient; GPUI text is flat, so its light stop).
+                    div()
+                        .mr(px(6.))
+                        .text_size(px(11.))
+                        .font_family("JetBrains Mono")
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(ui.text_tertiary)
+                        .child("T1K"),
+                )
                 .child(nav_button(ws, true, cx))
                 .child(nav_button(ws, false, cx)),
         )
@@ -295,7 +325,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         .truncate()
         .text_size(px(if alt { 12. } else { 13. } * k))
         .when(!alt && (selected || unseen), |d| d.font_weight(FontWeight::SEMIBOLD))
-        .text_color(if alt { ui.text_quiet } else if selected { ui.text_primary } else { ui.text_secondary })
+        .text_color(title_color(tab, selected, alt, ui))
         .child(if alt { tab.subtitle() } else { tab.title() });
     let carded = ws.card.as_deref() == Some(tab.id.as_str()) && !alt && matches!(ws.overlay, crate::overlay::Overlay::None);
     let hover_id = tab.id.clone();
@@ -416,8 +446,7 @@ fn card(tab: &Tab, ui: UiColors, k: f32) -> impl IntoElement {
 /// Status glyph in a 12×12 slot. Shape differs per state so it reads without color.
 /// Loud: NeedsInput (amber dot + halo), Error (red diamond), unread (accent dot).
 /// Quiet: Working (gray spinner). Seen Done / Idle: nothing. Ended: dash.
-fn glyph(tab: &Tab, ui: UiColors, started: Instant, running: bool, k: f32) -> Div {
-    const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+pub fn glyph(tab: &Tab, ui: UiColors, started: Instant, running: bool, k: f32) -> Div {
     let slot = div().w(px(12.)).h(px(12.)).flex_none().flex().items_center().justify_center();
     match tab.status() {
         Some(Status::NeedsInput { .. }) => slot.child(
@@ -427,10 +456,7 @@ fn glyph(tab: &Tab, ui: UiColors, started: Instant, running: bool, k: f32) -> Di
         Some(Status::Error { .. }) => slot.child(div().text_size(px(10. * k)).text_color(ui.status_error).child("◆")),
         _ if tab.reminder_due => slot.child(div().text_size(px(11. * k)).text_color(ui.accent).child("◷")),
         _ if tab.unread => slot.child(div().size(px(7.)).rounded_full().bg(ui.accent)),
-        Some(Status::Working) => {
-            let frame = (started.elapsed().as_millis() / 100) as usize % SPINNER.len();
-            slot.child(div().text_size(px(12. * k)).text_color(ui.status_working).child(SPINNER[frame]))
-        }
+        Some(Status::Working) => slot.child(spinner(ui.status_working, started)),
         Some(Status::Ended) => slot.child(div().w(px(7.)).h(px(1.5)).bg(ui.text_disabled)),
         Some(Status::Done) | Some(Status::Idle) => slot,
         None if running => slot.child(div().size(px(5.)).rounded_full().bg(ui.status_working)),
@@ -458,6 +484,163 @@ fn nav_button(ws: &Workspace, back: bool, cx: &mut Context<Workspace>) -> impl I
                 .on_click(cx.listener(move |this, _, window, cx| this.navigate(back, window, cx)))
         })
         .child(if back { "‹" } else { "›" })
+}
+
+/// Title color by state (design v2): bright for selected / unread / due, normal while
+/// something is happening, quieter once done and seen, quietest when idle.
+fn title_color(tab: &Tab, selected: bool, alt: bool, ui: UiColors) -> gpui::Hsla {
+    if alt {
+        return ui.text_quiet;
+    }
+    if selected || tab.unread || tab.reminder_due {
+        return ui.text_primary;
+    }
+    match tab.status() {
+        Some(Status::Done) => ui.text_quiet,
+        Some(Status::Idle) | Some(Status::Ended) => ui.text_tertiary,
+        _ if tab.program.is_none() && tab.agent.is_none() => ui.text_tertiary,
+        _ => ui.text_secondary,
+    }
+}
+
+/// Per-group state counts for the header.
+struct Tally {
+    needs: usize,
+    error: usize,
+    unread: usize,
+    due: usize,
+    working: usize,
+    quiet: usize,
+}
+
+impl Tally {
+    fn of(ws: &Workspace, tabs: &[usize]) -> Self {
+        let mut t = Tally { needs: 0, error: 0, unread: 0, due: 0, working: 0, quiet: 0 };
+        for &i in tabs {
+            let tab = &ws.tabs[i];
+            match tab.status() {
+                Some(Status::NeedsInput { .. }) => t.needs += 1,
+                Some(Status::Error { .. }) => t.error += 1,
+                _ if tab.reminder_due => t.due += 1,
+                _ if tab.unread => t.unread += 1,
+                Some(Status::Working) => t.working += 1,
+                _ => t.quiet += 1,
+            }
+        }
+        t
+    }
+
+    /// ("1 needs you", "3 working · 2 quiet") for a collapsed header.
+    fn summary(&self) -> (String, String) {
+        let mut loud = Vec::new();
+        if self.needs > 0 {
+            loud.push(format!("{} needs you", self.needs));
+        }
+        if self.error > 0 {
+            loud.push(format!("{} error", self.error));
+        }
+        let mut quiet = Vec::new();
+        if self.unread + self.due > 0 {
+            quiet.push(format!("{} unread", self.unread + self.due));
+        }
+        if self.working > 0 {
+            quiet.push(format!("{} working", self.working));
+        }
+        if self.quiet > 0 {
+            quiet.push(format!("{} quiet", self.quiet));
+        }
+        (loud.join(" · "), quiet.join(" · "))
+    }
+
+    /// Glyph + count for each loud state present (open header, right side).
+    fn loud_glyphs(&self, ui: UiColors) -> Vec<(Div, usize)> {
+        let dot = |c: gpui::Hsla, size: f32| div().size(px(size)).rounded_full().bg(c);
+        let mut v = Vec::new();
+        if self.needs > 0 {
+            v.push((dot(ui.status_needs, 7.), self.needs));
+        }
+        if self.error > 0 {
+            v.push((div().text_size(px(9.)).text_color(ui.status_error).child("◆"), self.error));
+        }
+        if self.unread + self.due > 0 {
+            v.push((dot(ui.accent, 6.), self.unread + self.due));
+        }
+        v
+    }
+}
+
+/// Disclosure chevron: points right when closed, down when open.
+fn chevron(open: bool, color: gpui::Hsla) -> impl IntoElement {
+    gpui::canvas(
+        |_, _, _| {},
+        move |b, _, window, _| {
+            let (x, y) = (b.origin.x + px(4.5), b.origin.y + px(4.5));
+            let mut p = gpui::PathBuilder::stroke(px(1.5));
+            if open {
+                p.move_to(gpui::point(x - px(3.), y - px(1.5)));
+                p.line_to(gpui::point(x, y + px(1.5)));
+                p.line_to(gpui::point(x + px(3.), y - px(1.5)));
+            } else {
+                p.move_to(gpui::point(x - px(1.5), y - px(3.)));
+                p.line_to(gpui::point(x + px(1.5), y));
+                p.line_to(gpui::point(x - px(1.5), y + px(3.)));
+            }
+            if let Ok(path) = p.build() {
+                window.paint_path(path, color);
+            }
+        },
+    )
+    .size(px(9.))
+    .flex_none()
+}
+
+/// Folder outline (14px). A group color fills it at 35%.
+fn folder_icon(stroke: gpui::Hsla, fill: Option<gpui::Hsla>) -> impl IntoElement {
+    gpui::canvas(
+        |_, _, _| {},
+        move |b, _, window, _| {
+            let o = b.origin;
+            let pt = |x: f32, y: f32| gpui::point(o.x + px(x), o.y + px(y));
+            let outline = [pt(1.5, 3.), pt(5.5, 3.), pt(6.7, 4.4), pt(12.5, 4.4), pt(12.5, 11.5), pt(1.5, 11.5)];
+            if let Some(f) = fill {
+                let mut p = gpui::PathBuilder::fill();
+                p.add_polygon(&outline, true);
+                if let Ok(path) = p.build() {
+                    window.paint_path(path, f.opacity(0.35));
+                }
+            }
+            let mut p = gpui::PathBuilder::stroke(px(1.2));
+            p.add_polygon(&outline, true);
+            if let Ok(path) = p.build() {
+                window.paint_path(path, stroke);
+            }
+        },
+    )
+    .size(px(14.))
+    .flex_none()
+}
+
+/// Working: a gray ¾ ring turning once every 900 ms (design: quiet, motion says busy).
+pub fn spinner(color: gpui::Hsla, started: Instant) -> impl IntoElement {
+    let turn = (started.elapsed().as_millis() % 900) as f32 / 900. * std::f32::consts::TAU;
+    gpui::canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let c = bounds.center();
+            let r = 4.25_f32;
+            let mut b = gpui::PathBuilder::stroke(px(1.5));
+            let steps = 24;
+            for i in 0..=steps {
+                let a = turn + i as f32 / steps as f32 * std::f32::consts::TAU * 0.75;
+                let p = gpui::point(c.x + px(r * a.cos()), c.y + px(r * a.sin()));
+                if i == 0 { b.move_to(p) } else { b.line_to(p) }
+            }
+            if let Ok(path) = b.build() {
+                window.paint_path(path, color);
+            }
+        },
+    )
+    .size(px(10.))
 }
 
 /// "5m", "3h", "2d" since a unix time.
@@ -494,21 +677,26 @@ fn needs_bar(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement> 
             .h(px(30.))
             .flex_none()
             .mx(px(INSET))
-            .mb(px(8.))
-            .px(px(10.))
-            .rounded(px(6.))
+            .mb(px(6.))
+            .pl(px(12.))
+            .pr(px(10.))
+            .rounded(px(7.))
             .flex()
             .items_center()
-            .gap(px(8.))
-            .bg(ui.status_needs.opacity(0.12))
-            .hover(move |d| d.bg(ui.status_needs.opacity(0.2)))
-            .text_size(px(12. * k))
+            .gap(px(9.))
+            .bg(ui.bg_raised)
+            .border_1()
+            .border_color(ui.border)
+            .hover(move |d| d.bg(ui.bg_hover))
             .on_click(cx.listener(|this, _, window, cx| this.jump_next_needs(window, cx)))
-            .child(div().size(px(7.)).rounded_full().bg(ui.status_needs))
-            .child(div().font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).child("Needs you"))
-            .child(div().text_color(ui.text_secondary).child(format!("{n}")))
+            .child(
+                div().size(px(13.)).flex().items_center().justify_center().rounded_full().bg(ui.status_needs.opacity(0.2))
+                    .child(div().size(px(7.)).rounded_full().bg(ui.status_needs)),
+            )
+            .child(div().text_size(px(12.5 * k)).font_weight(FontWeight::MEDIUM).text_color(ui.text_primary).child("Needs you"))
+            .child(div().text_size(px(11. * k)).font_family("JetBrains Mono").font_weight(FontWeight::SEMIBOLD).text_color(ui.status_needs).child(format!("{n}")))
             .child(div().flex_1())
-            .child(div().text_size(px(11. * k)).text_color(ui.text_tertiary).child("⌘J"))
+            .child(div().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child("⌘J"))
             .into_any_element(),
     )
 }

@@ -11,6 +11,7 @@ mod overlay;
 mod palette;
 mod platform;
 mod groups;
+mod icons;
 mod session;
 mod settings;
 mod shell;

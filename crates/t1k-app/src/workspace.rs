@@ -206,10 +206,23 @@ impl Workspace {
             }
         });
         // Fast loop: drain agent messages and animate spinners.
-        let fast = cx.spawn_in(window, async move |this, cx| loop {
-            cx.background_executor().timer(Duration::from_millis(100)).await;
-            if this.update_in(cx, |ws, window, cx| ws.tick(window, cx)).is_err() {
-                break;
+        // Every 33 ms the spinner advances (only while something works and the sidebar shows);
+        // every third pass also does the 100 ms housekeeping in `tick`.
+        let fast = cx.spawn_in(window, async move |this, cx| {
+            let mut n: u32 = 0;
+            loop {
+                cx.background_executor().timer(Duration::from_millis(33)).await;
+                n = n.wrapping_add(1);
+                let alive = this.update_in(cx, |ws, window, cx| {
+                    if n % 3 == 0 {
+                        ws.tick(window, cx);
+                    } else if ws.sidebar_open && ws.tabs.iter().any(|t| t.status() == Some(&Status::Working)) {
+                        cx.notify();
+                    }
+                });
+                if alive.is_err() {
+                    break;
+                }
             }
         });
 
@@ -1000,7 +1013,9 @@ impl Workspace {
             font_fallbacks: t.font.fallbacks.clone(),
             font_size: px(t.font.size.clamp(6., 72.)),
             line_height: t.font.line_height.clamp(0.8, 3.),
+            // One number in config; the sides get proportionally more (design: 14 × 20).
             padding: px(t.padding.clamp(0., 64.)),
+            padding_x: px((t.padding.clamp(0., 64.) * 10. / 7.).round()),
             option_as_meta: t.option_as_meta,
             copy_on_select: t.copy_on_select,
         }
@@ -1052,10 +1067,6 @@ impl Workspace {
         }
     }
 
-    fn active_output_count(&self) -> Option<usize> {
-        let n = self.tabs.get(self.active)?.agent.as_ref()?.outputs.len();
-        (n > 0).then_some(n)
-    }
 
     pub fn toggle_outputs(&mut self, cx: &mut Context<Self>) {
         self.panel.open = !self.panel.open;
@@ -1091,19 +1102,37 @@ impl Workspace {
     fn render_titlebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let ui = self.ui;
         let tab = self.tabs.get(self.active);
-        let title = tab.map(|t| t.title()).unwrap_or_default();
-        let place = tab.and_then(|t| t.cwd.as_deref().map(groups::tilde)).unwrap_or_default();
+        let title: String = tab.map(|t| t.title()).unwrap_or_default();
+        // Project, then branch (design header): where this agent works.
+        let project = tab.map(|t| self.group_label(&t.group)).unwrap_or_default();
+        let branch = tab.and_then(|t| t.agent.as_ref()).and_then(|a| a.branch.clone());
         let moon = if self.theme.is_dark() { "☾" } else { "☀" };
+        let icon_button = |id: &'static str, on: bool| {
+            div()
+                .id(id)
+                .w(px(26.))
+                .h(px(24.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(6.))
+                .text_color(if on { ui.text_primary } else { ui.text_tertiary })
+                .when(on, |d| d.bg(ui.bg_selected))
+                .hover(move |d| d.bg(ui.bg_hover).text_color(ui.text_primary))
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        };
         div()
             .id("titlebar")
             .h(px(38.))
             .flex_none()
             .flex()
             .items_center()
-            .gap_2()
-            .pr(px(10.))
+            .gap(px(10.))
+            .pr(px(12.))
             .pl(px(if self.sidebar_open { 16. } else { 84. }))
             .bg(ui.bg_terminal)
+            .border_b_1()
+            .border_color(ui.border)
             .on_mouse_down(MouseButton::Left, |ev, window, _| {
                 if ev.click_count == 2 {
                     window.zoom_window();
@@ -1111,41 +1140,52 @@ impl Workspace {
                     window.start_window_move();
                 }
             })
-            .child(div().text_size(px(13.)).font_weight(gpui::FontWeight::MEDIUM).text_color(ui.text_primary).truncate().child(title))
-            .child(div().text_size(px(12.)).text_color(ui.text_tertiary).truncate().child(place))
+            .child(div().min_w_0().text_size(px(13.)).font_weight(gpui::FontWeight::MEDIUM).text_color(ui.text_primary).truncate().child(title.clone()))
+            .when(!project.eq_ignore_ascii_case(&title), |d| {
+                d.child(div().flex_none().text_size(px(12.)).text_color(ui.text_tertiary).child(project.clone()))
+            })
+            .children(branch.map(|b| div().flex_none().text_size(px(11.5)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(b)))
             .child(div().flex_1())
             .child(
                 div()
-                    .id("outputs-toggle")
+                    .id("jump")
+                    .w(px(200.))
                     .h(px(24.))
                     .px(px(8.))
                     .flex()
+                    .flex_none()
                     .items_center()
                     .gap(px(6.))
                     .rounded(px(6.))
+                    .bg(ui.bg_hover)
+                    .border_1()
+                    .border_color(ui.border)
                     .text_size(px(12.))
-                    .text_color(if self.panel.open { ui.text_primary } else { ui.text_tertiary })
-                    .when(self.panel.open, |d| d.bg(ui.bg_selected))
-                    .hover(move |d| d.bg(ui.bg_hover).text_color(ui.text_primary))
+                    .text_color(ui.text_tertiary)
+                    .hover(move |d| d.text_color(ui.text_secondary))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_outputs(cx)))
-                    .child("Outputs")
-                    .children(self.active_output_count().map(|n| div().text_color(ui.text_tertiary).child(n.to_string()))),
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.open_overlay(Overlay::Switcher { query: String::new(), selected: 0 }, window, cx)
+                    }))
+                    .child("⌕")
+                    .child(div().flex_1().child("Jump to agent…"))
+                    .child(div().text_size(px(11.)).font_family("JetBrains Mono").child("⌘P")),
             )
             .child(
-                div()
-                    .id("appearance")
-                    .size(px(24.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(6.))
+                icon_button("appearance", false)
                     .text_size(px(14.))
-                    .text_color(ui.text_tertiary)
-                    .hover(move |d| d.bg(ui.bg_hover).text_color(ui.text_primary))
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_click(cx.listener(|this, _, window, cx| this.toggle_appearance(&ToggleAppearance, window, cx)))
                     .child(moon),
+            )
+            .child(
+                icon_button("overview", false)
+                    .on_click(cx.listener(|this, _, window, cx| this.open_overlay(Overlay::Overview { selected: 0 }, window, cx)))
+                    .child(crate::icons::grid(ui.text_secondary)),
+            )
+            .child(
+                icon_button("outputs-toggle", self.panel.open)
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_outputs(cx)))
+                    .child(crate::icons::panel_right(if self.panel.open { ui.text_primary } else { ui.text_secondary }, self.panel.open)),
             )
     }
 }

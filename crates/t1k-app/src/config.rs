@@ -18,7 +18,8 @@ dark = "Mercury Dark"
 light = "Mercury Light"
 
 [terminal]
-padding = 10
+# Space around the text: this many px above and below, about 1.4× that at the sides.
+padding = 14
 option_as_meta = false
 # Copy text to the clipboard as soon as you finish selecting it.
 copy_on_select = false
@@ -28,7 +29,7 @@ shell_integration = true
 [terminal.font]
 family = "JetBrains Mono"
 size = 13
-line_height = 1.3
+line_height = 1.45
 # Tried in order for glyphs the main font lacks (Powerline / Nerd Font icons, emoji).
 fallbacks = ["Symbols Nerd Font Mono", "MesloLGS NF", "Meslo LG L DZ for Powerline", "Menlo", "Apple Color Emoji"]
 
@@ -178,7 +179,7 @@ impl Default for ThemeCfg {
 }
 impl Default for TerminalCfg {
     fn default() -> Self {
-        Self { padding: 10., option_as_meta: false, copy_on_select: false, shell_integration: true, font: FontCfg::default() }
+        Self { padding: 14., option_as_meta: false, copy_on_select: false, shell_integration: true, font: FontCfg::default() }
     }
 }
 impl Default for FontCfg {
@@ -186,7 +187,7 @@ impl Default for FontCfg {
         Self {
             family: "JetBrains Mono".into(),
             size: 13.,
-            line_height: 1.3,
+            line_height: 1.45,
             fallbacks: ["Symbols Nerd Font Mono", "MesloLGS NF", "Meslo LG L DZ for Powerline", "Menlo", "Apple Color Emoji"]
                 .map(String::from)
                 .to_vec(),

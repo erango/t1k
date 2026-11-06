@@ -218,6 +218,29 @@ impl Terminal {
         term.selection = Some(sel);
     }
 
+    /// The last `n` non-blank lines of the screen (for previews), oldest first.
+    pub fn last_lines(&self, n: usize) -> Vec<String> {
+        use alacritty_terminal::grid::Dimensions;
+        use alacritty_terminal::index::{Column, Line};
+        let term = self.term.lock();
+        let grid = term.grid();
+        let cols = term.columns();
+        let mut out = Vec::new();
+        let mut line = term.bottommost_line().0;
+        let top = term.topmost_line().0.max(-200);
+        while line >= top && out.len() < n {
+            let row = &grid[Line(line)];
+            let text: String = (0..cols).map(|c| row[Column(c)].c).collect::<String>().replace('\0', " ");
+            let text = text.trim_end().to_string();
+            if !text.trim().is_empty() {
+                out.push(text);
+            }
+            line -= 1;
+        }
+        out.reverse();
+        out
+    }
+
     pub fn clear_selection(&self) {
         self.term.lock().selection = None;
     }

@@ -298,11 +298,11 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                             .flex()
                             .gap(px(8.))
                             .items_center()
-                            .child(status_dot(t.status(), t.unread || t.reminder_due, ui))
+                            .child(crate::sidebar::glyph(t, ui, ws.started, t.program.is_some(), 1.))
                             .child(div().flex_1().truncate().text_size(px(14.)).text_color(ui.text_primary).child(t.title()))
                             .child(div().text_size(px(11.)).text_color(ui.text_tertiary).child(ws.group_label(&t.group))),
                     )
-                    .child(div().pl(px(16.)).truncate().text_size(px(12.)).text_color(ui.text_quiet).child(t.subtitle()))
+                    .child(div().pl(px(20.)).truncate().text_size(px(12.)).text_color(ui.text_quiet).child(t.subtitle()))
             });
             let panel = div()
                 .w(px(720.))
@@ -320,20 +320,52 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .child(
                     div()
-                        .h(px(44.))
+                        .h(px(48.))
                         .px(px(12.))
                         .flex()
                         .items_center()
-                        .text_size(px(16.))
-                        .text_color(if query.is_empty() { ui.text_tertiary } else { ui.text_primary })
-                        .child(if query.is_empty() { "Find a tab: title, project, branch, PR, file…".to_string() } else { format!("{query}▏") }),
+                        .gap(px(10.))
+                        .child(div().text_size(px(15.)).text_color(ui.text_quiet).child("⌕"))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .text_size(px(16.))
+                                .text_color(if query.is_empty() { ui.text_tertiary } else { ui.text_primary })
+                                .child(if query.is_empty() { "Find a tab: title, project, branch, PR, file…".to_string() } else { format!("{query}▏") }),
+                        )
+                        .child(div().text_size(px(11.)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(format!("{} of {}", results.len().min(9), ws.tabs.len())))
+                        .child(keycap(ui, "esc")),
                 )
                 .child(div().h(px(1.)).bg(ui.border).mb(px(4.)))
                 .children(rows)
                 .when(results.is_empty(), |d| {
                     d.child(div().p(px(14.)).text_size(px(13.)).text_color(ui.text_tertiary).child("No matching tabs"))
-                });
-            Some(scrim(ws, true, cx).bg(gpui::black().opacity(0.25)).flex().justify_center().child(panel).into_any_element())
+                })
+                .child(
+                    div()
+                        .mt(px(4.))
+                        .mx(px(-8.))
+                        .mb(px(-8.))
+                        .h(px(34.))
+                        .px(px(16.))
+                        .flex()
+                        .items_center()
+                        .gap(px(14.))
+                        .bg(ui.bg_chrome)
+                        .rounded_b(px(12.))
+                        .border_t_1()
+                        .border_color(ui.border)
+                        .text_size(px(11.5))
+                        .text_color(ui.text_tertiary)
+                        .child("↵ open")
+                        .child("↑↓ move")
+                        .child("esc close")
+                        .child(div().flex_1())
+                        .child("matches title · recap · project · branch · PR · files"),
+                );
+            Some(scrim(ws, true, cx).bg(gpui::black().opacity(0.25)).flex().justify_center().items_start().child(panel).into_any_element())
         }
         Overlay::Palette { query, selected } => {
             let panel = crate::palette::render(ws, query, *selected, cx);
@@ -360,7 +392,23 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                             .items_center()
                             .gap(px(12.))
                             .child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).child("Overview"))
-                            .child(div().text_size(px(12.)).text_color(ui.text_tertiary).child("Arrows to move · Enter to open · type to search · Esc")),
+                            .child({
+                                let projects = ws.grouped().len();
+                                let count = |f: &dyn Fn(&crate::workspace::Tab) -> bool| ws.tabs.iter().filter(|t| f(t)).count();
+                                let needs = count(&|t| matches!(t.status(), Some(Status::NeedsInput { .. })));
+                                let errors = count(&|t| matches!(t.status(), Some(Status::Error { .. })));
+                                let working = count(&|t| t.status() == Some(&Status::Working));
+                                let mono = |text: String, c: gpui::Hsla| div().text_size(px(11.5)).font_family("JetBrains Mono").text_color(c).child(text);
+                                div()
+                                    .flex()
+                                    .gap(px(12.))
+                                    .child(mono(format!("{} tabs · {projects} projects", ws.tabs.len()), ui.text_tertiary))
+                                    .when(needs > 0, |d| d.child(mono(format!("{needs} needs you"), ui.status_needs)))
+                                    .when(errors > 0, |d| d.child(mono(format!("{errors} error"), ui.status_error)))
+                                    .when(working > 0, |d| d.child(mono(format!("{working} working"), ui.text_secondary)))
+                            })
+                            .child(div().flex_1())
+                            .child(div().text_size(px(12.)).text_color(ui.text_tertiary).child("Type to filter · arrows move · ↵ opens · esc")),
                     )
                     .child(div().id("overview-scroll").flex_1().overflow_y_scroll().child(grid))
                     .into_any_element(),
@@ -411,7 +459,7 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
         }
         Overlay::Settings { section } => {
             let panel = crate::settings::render(ws, *section, window, cx);
-            Some(scrim(ws, true, cx).bg(gpui::black().opacity(0.3)).flex().justify_center().child(panel).into_any_element())
+            Some(scrim(ws, true, cx).bg(gpui::black().opacity(0.3)).flex().justify_center().items_start().child(panel).into_any_element())
         }
         Overlay::Menu { tab, at } => {
             let m = menu(ws, *tab, *at, window, cx);
@@ -428,20 +476,22 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
     }
 }
 
-fn status_dot(status: Option<&Status>, loud_accent: bool, ui: t1k_themes::UiColors) -> Div {
-    let color = match status {
-        Some(Status::NeedsInput { .. }) => Some(ui.status_needs),
-        Some(Status::Error { .. }) => Some(ui.status_error),
-        Some(Status::Working) => Some(ui.status_working),
-        _ if loud_accent => Some(ui.accent),
-        _ => None,
-    };
-    let d = div().size(px(8.)).flex_none().rounded_full();
-    match color {
-        Some(c) => d.bg(c),
-        None => d.border_1().border_color(ui.text_disabled),
-    }
+/// A small key label, e.g. "esc".
+fn keycap(ui: t1k_themes::UiColors, label: &'static str) -> Div {
+    div()
+        .h(px(18.))
+        .px(px(5.))
+        .flex()
+        .items_center()
+        .rounded(px(4.))
+        .border_1()
+        .border_color(ui.border)
+        .text_size(px(10.5))
+        .font_family("JetBrains Mono")
+        .text_color(ui.text_tertiary)
+        .child(label)
 }
+
 
 fn status_text(t: &crate::workspace::Tab) -> String {
     match t.status() {
@@ -503,7 +553,7 @@ fn card(ws: &Workspace, i: usize, selected: bool, cx: &mut Context<Workspace>) -
                 .gap(px(6.))
                 .text_size(px(11.))
                 .text_color(ui.text_tertiary)
-                .child(status_dot(t.status(), t.unread || t.reminder_due, ui))
+                .child(crate::sidebar::glyph(t, ui, ws.started, t.program.is_some(), 1.))
                 .child(status_text(t))
                 .child(div().flex_1())
                 .children(since)
@@ -511,22 +561,44 @@ fn card(ws: &Workspace, i: usize, selected: bool, cx: &mut Context<Workspace>) -
         )
         .child(
             div()
-                .text_size(px(14.))
-                .font_weight(FontWeight::SEMIBOLD)
+                .text_size(px(13.))
+                .font_weight(FontWeight::MEDIUM)
                 .text_color(ui.text_primary)
-                .line_clamp(2)
+                .truncate()
                 .child(t.title()),
         )
-        .child(div().flex_1().text_size(px(12.)).text_color(ui.text_secondary).line_clamp(3).child(t.subtitle()))
-        .child(
+        .child(div().text_size(px(12.)).text_color(ui.text_secondary).line_clamp(1).child(t.subtitle()))
+        .when(!facts.is_empty(), |d| {
+            d.child(div().flex().gap(px(8.)).text_size(px(10.5)).font_family("JetBrains Mono").text_color(ui.text_quiet).children(facts))
+        })
+        .child({
+            // Mini terminal: the last lines on screen, newest last; colored by state.
+            let lines = t.view.read(cx).terminal.last_lines(3);
+            let last_color = match t.status() {
+                Some(Status::NeedsInput { .. }) => ui.status_needs,
+                Some(Status::Error { .. }) => ui.status_error,
+                _ => ui.text_secondary,
+            };
+            let n = lines.len();
             div()
+                .flex_1()
+                .min_h_0()
+                .overflow_hidden()
+                .rounded(px(5.))
+                .px(px(8.))
+                .py(px(5.))
+                .bg(ui.bg_sidebar)
+                .border_1()
+                .border_color(ui.border)
                 .flex()
-                .gap(px(8.))
-                .text_size(px(10.))
+                .flex_col()
+                .justify_end()
                 .font_family("JetBrains Mono")
-                .text_color(ui.text_tertiary)
-                .children(facts),
-        )
+                .text_size(px(10.5))
+                .children(lines.into_iter().enumerate().map(move |(j, l)| {
+                    div().truncate().text_color(if j + 1 == n { last_color } else { ui.text_quiet }).child(l)
+                }))
+        })
         .into_any_element()
 }
 
@@ -534,6 +606,13 @@ fn menu(ws: &Workspace, tab: usize, at: Point<Pixels>, window: &Window, cx: &mut
     let ui = ws.ui;
     let Some(t) = ws.tabs.get(tab) else { return div().into_any_element() };
     let item = |id: &str, label: String| {
+        // Shortcut hint on the right for items that have one.
+        let keys = match id {
+            "rename" => "⌘⇧R",
+            "split" => "⌘D",
+            "close" => "⌘W",
+            _ => "",
+        };
         div()
             .id(SharedString::from(format!("menu-{id}")))
             .h(px(26.))
@@ -544,7 +623,8 @@ fn menu(ws: &Workspace, tab: usize, at: Point<Pixels>, window: &Window, cx: &mut
             .text_size(px(13.))
             .text_color(ui.text_primary)
             .hover(move |d| d.bg(ui.accent.opacity(0.25)))
-            .child(label)
+            .child(div().flex_1().child(label))
+            .child(div().text_size(px(11.5)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(keys))
     };
     let sep = || div().h(px(1.)).my(px(4.)).mx(px(6.)).bg(ui.border);
     let session = t.agent.as_ref().map(|a| a.session_id.clone()).filter(|s| !s.is_empty()).or_else(|| t.last_session.clone());
@@ -583,7 +663,7 @@ fn menu(ws: &Workspace, tab: usize, at: Point<Pixels>, window: &Window, cx: &mut
             this.close_split(tab, window, cx);
         })));
     } else {
-        m = m.child(item("split", "Open in split  ⌘D".into()).on_click(cx.listener(move |this, _, window, cx| {
+        m = m.child(item("split", "Open in split".into()).on_click(cx.listener(move |this, _, window, cx| {
             this.close_overlay(window, cx);
             this.activate(tab, window, cx);
             this.open_split(tab, false, window, cx);
