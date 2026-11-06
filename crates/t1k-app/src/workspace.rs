@@ -1081,6 +1081,17 @@ impl Workspace {
         self.write_appearance();
     }
 
+    /// Title-bar button: System → Dark → Light → System.
+    fn cycle_appearance(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.mode = match self.mode {
+            AppearanceMode::System => AppearanceMode::Dark,
+            AppearanceMode::Dark => AppearanceMode::Light,
+            AppearanceMode::Light => AppearanceMode::System,
+        };
+        self.apply_theme(window, cx);
+        self.write_appearance();
+    }
+
     fn follow_system(&mut self, _: &FollowSystemAppearance, window: &mut Window, cx: &mut Context<Self>) {
         self.mode = AppearanceMode::System;
         self.apply_theme(window, cx);
@@ -1106,7 +1117,6 @@ impl Workspace {
         // Project, then branch (design header): where this agent works.
         let project = tab.map(|t| self.group_label(&t.group)).unwrap_or_default();
         let branch = tab.and_then(|t| t.agent.as_ref()).and_then(|a| a.branch.clone());
-        let moon = if self.theme.is_dark() { "☾" } else { "☀" };
         let icon_button = |id: &'static str, on: bool| {
             div()
                 .id(id)
@@ -1171,12 +1181,17 @@ impl Workspace {
                     .child(div().flex_1().child("Jump to agent…"))
                     .child(div().text_size(px(11.)).font_family("JetBrains Mono").child("⌘P")),
             )
-            .child(
+            .child({
+                // Shows the mode, not just the current look: System, Dark or Light.
+                let icon = match self.mode {
+                    AppearanceMode::System => crate::icons::half_circle(ui.text_secondary).into_any_element(),
+                    AppearanceMode::Dark => div().text_size(px(14.)).child("☾").into_any_element(),
+                    AppearanceMode::Light => div().text_size(px(14.)).child("☀").into_any_element(),
+                };
                 icon_button("appearance", false)
-                    .text_size(px(14.))
-                    .on_click(cx.listener(|this, _, window, cx| this.toggle_appearance(&ToggleAppearance, window, cx)))
-                    .child(moon),
-            )
+                    .on_click(cx.listener(|this, _, window, cx| this.cycle_appearance(window, cx)))
+                    .child(icon)
+            })
             .child(
                 icon_button("overview", false)
                     .on_click(cx.listener(|this, _, window, cx| this.open_overlay(Overlay::Overview { selected: 0 }, window, cx)))

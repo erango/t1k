@@ -48,3 +48,24 @@ pub fn panel_right(color: Hsla, open: bool) -> impl IntoElement {
         })
     })
 }
+
+/// Circle with its left half filled (follow the system appearance).
+pub fn half_circle(color: Hsla) -> impl IntoElement {
+    icon(move |b, window| {
+        let c = point(b.origin.x + px(7.), b.origin.y + px(7.));
+        let r = 5.;
+        let at = |a: f32| point(c.x + px(r * a.cos()), c.y + px(r * a.sin()));
+        // Left half, filled.
+        let mut f = PathBuilder::fill();
+        let steps = 16;
+        let half: Vec<_> = (0..=steps).map(|i| at(std::f32::consts::FRAC_PI_2 + i as f32 / steps as f32 * std::f32::consts::PI)).collect();
+        f.add_polygon(&half, true);
+        if let Ok(path) = f.build() {
+            window.paint_path(path, color);
+        }
+        stroke(window, color, |p| {
+            let ring: Vec<_> = (0..=32).map(|i| at(i as f32 / 32. * std::f32::consts::TAU)).collect();
+            p.add_polygon(&ring, true);
+        })
+    })
+}
