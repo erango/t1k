@@ -139,6 +139,8 @@ pub struct Workspace {
     pub started: Instant,
     /// Last Dock badge value we set (None = never).
     badge: Option<usize>,
+    /// GitHub `owner/repo` per project group, for `#123` links (None: no GitHub remote).
+    repos: HashMap<PathBuf, Option<String>>,
     _poll: Task<()>,
     _fast: Task<()>,
 }
@@ -223,6 +225,7 @@ impl Workspace {
             next_created: 0,
             started: Instant::now(),
             badge: None,
+            repos: HashMap::new(),
             _poll: poll,
             _fast: fast,
         };
@@ -299,6 +302,7 @@ impl Workspace {
                 }
                 TerminalEvent::Exited => this.close_tab_at(ix, window, cx),
                 TerminalEvent::Bell => {}
+                TerminalEvent::OpenLink(link) => this.open_link(ix, link, cx),
             }
         });
         let group = cwd.as_deref().map(groups::project_root).unwrap_or_default();
@@ -324,6 +328,44 @@ impl Workspace {
         });
         self.activate(self.tabs.len() - 1, window, cx);
         self.save();
+    }
+
+    fn repo_for(&mut self, group: &PathBuf) -> Option<String> {
+        self.repos.entry(group.clone()).or_insert_with(|| crate::links::github_repo(group)).clone()
+    }
+
+    /// Which references each terminal turns into links: `#123` only in GitHub repos, ticket
+    /// keys only once a tracker is known.
+    fn update_link_rules(&mut self, cx: &mut Context<Self>) {
+        let tickets = crate::links::ticket_template(&self.config.links.tickets, &self.tabs).is_some();
+        for i in 0..self.tabs.len() {
+            let group = self.tabs[i].group.clone();
+            let prs = !group.as_os_str().is_empty() && self.repo_for(&group).is_some();
+            let rules = t1k_terminal::links::LinkRules { files: true, prs, tickets };
+            self.tabs[i].view.update(cx, |v, cx| {
+                if v.link_rules != rules {
+                    v.link_rules = rules;
+                    cx.notify();
+                }
+            });
+        }
+    }
+
+    pub fn open_link(&mut self, ix: usize, link: &t1k_terminal::links::Link, cx: &mut Context<Self>) {
+        let group = self.tabs.get(ix).map(|t| t.group.clone()).unwrap_or_default();
+        let repo = self.repo_for(&group);
+        let tickets = crate::links::ticket_template(&self.config.links.tickets, &self.tabs);
+        match crate::links::action(link, &self.config.links.editor, repo.as_deref(), tickets.as_deref()) {
+            crate::links::Action::Url(u) => cx.open_url(&u),
+            crate::links::Action::Run(prog, args) => {
+                match std::process::Command::new(&prog).args(&args).env("PATH", crate::platform::tool_path()).spawn() {
+                    // Reap it so it doesn't linger as a zombie.
+                    Ok(mut child) => drop(std::thread::spawn(move || child.wait())),
+                    Err(e) => log::error!("open {}: {prog}: {e}", link.label()),
+                }
+            }
+            crate::links::Action::Unavailable(why) => log::info!("{why}"),
+        }
     }
 
     /// Give focus back to the active terminal unless an overlay is open.
@@ -431,6 +473,7 @@ impl Workspace {
                 changed = true;
             }
         }
+        self.update_link_rules(cx);
         if changed {
             cx.notify();
         }

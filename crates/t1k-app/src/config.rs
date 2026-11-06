@@ -28,10 +28,24 @@ line_height = 1.3
 # Tried in order for glyphs the main font lacks (Powerline / Nerd Font icons, emoji).
 fallbacks = ["Symbols Nerd Font Mono", "MesloLGS NF", "Meslo LG L DZ for Powerline", "Menlo", "Apple Color Emoji"]
 
+[interface]
+# Row spacing in the sidebar: "compact", "comfortable" or "spacious".
+density = "comfortable"
+# Text size of the sidebar and panels (the terminal font has its own size).
+text_size = 13
+
 [sidebar]
 width = 300
 # How long the pointer rests on a tab before its detail card appears.
 hover_intent_ms = 300
+
+[links]
+# ⌘-click a file path to open it. Empty picks the first of Zed, Cursor, VS Code, else the
+# default app. Otherwise a command, with {path}, {line} and {col}: "code -g {path}:{line}:{col}".
+editor = ""
+# Where ticket keys like ENG-42 open, with {key}: "https://acme.atlassian.net/browse/{key}".
+# Empty learns it from ticket links your Claude sessions mention.
+tickets = ""
 
 [notify]
 # Banners when a tab needs you while you're elsewhere.
@@ -49,8 +63,46 @@ pub struct Config {
     pub appearance: String,
     pub theme: ThemeCfg,
     pub terminal: TerminalCfg,
+    pub interface: InterfaceCfg,
     pub sidebar: SidebarCfg,
+    pub links: LinksCfg,
     pub notify: NotifyCfg,
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[serde(default)]
+pub struct InterfaceCfg {
+    pub density: String,
+    pub text_size: f32,
+}
+
+impl Default for InterfaceCfg {
+    fn default() -> Self {
+        Self { density: "comfortable".into(), text_size: 13. }
+    }
+}
+
+impl InterfaceCfg {
+    /// Sidebar row height for the density.
+    pub fn row_height(&self) -> f32 {
+        match self.density.as_str() {
+            "compact" => 28.,
+            "spacious" => 36.,
+            _ => 32.,
+        }
+    }
+
+    /// Scale for UI text, relative to the 13px design size.
+    pub fn text_scale(&self) -> f32 {
+        (self.text_size.clamp(10., 18.)) / 13.
+    }
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq, Default)]
+#[serde(default)]
+pub struct LinksCfg {
+    pub editor: String,
+    pub tickets: String,
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
@@ -106,7 +158,9 @@ impl Default for Config {
             appearance: "system".into(),
             theme: ThemeCfg::default(),
             terminal: TerminalCfg::default(),
+            interface: InterfaceCfg::default(),
             sidebar: SidebarCfg::default(),
+            links: LinksCfg::default(),
             notify: NotifyCfg::default(),
         }
     }

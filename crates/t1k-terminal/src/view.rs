@@ -1,6 +1,7 @@
 //! GPUI view that renders a `Terminal` grid and routes input to it.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use alacritty_terminal::event::Event as AlacEvent;
 use alacritty_terminal::grid::Dimensions;
@@ -19,7 +20,7 @@ use gpui::{
 };
 
 use crate::input::to_esc;
-use crate::links::find_urls;
+use crate::links::{find_path_candidates, find_pr_refs, find_tickets, find_urls, Link, LinkRules};
 use crate::palette::{dim, Palette};
 use crate::terminal::{GridSize, SpawnOptions, Terminal};
 
@@ -29,6 +30,8 @@ actions!(terminal, [Copy, Paste, ClearScrollback, ScrollPageUp, ScrollPageDown])
 #[derive(Clone, Debug)]
 pub enum TerminalEvent {
     TitleChanged(String),
+    /// ⌘-click (or hint mode) on a link. The app opens it: browser, editor, PR or tracker.
+    OpenLink(Link),
     Bell,
     Exited,
 }
@@ -82,7 +85,11 @@ pub struct TerminalView {
     scroll_accum: f32,
     /// Links found in the last painted frame: viewport (col, row) -> index into `links`.
     link_map: HashMap<(usize, usize), usize>,
-    links: Vec<String>,
+    links: Vec<Link>,
+    /// Which plain-text references count as links (set by the app per tab).
+    pub link_rules: LinkRules,
+    /// Path existence checks, so file links don't stat every frame.
+    path_cache: std::cell::RefCell<HashMap<PathBuf, Option<PathBuf>>>,
     /// Viewport cell under the mouse, and whether cmd is held (cmd-hover arms a link).
     hover_cell: Option<(usize, usize)>,
     cmd_down: bool,
@@ -149,6 +156,8 @@ impl TerminalView {
             scroll_accum: 0.,
             link_map: HashMap::new(),
             links: Vec::new(),
+            link_rules: LinkRules { files: true, prs: false, tickets: false },
+            path_cache: Default::default(),
             hover_cell: None,
             cmd_down: false,
             pending_size: None,
@@ -319,8 +328,8 @@ impl TerminalView {
         window.focus(&self.focus_handle);
         let Some((col, row, side)) = self.cell_at(ev.position) else { return };
         if ev.modifiers.platform {
-            if let Some(url) = self.link_at(col, row) {
-                cx.open_url(&url);
+            if let Some(link) = self.link_at(col, row) {
+                cx.emit(TerminalEvent::OpenLink(link));
                 return;
             }
         }
@@ -340,16 +349,18 @@ impl TerminalView {
         cx.notify();
     }
 
-    fn link_at(&self, col: usize, row: usize) -> Option<String> {
+    fn link_at(&self, col: usize, row: usize) -> Option<Link> {
         self.link_map.get(&(col, row)).map(|&i| self.links[i].clone())
     }
 
     fn set_hover(&mut self, cell: Option<(usize, usize)>, cmd: bool, cx: &mut Context<Self>) {
+        let was_cmd = self.cmd_down;
         let armed_before = self.cmd_down && self.hover_cell.is_some_and(|c| self.link_map.contains_key(&c));
         self.hover_cell = cell;
         self.cmd_down = cmd;
         let armed_now = cmd && cell.is_some_and(|c| self.link_map.contains_key(&c));
-        if armed_before || armed_now {
+        // ⌘ reveals file, PR and ticket links anywhere on screen, so a change always repaints.
+        if armed_before || armed_now || cmd != was_cmd {
             cx.notify();
         }
     }
@@ -449,8 +460,10 @@ struct Frame {
     cursor: Option<(usize, usize, CursorShape, bool)>,
     /// Block and box-drawing cells painted as shapes (see `glyphs`), not font glyphs.
     drawn: Vec<(usize, usize, char, Hsla)>,
-    links: Vec<String>,
+    links: Vec<Link>,
     link_map: HashMap<(usize, usize), usize>,
+    /// URLs are always marked; other links only while ⌘ is held.
+    cmd_down: bool,
     /// Link under the mouse while cmd is held.
     hovered: Option<usize>,
 }
@@ -462,10 +475,12 @@ fn detect_links(
     offset: i32,
     rows: usize,
     cols: usize,
-) -> (Vec<String>, HashMap<(usize, usize), usize>) {
+    rules: LinkRules,
+    resolve: &mut dyn FnMut(&str) -> Option<PathBuf>,
+) -> (Vec<Link>, HashMap<(usize, usize), usize>) {
     let mut grid = vec![vec!['\0'; cols]; rows];
     let mut wraps = vec![false; rows];
-    let mut links: Vec<String> = Vec::new();
+    let mut links: Vec<Link> = Vec::new();
     let mut map: HashMap<(usize, usize), usize> = HashMap::new();
     let mut osc_ids: HashMap<String, usize> = HashMap::new();
 
@@ -486,7 +501,7 @@ fn detect_links(
         if let Some(h) = ind.cell.hyperlink() {
             let uri = h.uri().to_string();
             let id = *osc_ids.entry(uri.clone()).or_insert_with(|| {
-                links.push(uri);
+                links.push(Link::Url(uri));
                 links.len() - 1
             });
             map.insert((col, row), id);
@@ -508,14 +523,35 @@ fn detect_links(
                 break;
             }
         }
-        for (a, b) in find_urls(&chars) {
+        // Earlier kinds win where spans overlap: OSC 8, URLs, files, PR refs, tickets.
+        let add = |a: usize, b: usize, link: Link, links: &mut Vec<Link>, map: &mut HashMap<(usize, usize), usize>| {
             if pos[a..b].iter().any(|p| map.contains_key(p)) {
-                continue;
+                return;
             }
-            links.push(chars[a..b].iter().collect());
+            links.push(link);
             let id = links.len() - 1;
             for &p in &pos[a..b] {
                 map.insert(p, id);
+            }
+        };
+        for (a, b) in find_urls(&chars) {
+            add(a, b, Link::Url(chars[a..b].iter().collect()), &mut links, &mut map);
+        }
+        if rules.files {
+            for c in find_path_candidates(&chars) {
+                if let Some(path) = resolve(&c.path) {
+                    add(c.start, c.end, Link::File { path, line: c.line, col: c.col }, &mut links, &mut map);
+                }
+            }
+        }
+        if rules.prs {
+            for (a, b, n) in find_pr_refs(&chars) {
+                add(a, b, Link::Pr(n), &mut links, &mut map);
+            }
+        }
+        if rules.tickets {
+            for (a, b, k) in find_tickets(&chars) {
+                add(a, b, Link::Ticket(k), &mut links, &mut map);
             }
         }
     }
@@ -535,7 +571,18 @@ fn build_frame(view: &TerminalView, focused: bool) -> Frame {
     let cursor_vp = (cursor.point.line.0 + offset, cursor.point.column.0);
     let selection = content.selection;
     let cells: Vec<_> = content.display_iter.collect();
-    let (links, link_map) = detect_links(&cells, offset, term.screen_lines(), term.columns());
+    let cwd = if view.link_rules.files { view.terminal.cwd() } else { None };
+    let mut cache = view.path_cache.borrow_mut();
+    if cache.len() > 4096 {
+        cache.clear();
+    }
+    let mut resolve = |text: &str| -> Option<PathBuf> {
+        let base = cwd.as_deref()?;
+        let key = base.join(text);
+        cache.entry(key).or_insert_with(|| resolve_path(text, base)).clone()
+    };
+    let (links, link_map) = detect_links(&cells, offset, term.screen_lines(), term.columns(), view.link_rules, &mut resolve);
+    drop(cache);
     let hovered = if view.cmd_down { view.hover_cell.and_then(|c| link_map.get(&c).copied()) } else { None };
 
     let mut bg_rects: Vec<BgRect> = Vec::new();
@@ -572,7 +619,8 @@ fn build_frame(view: &TerminalView, focused: bool) -> Frame {
             }
         }
         let is_cursor = show_cursor && focused && cursor.shape == CursorShape::Block && (row_i, col) == cursor_vp;
-        let link = link_map.get(&(col, row)).copied();
+        // URLs always show; files, PRs and tickets light up while ⌘ is held.
+        let link = link_map.get(&(col, row)).copied().filter(|&i| view.cmd_down || matches!(links[i], Link::Url(_)));
         if link.is_some() && !selected {
             fg = palette.link;
         }
@@ -623,7 +671,25 @@ fn build_frame(view: &TerminalView, focused: bool) -> Frame {
 
     let cursor = (show_cursor && cursor_vp.0 >= 0)
         .then(|| (cursor_vp.1, cursor_vp.0 as usize, cursor.shape, focused));
-    Frame { bg_rects, batches, drawn, cursor, links, link_map, hovered }
+    Frame { bg_rects, batches, drawn, cursor, links, link_map, cmd_down: view.cmd_down, hovered }
+}
+
+/// Resolve a path-looking token against the tab's folder: `~/`, absolute, relative, and git's
+/// `a/` / `b/` diff prefixes. Only existing paths become links.
+fn resolve_path(text: &str, cwd: &std::path::Path) -> Option<PathBuf> {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let mut tries: Vec<PathBuf> = Vec::new();
+    if let Some(rest) = text.strip_prefix("~/") {
+        tries.push(home?.join(rest));
+    } else if text.starts_with('/') {
+        tries.push(PathBuf::from(text));
+    } else {
+        tries.push(cwd.join(text));
+        if let Some(rest) = text.strip_prefix("a/").or_else(|| text.strip_prefix("b/")) {
+            tries.push(cwd.join(rest));
+        }
+    }
+    tries.into_iter().find(|p| p.exists())
 }
 
 /// Wide glyphs (CJK, emoji) are painted on their own so they don't shift neighbors.
@@ -828,7 +894,12 @@ fn paint_frame(
     }
 
     // Links always carry an underline so they scan at a glance; cmd-hover makes it solid.
-    let mut spans: Vec<(usize, usize, usize)> = frame.link_map.iter().map(|(&(c, r), &id)| (r, c, id)).collect();
+    let mut spans: Vec<(usize, usize, usize)> = frame
+        .link_map
+        .iter()
+        .filter(|(_, &id)| frame.cmd_down || matches!(frame.links[id], Link::Url(_)))
+        .map(|(&(c, r), &id)| (r, c, id))
+        .collect();
     spans.sort_unstable();
     let mut i = 0;
     while i < spans.len() {

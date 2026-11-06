@@ -4,6 +4,7 @@ mod actions;
 mod cli;
 mod config;
 mod input;
+mod links;
 mod menus;
 mod outputs_panel;
 mod overlay;
