@@ -12,6 +12,7 @@ mod groups;
 mod session;
 mod settings;
 mod sidebar;
+mod title;
 mod workspace;
 
 use gpui::{prelude::*, px, size, App, Application, Bounds, KeyBinding, WindowBounds, WindowOptions};

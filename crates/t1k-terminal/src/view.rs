@@ -404,6 +404,8 @@ struct Frame {
     bg_rects: Vec<BgRect>,
     batches: Vec<TextBatch>,
     cursor: Option<(usize, usize, CursorShape, bool)>,
+    /// Block and box-drawing cells painted as shapes (see `glyphs`), not font glyphs.
+    drawn: Vec<(usize, usize, char, Hsla)>,
     links: Vec<String>,
     link_map: HashMap<(usize, usize), usize>,
     /// Link under the mouse while cmd is held.
@@ -495,6 +497,7 @@ fn build_frame(view: &TerminalView, focused: bool) -> Frame {
 
     let mut bg_rects: Vec<BgRect> = Vec::new();
     let mut batches: Vec<TextBatch> = Vec::new();
+    let mut drawn = Vec::new();
 
     for indexed in &cells {
         let cell = &indexed.cell;
@@ -546,6 +549,10 @@ fn build_frame(view: &TerminalView, focused: bool) -> Frame {
             continue;
         }
         let fg_h = hsla(fg);
+        if crate::glyphs::is_builtin(cell.c) {
+            drawn.push((col, row, cell.c, fg_h));
+            continue;
+        }
         let style_flags = flags & (Flags::BOLD | Flags::ITALIC | Flags::ALL_UNDERLINES | Flags::STRIKEOUT);
         let underline_color = cell.underline_color().map(|c| hsla(palette.resolve(c, colors)));
         let can_join = width == 1
@@ -573,7 +580,7 @@ fn build_frame(view: &TerminalView, focused: bool) -> Frame {
 
     let cursor = (show_cursor && cursor_vp.0 >= 0)
         .then(|| (cursor_vp.1, cursor_vp.0 as usize, cursor.shape, focused));
-    Frame { bg_rects, batches, cursor, links, link_map, hovered }
+    Frame { bg_rects, batches, drawn, cursor, links, link_map, hovered }
 }
 
 /// Wide glyphs (CJK, emoji) are painted on their own so they don't shift neighbors.
@@ -683,6 +690,52 @@ fn paint_frame(
                 Bounds::new(at(b.col, b.row), size(px(cols as f32 * cw), px(ch))),
                 link_color.opacity(0.16),
             ));
+        }
+    }
+
+    let fs = f32::from(style.font_size);
+    for &(col, row, c, color) in &frame.drawn {
+        if row >= g.rows {
+            continue;
+        }
+        // Snap the cell to whole pixels so neighbouring blocks meet without seams.
+        let o = at(col, row);
+        let (x0, y0) = (f32::from(o.x).round(), f32::from(o.y).round());
+        let next = at(col + 1, row + 1);
+        let (w, h) = (f32::from(next.x).round() - x0, f32::from(next.y).round() - y0);
+        for piece in crate::glyphs::pieces(c, w, h, fs).unwrap_or_default() {
+            match piece {
+                crate::glyphs::Piece::Rect { x, y, w, h, alpha } => window.paint_quad(fill(
+                    Bounds::new(point(px(x0 + x), px(y0 + y)), size(px(w), px(h))),
+                    color.opacity(alpha),
+                )),
+                crate::glyphs::Piece::Arc { right, down, t } => {
+                    // A quad with two borders and one rounded corner: its edges run from the cell
+                    // center out to the cell edges, matching the straight lines next to it.
+                    let (cx, cy) = (x0 + (w / 2.).floor(), y0 + (h / 2.).floor());
+                    let lo = |c: f32| c - (t / 2.).floor();
+                    let hi = |c: f32| c - (t / 2.).floor() + t;
+                    let (left, wd) = if right { (lo(cx), x0 + w - lo(cx)) } else { (x0, hi(cx) - x0) };
+                    let (top, ht) = if down { (lo(cy), y0 + h - lo(cy)) } else { (y0, hi(cy) - y0) };
+                    let r = px((w / 2.).min(h / 2.).round());
+                    let mut radii = gpui::Corners::all(px(0.));
+                    let mut edges = gpui::Edges::all(px(0.));
+                    match (right, down) {
+                        (true, true) => (radii.top_left, edges.top, edges.left) = (r, px(t), px(t)),
+                        (false, true) => (radii.top_right, edges.top, edges.right) = (r, px(t), px(t)),
+                        (false, false) => (radii.bottom_right, edges.bottom, edges.right) = (r, px(t), px(t)),
+                        (true, false) => (radii.bottom_left, edges.bottom, edges.left) = (r, px(t), px(t)),
+                    }
+                    window.paint_quad(gpui::quad(
+                        Bounds::new(point(px(left), px(top)), size(px(wd), px(ht))),
+                        radii,
+                        gpui::transparent_black(),
+                        edges,
+                        color,
+                        gpui::BorderStyle::Solid,
+                    ));
+                }
+            }
         }
     }
 

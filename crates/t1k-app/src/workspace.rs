@@ -26,6 +26,8 @@ pub struct Tab {
     pub id: String,
     pub view: Entity<TerminalView>,
     pub osc_title: Option<String>,
+    /// Status read from the glyph a program puts before its title (Claude Code's ✳ / spinner).
+    pub title_state: Option<crate::title::TitleState>,
     pub manual_title: Option<String>,
     pub cwd: Option<PathBuf>,
     /// Foreground process name; None while it's the shell.
@@ -47,8 +49,13 @@ pub struct Tab {
 }
 
 impl Tab {
+    /// Hook-driven agent status; without hooks, what the program's title glyph says while it runs.
     pub fn status(&self) -> Option<&Status> {
-        self.agent.as_ref().map(|a| &a.status)
+        match &self.agent {
+            Some(a) => Some(&a.status),
+            None if self.program.is_some() => self.title_state.map(|s| s.status()),
+            None => None,
+        }
     }
 
     pub fn urgency(&self) -> u8 {
@@ -272,7 +279,19 @@ impl Workspace {
             let Some(ix) = this.tabs.iter().position(|t| &t.view == view) else { return };
             match ev {
                 TerminalEvent::TitleChanged(t) => {
-                    this.tabs[ix].osc_title = (!t.is_empty()).then(|| t.clone());
+                    let (state, clean) = crate::title::split(t);
+                    let background = ix != this.active;
+                    let tab = &mut this.tabs[ix];
+                    // Without hooks, a title going from spinner to resting means the turn ended.
+                    if tab.agent.is_none()
+                        && background
+                        && tab.title_state == Some(crate::title::TitleState::Working)
+                        && state == Some(crate::title::TitleState::Idle)
+                    {
+                        tab.unread = true;
+                    }
+                    tab.title_state = state;
+                    tab.osc_title = (!clean.is_empty()).then(|| clean.to_string());
                     cx.notify();
                 }
                 TerminalEvent::Exited => this.close_tab_at(ix, window, cx),
@@ -286,6 +305,7 @@ impl Workspace {
             id,
             view,
             osc_title: None,
+            title_state: None,
             manual_title,
             cwd,
             program: None,

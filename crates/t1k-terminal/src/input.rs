@@ -11,8 +11,27 @@ fn modifier_param(k: &Keystroke) -> u8 {
 /// Returns the bytes to send to the pty, or `None` if the key isn't for the terminal
 /// (e.g. cmd shortcuts, which are handled as app actions).
 pub fn to_esc(k: &Keystroke, mode: TermMode, option_as_meta: bool) -> Option<Vec<u8>> {
+    // macOS line editing, as Terminal.app and iTerm2 do it: ⌘⌫ kills the line, ⌘← / ⌘→ go to
+    // the start / end, ⌘⌦ kills to the end. Other ⌘ keys are app shortcuts.
     if k.modifiers.platform {
-        return None;
+        if k.modifiers.control || k.modifiers.alt || k.modifiers.shift {
+            return None;
+        }
+        return match k.key.as_str() {
+            "backspace" => Some(vec![0x15]),
+            "left" => Some(vec![0x01]),
+            "right" => Some(vec![0x05]),
+            "delete" => Some(vec![0x0b]),
+            _ => None,
+        };
+    }
+    // ⌥← / ⌥→ move by word (readline's meta-b / meta-f), which shells and Claude Code understand.
+    if k.modifiers.alt && !k.modifiers.control && !k.modifiers.shift {
+        match k.key.as_str() {
+            "left" => return Some(b"\x1bb".to_vec()),
+            "right" => return Some(b"\x1bf".to_vec()),
+            _ => {}
+        }
     }
     let m = modifier_param(k);
     let has_mods = m > 1;
@@ -115,6 +134,17 @@ pub fn to_esc(k: &Keystroke, mode: TermMode, option_as_meta: bool) -> Option<Vec
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mac_line_editing() {
+        let m = TermMode::empty();
+        assert_eq!(to_esc(&ks("cmd-backspace"), m, false), Some(vec![0x15]));
+        assert_eq!(to_esc(&ks("cmd-left"), m, false), Some(vec![0x01]));
+        assert_eq!(to_esc(&ks("cmd-right"), m, false), Some(vec![0x05]));
+        assert_eq!(to_esc(&ks("alt-left"), m, false), Some(b"\x1bb".to_vec()));
+        assert_eq!(to_esc(&ks("alt-backspace"), m, false), Some(b"\x1b\x7f".to_vec()));
+        assert_eq!(to_esc(&ks("cmd-t"), m, false), None);
+    }
 
     fn ks(s: &str) -> Keystroke {
         Keystroke::parse(s).unwrap()
