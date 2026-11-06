@@ -11,10 +11,11 @@ use gpui::{
 use t1k_agent::hooks::Hook;
 use t1k_agent::server::Envelope;
 use t1k_agent::{AgentState, Status};
-use t1k_terminal::{SpawnOptions, TerminalEvent, TerminalView};
+use t1k_terminal::{SpawnOptions, TerminalEvent, TerminalStyle, TerminalView};
 use t1k_themes::{Appearance, AppearanceMode, Theme, UiColors};
 
 use crate::actions::*;
+use crate::config::{self, Config};
 use crate::groups;
 use crate::session::{self, SavedTab, Session};
 
@@ -108,6 +109,8 @@ pub struct Workspace {
     light: &'static Theme,
     pub theme: &'static Theme,
     pub ui: UiColors,
+    pub config: Config,
+    watcher: config::Watcher,
     socket: Option<PathBuf>,
     agent_rx: Receiver<Envelope>,
     next_created: usize,
@@ -119,24 +122,28 @@ pub struct Workspace {
 impl Workspace {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let saved = session::load();
-        let mut dark = saved.theme_dark.as_deref().and_then(t1k_themes::find).filter(|t| t.is_dark());
-        let mut light = saved.theme_light.as_deref().and_then(t1k_themes::find).filter(|t| !t.is_dark());
-        let mut mode = match saved.appearance.as_deref() {
-            Some("dark") => AppearanceMode::Dark,
-            Some("light") => AppearanceMode::Light,
-            _ => AppearanceMode::System,
+        if let Some(d) = config::themes_dir() {
+            t1k_themes::load_user_themes(&d);
+        }
+        let mut watcher = config::Watcher::new();
+        let config = match watcher.poll() {
+            Some(Ok(c)) => c,
+            Some(Err(e)) => {
+                log::error!("{e}");
+                Config::default()
+            }
+            None => Config::default(),
         };
+        let (mut mode, mut dark, mut light) = Self::slots(&config);
         match std::env::var("T1K_APPEARANCE").as_deref() {
             Ok("dark") => mode = AppearanceMode::Dark,
             Ok("light") => mode = AppearanceMode::Light,
             _ => {}
         }
         if let Some(t) = std::env::var("T1K_THEME").ok().and_then(|n| t1k_themes::find(&n)) {
-            if t.is_dark() { dark = Some(t) } else { light = Some(t) }
+            if t.is_dark() { dark = t } else { light = t }
             mode = if t.is_dark() { AppearanceMode::Dark } else { AppearanceMode::Light };
         }
-        let dark = dark.unwrap_or(t1k_themes::default_for(Appearance::Dark));
-        let light = light.unwrap_or(t1k_themes::default_for(Appearance::Light));
 
         let poll = cx.spawn(async move |this, cx| loop {
             cx.background_executor().timer(Duration::from_millis(800)).await;
@@ -178,6 +185,8 @@ impl Workspace {
             light,
             theme: dark,
             ui: dark.ui(),
+            config,
+            watcher,
             socket,
             agent_rx,
             next_created: 0,
@@ -221,9 +230,11 @@ impl Workspace {
         }
         let opts = SpawnOptions { working_directory: cwd.clone(), env, tab_id: id.clone() };
         let palette = self.theme.palette();
+        let style = self.terminal_style();
         let view = cx.new(|cx| {
             let mut v = TerminalView::new(opts, window, cx).expect("failed to spawn shell in pty");
             v.palette = palette;
+            v.style = style;
             v
         });
         let sub = cx.subscribe_in(&view, window, |this: &mut Self, view, ev: &TerminalEvent, window, cx| {
@@ -353,6 +364,16 @@ impl Workspace {
 
     /// Every 100 ms: apply agent messages; keep spinners moving while anything works.
     fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match self.watcher.poll() {
+            Some(Ok(c)) => {
+                if c != self.config {
+                    self.config = c;
+                    self.apply_config(window, cx);
+                }
+            }
+            Some(Err(e)) => log::error!("config not applied: {e}"),
+            None => {}
+        }
         let mut changed = false;
         while let Ok(env) = self.agent_rx.try_recv() {
             changed |= self.apply_envelope(env, window);
@@ -386,7 +407,7 @@ impl Workspace {
     /// With T1K_DEBUG_DUMP=<file>, write the sidebar model as text (for tests without a screen).
     fn debug_dump(&self) {
         let Some(path) = std::env::var_os("T1K_DEBUG_DUMP") else { return };
-        let mut out = format!("needs_you={}\n", self.needs_queue().len());
+        let mut out = format!("theme={} font={} {}\nneeds_you={}\n", self.theme.name, self.config.terminal.font.family, self.config.terminal.font.size, self.needs_queue().len());
         for (g, tabs) in self.grouped() {
             out += &format!("[{}]\n", self.group_label(&g));
             for i in tabs {
@@ -431,13 +452,7 @@ impl Workspace {
             collapsed: self.collapsed.iter().cloned().collect(),
             group_names: self.group_names.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             sidebar_open: Some(self.sidebar_open),
-            appearance: Some(match self.mode {
-                AppearanceMode::System => "system",
-                AppearanceMode::Dark => "dark",
-                AppearanceMode::Light => "light",
-            }.into()),
-            theme_dark: Some(self.dark.name.into()),
-            theme_light: Some(self.light.name.into()),
+            ..Default::default()
         }
     }
 
@@ -449,7 +464,7 @@ impl Workspace {
 
     /// Hover intent: expand after the pointer rests 150 ms, collapse 400 ms after it leaves.
     pub fn sidebar_hovered(&mut self, hovered: bool, cx: &mut Context<Self>) {
-        let delay = if hovered { 150 } else { 400 };
+        let delay = if hovered { self.config.sidebar.hover_intent_ms } else { 400 };
         self.hover_task = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(Duration::from_millis(delay)).await;
             let _ = this.update(cx, |ws, cx| {
@@ -531,19 +546,89 @@ impl Workspace {
         cx.notify();
     }
 
+    /// Appearance mode and the two theme slots, as configured (unknown names fall back).
+    fn slots(c: &Config) -> (AppearanceMode, &'static Theme, &'static Theme) {
+        let mode = match c.appearance.as_str() {
+            "dark" => AppearanceMode::Dark,
+            "light" => AppearanceMode::Light,
+            _ => AppearanceMode::System,
+        };
+        let dark = t1k_themes::find(&c.theme.dark).unwrap_or(t1k_themes::default_for(Appearance::Dark));
+        let light = t1k_themes::find(&c.theme.light).unwrap_or(t1k_themes::default_for(Appearance::Light));
+        (mode, dark, light)
+    }
+
+    pub fn terminal_style(&self) -> TerminalStyle {
+        let t = &self.config.terminal;
+        TerminalStyle {
+            font_family: t.font.family.clone().into(),
+            font_fallbacks: t.font.fallbacks.clone(),
+            font_size: px(t.font.size.clamp(6., 72.)),
+            line_height: t.font.line_height.clamp(0.8, 3.),
+            padding: px(t.padding.clamp(0., 64.)),
+            option_as_meta: t.option_as_meta,
+        }
+    }
+
+    /// Re-read themes and push config to the theme and every terminal.
+    fn apply_config(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(d) = config::themes_dir() {
+            t1k_themes::load_user_themes(&d);
+        }
+        (self.mode, self.dark, self.light) = Self::slots(&self.config);
+        self.apply_theme(window, cx);
+        let style = self.terminal_style();
+        for tab in &self.tabs {
+            tab.view.update(cx, |v, cx| {
+                v.style = style.clone();
+                cx.notify();
+            });
+        }
+        crate::menus::install(cx);
+        self.debug_dump();
+    }
+
+    fn write_appearance(&self) {
+        let mode = match self.mode {
+            AppearanceMode::System => "system",
+            AppearanceMode::Dark => "dark",
+            AppearanceMode::Light => "light",
+        };
+        config::set(&["appearance"], mode);
+        config::set(&["theme", "dark"], &self.dark.name);
+        config::set(&["theme", "light"], &self.light.name);
+    }
+
+    /// Import dropped theme files into the themes folder and switch to the first one.
+    pub fn import_themes(&mut self, paths: &[PathBuf], window: &mut Window, cx: &mut Context<Self>) {
+        let mut first = None;
+        for p in paths {
+            match crate::cli::import_theme(p) {
+                Ok(name) => {
+                    first.get_or_insert(name);
+                }
+                Err(e) => log::error!("theme import {}: {e}", p.display()),
+            }
+        }
+        if let Some(name) = first {
+            self.apply_config(window, cx);
+            self.select_theme(&SelectTheme { name: name.into() }, window, cx);
+        }
+    }
+
     fn toggle_appearance(&mut self, _: &ToggleAppearance, window: &mut Window, cx: &mut Context<Self>) {
         self.mode = if self.theme.is_dark() { AppearanceMode::Light } else { AppearanceMode::Dark };
         self.apply_theme(window, cx);
-        self.save();
+        self.write_appearance();
     }
 
     fn follow_system(&mut self, _: &FollowSystemAppearance, window: &mut Window, cx: &mut Context<Self>) {
         self.mode = AppearanceMode::System;
         self.apply_theme(window, cx);
-        self.save();
+        self.write_appearance();
     }
 
-    fn select_theme(&mut self, a: &SelectTheme, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn select_theme(&mut self, a: &SelectTheme, window: &mut Window, cx: &mut Context<Self>) {
         let Some(t) = t1k_themes::find(&a.name) else { return };
         if t.is_dark() { self.dark = t } else { self.light = t }
         // Show the pick now. In System mode, keep following the system if it already shows this slot.
@@ -552,7 +637,7 @@ impl Workspace {
             self.mode = if t.is_dark() { AppearanceMode::Dark } else { AppearanceMode::Light };
         }
         self.apply_theme(window, cx);
-        self.save();
+        self.write_appearance();
     }
 
     fn render_titlebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -631,6 +716,9 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &NextTab, window, cx| this.step(1, window, cx)))
             .on_action(cx.listener(|this, _: &PrevTab, window, cx| this.step(-1, window, cx)))
             .on_action(cx.listener(Self::toggle_sidebar))
+            .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, window, cx| {
+                this.import_themes(paths.paths(), window, cx);
+            }))
             .on_action(cx.listener(Self::jump_to_needs))
             .on_action(cx.listener(Self::toggle_appearance))
             .on_action(cx.listener(Self::follow_system))

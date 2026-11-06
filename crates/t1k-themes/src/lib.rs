@@ -5,6 +5,11 @@
 //! matching UI. Derivation rules live in `docs/design.md` (Appearance).
 
 mod builtin;
+pub mod import;
+
+use std::borrow::Cow;
+use std::path::Path;
+use std::sync::Mutex;
 
 use gpui::{Hsla, Rgba};
 use t1k_terminal::palette::Palette;
@@ -30,7 +35,7 @@ pub enum AppearanceMode {
 /// A theme as declared: hex colors, ANSI 0-15, optional accent override.
 #[derive(Clone, Debug)]
 pub struct Theme {
-    pub name: &'static str,
+    pub name: Cow<'static, str>,
     pub appearance: Appearance,
     pub fg: u32,
     pub bg: u32,
@@ -87,6 +92,11 @@ fn hsla(v: u32, alpha: f32) -> Hsla {
 }
 
 impl Theme {
+    fn same_colors(&self, o: &Theme) -> bool {
+        (self.fg, self.bg, self.cursor, self.selection, self.ansi, self.accent)
+            == (o.fg, o.bg, o.cursor, o.selection, o.ansi, o.accent)
+    }
+
     pub fn is_dark(&self) -> bool {
         self.appearance == Appearance::Dark
     }
@@ -137,29 +147,62 @@ impl Theme {
     }
 }
 
+/// Themes imported into the user's themes folder (leaked: there are few, and they live forever).
+static USER: Mutex<Vec<&'static Theme>> = Mutex::new(Vec::new());
+
+/// All themes: built-ins first, then user themes (a user theme with a built-in's name wins).
+pub fn all() -> Vec<&'static Theme> {
+    let user = USER.lock().unwrap().clone();
+    let mut out: Vec<&'static Theme> =
+        BUILTIN.iter().filter(|b| !user.iter().any(|u| u.name.eq_ignore_ascii_case(&b.name))).collect();
+    out.extend(user);
+    out
+}
+
 pub fn find(name: &str) -> Option<&'static Theme> {
-    BUILTIN.iter().find(|t| t.name.eq_ignore_ascii_case(name))
+    all().into_iter().find(|t| t.name.eq_ignore_ascii_case(name))
+}
+
+/// (Re)load every theme file in `dir`. Returns the number loaded; bad files are logged and skipped.
+pub fn load_user_themes(dir: &Path) -> usize {
+    let mut loaded: Vec<&'static Theme> = Vec::new();
+    let Ok(rd) = std::fs::read_dir(dir) else { return 0 };
+    let mut paths: Vec<_> = rd.flatten().map(|e| e.path()).filter(|p| p.is_file()).collect();
+    paths.sort();
+    for p in paths {
+        match import::load(&p) {
+            Ok(t) => {
+                // Reuse the leaked copy if nothing changed, so reloads don't grow memory.
+                let existing = USER.lock().unwrap().iter().copied().find(|e| e.name == t.name && e.same_colors(&t));
+                loaded.push(existing.unwrap_or_else(|| Box::leak(Box::new(t))));
+            }
+            Err(e) => log::warn!("theme {}: {e}", p.display()),
+        }
+    }
+    let n = loaded.len();
+    *USER.lock().unwrap() = loaded;
+    n
 }
 
 pub fn default_for(appearance: Appearance) -> &'static Theme {
     match appearance {
-        Appearance::Dark => find("Mercury Dark").unwrap(),
-        Appearance::Light => find("Mercury Light").unwrap(),
+        Appearance::Dark => &BUILTIN[0],
+        Appearance::Light => &BUILTIN[1],
     }
+}
+
+/// WCAG relative luminance of a 0xRRGGBB color.
+pub fn lum(v: u32) -> f32 {
+    let f = |c: u32| {
+        let c = c as f32 / 255.;
+        if c <= 0.03928 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+    };
+    0.2126 * f((v >> 16) & 0xff) + 0.7152 * f((v >> 8) & 0xff) + 0.0722 * f(v & 0xff)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// WCAG relative luminance.
-    fn lum(v: u32) -> f32 {
-        let f = |c: u32| {
-            let c = c as f32 / 255.;
-            if c <= 0.03928 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
-        };
-        0.2126 * f((v >> 16) & 0xff) + 0.7152 * f((v >> 8) & 0xff) + 0.0722 * f(v & 0xff)
-    }
 
     fn contrast(a: u32, b: u32) -> f32 {
         let (x, y) = (lum(a), lum(b));

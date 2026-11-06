@@ -11,7 +11,6 @@ use crate::workspace::Tab;
 
 use crate::workspace::Workspace;
 
-const WIDTH: f32 = 300.;
 const ROW_CALM: f32 = 32.;
 const ROW_DETAIL: f32 = 52.;
 const ROW_GAP: f32 = 2.;
@@ -84,7 +83,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
 
     div()
         .id("sidebar")
-        .w(px(WIDTH))
+        .w(px(ws.config.sidebar.width.clamp(200., 480.)))
         .flex_none()
         .h_full()
         .flex()

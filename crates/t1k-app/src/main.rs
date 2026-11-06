@@ -2,14 +2,15 @@
 
 mod actions;
 mod cli;
+mod config;
+mod menus;
 mod groups;
 mod session;
 mod sidebar;
 mod workspace;
 
-use gpui::{prelude::*, px, size, App, Application, Bounds, KeyBinding, Menu, MenuItem, WindowBounds, WindowOptions};
+use gpui::{prelude::*, px, size, App, Application, Bounds, KeyBinding, WindowBounds, WindowOptions};
 use t1k_terminal::view::{ClearScrollback, Copy, Paste, ScrollPageDown, ScrollPageUp};
-use t1k_themes::BUILTIN;
 
 use actions::*;
 use workspace::Workspace;
@@ -48,31 +49,7 @@ fn main() {
             KeyBinding::new("shift-pagedown", ScrollPageDown, Some("Terminal")),
         ]);
         cx.on_action(|_: &Quit, cx| cx.quit());
-        let theme_items = |dark: bool| {
-            BUILTIN
-                .iter()
-                .filter(|t| t.is_dark() == dark)
-                .map(|t| MenuItem::action(t.name, SelectTheme { name: t.name.into() }))
-                .collect::<Vec<_>>()
-        };
-        cx.set_menus(vec![
-            Menu {
-                name: "T1K".into(),
-                items: vec![MenuItem::action("New Tab", NewTab), MenuItem::action("Quit T1K", Quit)],
-            },
-            Menu {
-                name: "View".into(),
-                items: vec![
-                    MenuItem::action("Toggle Sidebar", ToggleSidebar),
-                    MenuItem::separator(),
-                    MenuItem::action("Toggle Dark / Light", ToggleAppearance),
-                    MenuItem::action("Follow System Appearance", FollowSystemAppearance),
-                    MenuItem::separator(),
-                    MenuItem::submenu(Menu { name: "Dark Theme".into(), items: theme_items(true) }),
-                    MenuItem::submenu(Menu { name: "Light Theme".into(), items: theme_items(false) }),
-                ],
-            },
-        ]);
+        menus::install(cx);
         cx.on_window_closed(|cx| {
             if cx.windows().is_empty() {
                 cx.quit();

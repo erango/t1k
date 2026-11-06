@@ -1,12 +1,14 @@
 //! Built-in themes. Palettes follow each theme's published terminal colors.
 
+use std::borrow::Cow;
+
 use crate::{Appearance::*, Theme};
 
 macro_rules! theme {
     ($name:literal, $app:ident, fg $fg:literal, bg $bg:literal, cursor $cur:literal, sel $sel:literal,
      [$($a:literal),* $(,)?] $(, accent $acc:literal)?) => {
         Theme {
-            name: $name,
+            name: Cow::Borrowed($name),
             appearance: $app,
             fg: $fg,
             bg: $bg,

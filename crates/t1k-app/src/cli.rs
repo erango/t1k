@@ -12,6 +12,10 @@ pub fn run(args: &[String]) -> bool {
             hook();
             true
         }
+        Some("theme") => {
+            theme_cmd(&args[2..]);
+            true
+        }
         Some("setup-claude") => {
             if let Err(e) = setup_claude() {
                 eprintln!("t1k: {e}");
@@ -62,4 +66,43 @@ fn setup_claude() -> anyhow::Result<()> {
     std::fs::write(&path, serde_json::to_vec_pretty(&settings)?)?;
     println!("Installed T1K hooks in {}. They do nothing outside T1K.", path.display());
     Ok(())
+}
+
+fn theme_cmd(args: &[String]) {
+    match (args.first().map(String::as_str), args.get(1)) {
+        (Some("import"), Some(_)) => {
+            for f in &args[1..] {
+                match import_theme(std::path::Path::new(f)) {
+                    Ok(name) => println!("Imported \"{name}\". Pick it from View › Dark/Light Theme, or set it in config.toml."),
+                    Err(e) => {
+                        eprintln!("t1k: {f}: {e}");
+                        std::process::exit(1);
+                    }
+                }
+            }
+        }
+        (Some("list"), _) => {
+            if let Some(d) = crate::config::themes_dir() {
+                t1k_themes::load_user_themes(&d);
+            }
+            for t in t1k_themes::all() {
+                println!("{:<24} {}", t.name, if t.is_dark() { "dark" } else { "light" });
+            }
+        }
+        _ => {
+            eprintln!("usage: t1k theme import <file>...   (Ghostty, iTerm2 .itermcolors, Alacritty, Windows Terminal, base16)");
+            eprintln!("       t1k theme list");
+            std::process::exit(2);
+        }
+    }
+}
+
+/// Validate a theme file and copy it into the themes folder. Returns the theme's name.
+pub fn import_theme(path: &std::path::Path) -> Result<String, String> {
+    let theme = t1k_themes::import::load(path)?;
+    let dir = crate::config::themes_dir().ok_or("HOME not set")?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let file = path.file_name().ok_or("bad path")?;
+    std::fs::copy(path, dir.join(file)).map_err(|e| e.to_string())?;
+    Ok(theme.name.to_string())
 }
