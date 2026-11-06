@@ -36,16 +36,34 @@ pub enum TerminalEvent {
 #[derive(Clone)]
 pub struct TerminalStyle {
     pub font_family: SharedString,
+    /// Tried in order for glyphs the main font lacks (Powerline / Nerd Font icons, emoji).
+    pub font_fallbacks: Vec<String>,
     pub font_size: Pixels,
     pub line_height: f32,
     pub padding: Pixels,
     pub option_as_meta: bool,
 }
 
+impl TerminalStyle {
+    pub fn font(&self) -> Font {
+        Font {
+            fallbacks: Some(gpui::FontFallbacks::from_fonts(self.font_fallbacks.clone())),
+            ..gpui::font(self.font_family.clone())
+        }
+    }
+}
+
 impl Default for TerminalStyle {
     fn default() -> Self {
         Self {
-            font_family: "Menlo".into(),
+            font_family: "JetBrains Mono".into(),
+            font_fallbacks: vec![
+                "Symbols Nerd Font Mono".into(),
+                "MesloLGS NF".into(),
+                "Meslo LG L DZ for Powerline".into(),
+                "Menlo".into(),
+                "Apple Color Emoji".into(),
+            ],
             font_size: px(13.),
             line_height: 1.3,
             padding: px(10.),
@@ -599,7 +617,7 @@ impl Render for TerminalView {
                         let style = style.clone();
                         let entity = entity.clone();
                         move |bounds, window, cx| {
-                            let font = gpui::font(style.font_family.clone());
+                            let font = style.font();
                             let ts = window.text_system();
                             let font_id = ts.resolve_font(&font);
                             let cell_w = ts
@@ -668,7 +686,7 @@ fn paint_frame(
         }
     }
 
-    let base = gpui::font(style.font_family.clone());
+    let base = style.font();
     for b in &frame.batches {
         if b.row >= g.rows {
             continue;

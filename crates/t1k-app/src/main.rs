@@ -214,7 +214,7 @@ impl Workspace {
                     .px_3()
                     .py_1()
                     .max_w(px(220.))
-                    .overflow_hidden()
+                    .truncate() // one line, ellipsis; wrapping left clipped slivers above/below
                     .rounded_md()
                     .text_size(px(12.))
                     .text_color(if active { ui.text_primary } else { ui.text_tertiary })
