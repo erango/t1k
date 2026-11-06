@@ -3,7 +3,9 @@
 mod actions;
 mod cli;
 mod config;
+mod input;
 mod menus;
+mod overlay;
 mod groups;
 mod session;
 mod sidebar;
@@ -42,6 +44,9 @@ fn main() {
             KeyBinding::new("cmd-shift-l", ToggleAppearance, None),
             KeyBinding::new("cmd-\\", ToggleSidebar, None),
             KeyBinding::new("cmd-j", JumpToNeeds, None),
+            KeyBinding::new("cmd-p", ToggleSwitcher, None),
+            KeyBinding::new("cmd-o", ToggleOverview, None),
+            KeyBinding::new("cmd-shift-r", RenameTab, None),
             KeyBinding::new("cmd-c", Copy, Some("Terminal")),
             KeyBinding::new("cmd-v", Paste, Some("Terminal")),
             KeyBinding::new("cmd-k", ClearScrollback, Some("Terminal")),

@@ -20,6 +20,11 @@ pub fn install(cx: &mut App) {
             Menu {
                 name: "View".into(),
                 items: vec![
+                    MenuItem::action("Find Tab…", ToggleSwitcher),
+                    MenuItem::action("Overview", ToggleOverview),
+                    MenuItem::action("Jump to Next Needing You", JumpToNeeds),
+                    MenuItem::action("Rename Tab…", RenameTab),
+                    MenuItem::separator(),
                     MenuItem::action("Toggle Sidebar", ToggleSidebar),
                     MenuItem::separator(),
                     MenuItem::action("Toggle Dark / Light", ToggleAppearance),

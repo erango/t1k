@@ -9,6 +9,12 @@ pub struct SavedTab {
     pub cwd: Option<PathBuf>,
     #[serde(default)]
     pub manual_title: Option<String>,
+    /// Reminder time, unix seconds.
+    #[serde(default)]
+    pub reminder_at: Option<u64>,
+    /// Last Claude session in this tab, for "Resume Claude session" after a restart.
+    #[serde(default)]
+    pub last_session: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Default, Debug, Clone)]

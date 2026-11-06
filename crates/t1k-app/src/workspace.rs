@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use gpui::{
     div, prelude::*, px, App, Context, Entity, FocusHandle, Focusable, MouseButton, Subscription, Task, Window, WindowAppearance,
@@ -17,6 +17,7 @@ use t1k_themes::{Appearance, AppearanceMode, Theme, UiColors};
 use crate::actions::*;
 use crate::config::{self, Config};
 use crate::groups;
+use crate::overlay::Overlay;
 use crate::session::{self, SavedTab, Session};
 
 const SHELLS: &[&str] = &["zsh", "bash", "fish", "sh", "login", "nu", "xonsh"];
@@ -36,6 +37,12 @@ pub struct Tab {
     /// Finished while you were elsewhere; cleared when the tab is opened.
     pub unread: bool,
     pub created: usize,
+    pub last_active: Instant,
+    pub reminder_at: Option<SystemTime>,
+    /// Reminder fired and not yet seen: loud, counts as needs-you.
+    pub reminder_due: bool,
+    /// Claude session id restored from the last run (for resume).
+    pub last_session: Option<String>,
     _sub: Subscription,
 }
 
@@ -45,11 +52,13 @@ impl Tab {
     }
 
     pub fn urgency(&self) -> u8 {
-        self.status().map(|s| s.urgency(self.unread)).unwrap_or(if self.unread { 2 } else { 5 })
+        let base = self.status().map(|s| s.urgency(self.unread)).unwrap_or(if self.unread { 2 } else { 5 });
+        if self.reminder_due { base.min(2) } else { base }
     }
 
+    /// Counted by the Needs-you queue: NeedsInput, Error, or a reminder that went off.
     pub fn needs_you(&self) -> bool {
-        self.status().is_some_and(Status::needs_you)
+        self.reminder_due || self.status().is_some_and(Status::needs_you)
     }
 
     /// Display title. Precedence: manual rename, then the program's OSC title while a program
@@ -109,6 +118,8 @@ pub struct Workspace {
     light: &'static Theme,
     pub theme: &'static Theme,
     pub ui: UiColors,
+    pub overlay: Overlay,
+    pub overlay_focus: FocusHandle,
     pub config: Config,
     watcher: config::Watcher,
     socket: Option<PathBuf>,
@@ -185,6 +196,8 @@ impl Workspace {
             light,
             theme: dark,
             ui: dark.ui(),
+            overlay: Overlay::None,
+            overlay_focus: cx.focus_handle(),
             config,
             watcher,
             socket,
@@ -203,6 +216,9 @@ impl Workspace {
         } else {
             for t in restore {
                 this.open_tab(t.cwd, t.manual_title, window, cx);
+                let tab = this.tabs.last_mut().unwrap();
+                tab.reminder_at = t.reminder_at.map(|s| UNIX_EPOCH + Duration::from_secs(s));
+                tab.last_session = t.last_session;
             }
             let active = saved.active.min(this.tabs.len() - 1);
             this.activate(active, window, cx);
@@ -262,6 +278,10 @@ impl Workspace {
             agent: None,
             unread: false,
             created,
+            last_active: Instant::now(),
+            reminder_at: None,
+            reminder_due: false,
+            last_session: None,
             _sub: sub,
         });
         self.activate(self.tabs.len() - 1, window, cx);
@@ -273,7 +293,13 @@ impl Workspace {
             return;
         }
         self.active = ix;
-        self.tabs[ix].unread = false;
+        let t = &mut self.tabs[ix];
+        t.unread = false;
+        t.last_active = Instant::now();
+        if t.reminder_due {
+            t.reminder_due = false;
+            t.reminder_at = None;
+        }
         let handle = self.tabs[ix].view.read(cx).focus_handle(cx);
         window.focus(&handle);
         cx.notify();
@@ -375,6 +401,13 @@ impl Workspace {
             None => {}
         }
         let mut changed = false;
+        let now = SystemTime::now();
+        for t in &mut self.tabs {
+            if !t.reminder_due && t.reminder_at.is_some_and(|r| r <= now) {
+                t.reminder_due = true;
+                changed = true;
+            }
+        }
         while let Ok(env) = self.agent_rx.try_recv() {
             changed |= self.apply_envelope(env, window);
         }
@@ -424,10 +457,23 @@ impl Workspace {
         let _ = std::fs::write(path, out);
     }
 
+    /// Type `claude --resume <id>` into a tab sitting at its shell prompt.
+    pub fn resume_session(&mut self, tab: usize, session_id: &str, cx: &mut Context<Self>) {
+        if let Some(t) = self.tabs.get(tab) {
+            if t.program.is_none() {
+                t.view.read(cx).terminal.write(format!("claude --resume {session_id}\r").into_bytes());
+            }
+        }
+    }
+
     /// Tabs that need you, longest-waiting first.
     pub fn needs_queue(&self) -> Vec<usize> {
         let mut v: Vec<usize> = (0..self.tabs.len()).filter(|&i| self.tabs[i].needs_you()).collect();
-        v.sort_by_key(|&i| self.tabs[i].agent.as_ref().map(|a| a.since));
+        v.sort_by_key(|&i| {
+            let t = &self.tabs[i];
+            // Reminders wait from when they fired; agents from when their state began.
+            (t.agent.as_ref().filter(|a| a.status.needs_you()).map(|a| a.since), t.reminder_at)
+        });
         v
     }
 
@@ -444,9 +490,15 @@ impl Workspace {
 
     pub fn session(&self) -> Session {
         Session {
-            tabs: self.visual_order().iter().map(|&i| SavedTab {
-                cwd: self.tabs[i].cwd.clone(),
-                manual_title: self.tabs[i].manual_title.clone(),
+            tabs: self.visual_order().iter().map(|&i| {
+                let t = &self.tabs[i];
+                SavedTab {
+                    cwd: t.cwd.clone(),
+                    manual_title: t.manual_title.clone(),
+                    reminder_at: t.reminder_at.and_then(|r| r.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_secs()),
+                    last_session: t.agent.as_ref().map(|a| a.session_id.clone()).filter(|s| !s.is_empty())
+                        .or_else(|| t.last_session.clone()),
+                }
             }).collect(),
             active: self.visual_order().iter().position(|&i| i == self.active).unwrap_or(0),
             collapsed: self.collapsed.iter().cloned().collect(),
@@ -720,6 +772,22 @@ impl Render for Workspace {
                 this.import_themes(paths.paths(), window, cx);
             }))
             .on_action(cx.listener(Self::jump_to_needs))
+            .on_action(cx.listener(|this, _: &ToggleSwitcher, window, cx| {
+                if matches!(this.overlay, Overlay::Switcher { .. }) {
+                    this.close_overlay(window, cx);
+                } else {
+                    this.open_overlay(Overlay::Switcher { query: String::new(), selected: 0 }, window, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &ToggleOverview, window, cx| {
+                if matches!(this.overlay, Overlay::Overview { .. }) {
+                    this.close_overlay(window, cx);
+                } else {
+                    let selected = this.visual_order().iter().position(|&i| i == this.active).unwrap_or(0);
+                    this.open_overlay(Overlay::Overview { selected }, window, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &RenameTab, window, cx| this.start_rename(this.active, window, cx)))
             .on_action(cx.listener(Self::toggle_appearance))
             .on_action(cx.listener(Self::follow_system))
             .on_action(cx.listener(Self::select_theme))
@@ -733,7 +801,8 @@ impl Render for Workspace {
             SelectTab5 => 4, SelectTab6 => 5, SelectTab7 => 6, SelectTab8 => 7, SelectTab9 => 8);
 
         let sidebar = self.sidebar_open.then(|| crate::sidebar::render(self, cx));
-        root.children(sidebar).child(
+        let overlay = crate::overlay::render(self, window, cx);
+        root.relative().children(sidebar).child(
             div()
                 .flex_1()
                 .min_w_0()
@@ -743,5 +812,6 @@ impl Render for Workspace {
                 .child(self.render_titlebar(cx))
                 .child(div().flex_1().min_h_0().children(active_view)),
         )
+        .children(overlay)
     }
 }

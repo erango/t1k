@@ -143,7 +143,11 @@ fn row(ws: &Workspace, ix: usize, detail: bool, cx: &mut Context<Workspace>) -> 
         Some(Status::NeedsInput { .. }) | Some(Status::Error { .. }) => tab.agent.as_ref().map(|a| elapsed(a.since)),
         _ => None,
     };
-    let unseen = tab.unread;
+    let unseen = tab.unread || tab.reminder_due;
+    // A pending reminder shows a quiet clock after the title.
+    let pending = (tab.reminder_at.is_some() && !tab.reminder_due).then(|| {
+        div().flex_none().text_size(px(11.)).text_color(ui.text_tertiary).child("◷")
+    });
 
     let title = div()
         .flex_1()
@@ -167,7 +171,7 @@ fn row(ws: &Workspace, ix: usize, detail: bool, cx: &mut Context<Workspace>) -> 
         .justify_center()
         .gap(px(2.))
         .child(
-            div().flex().items_center().gap(px(9.)).child(glyph).child(title).children(waiting.map(|w| {
+            div().flex().items_center().gap(px(9.)).child(glyph).child(title).children(pending).children(waiting.map(|w| {
                 div().flex_none().text_size(px(11.)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(w)
             })),
         )
@@ -181,7 +185,16 @@ fn row(ws: &Workspace, ix: usize, detail: bool, cx: &mut Context<Workspace>) -> 
                     .child(tab.subtitle()),
             )
         })
-        .on_click(cx.listener(move |this, _, window, cx| this.activate(ix, window, cx)))
+        .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
+            if ev.click_count() == 2 {
+                this.start_rename(ix, window, cx);
+            } else {
+                this.activate(ix, window, cx);
+            }
+        }))
+        .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &gpui::MouseDownEvent, window, cx| {
+            this.open_overlay(crate::overlay::Overlay::Menu { tab: ix, at: ev.position }, window, cx);
+        }))
         .on_mouse_down(MouseButton::Middle, cx.listener(move |this, _, window, cx| this.close_tab_at(ix, window, cx)));
 
     if selected {
@@ -209,6 +222,7 @@ fn glyph(tab: &Tab, ui: UiColors, started: Instant, running: bool) -> Div {
                 .child(div().size(px(7.)).rounded_full().bg(ui.status_needs)),
         ),
         Some(Status::Error { .. }) => slot.child(div().text_size(px(10.)).text_color(ui.status_error).child("◆")),
+        _ if tab.reminder_due => slot.child(div().text_size(px(11.)).text_color(ui.accent).child("◷")),
         _ if tab.unread => slot.child(div().size(px(7.)).rounded_full().bg(ui.accent)),
         Some(Status::Working) => {
             let frame = (started.elapsed().as_millis() / 100) as usize % SPINNER.len();
