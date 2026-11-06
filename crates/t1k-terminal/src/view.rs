@@ -339,6 +339,18 @@ impl TerminalView {
         cx.notify();
     }
 
+    /// Open the find bar on `query` and go to its newest match (used to show where an output
+    /// appeared).
+    pub fn find_text(&mut self, query: &str, cx: &mut Context<Self>) {
+        let mut s = crate::search::Search { query: query.to_string(), ..Default::default() };
+        s.scan(&self.terminal.term.lock());
+        if let Some(m) = s.current.and_then(|i| s.matches.get(i)).cloned() {
+            self.terminal.term.lock().scroll_to_point(*m.start());
+        }
+        self.search = Some(s);
+        cx.notify();
+    }
+
     fn close_search(&mut self, cx: &mut Context<Self>) {
         self.search = None;
         cx.notify();

@@ -126,6 +126,17 @@ impl Workspace {
     }
 }
 
+/// Short text that identifies an output in terminal output: what Claude most likely printed.
+fn needle(o: &Output) -> String {
+    let path = o.target.split(['?', '#']).next().unwrap_or(&o.target);
+    match o.kind {
+        // ".../pull/12" matches full URLs; Claude often prints just the URL.
+        Kind::Pr => path.rsplit_once("/pull/").map(|(_, n)| format!("pull/{n}")).unwrap_or_else(|| o.label.clone()),
+        Kind::File | Kind::Ticket => o.label.clone(),
+        _ => path.trim_end_matches('/').rsplit('/').next().unwrap_or(path).to_string(),
+    }
+}
+
 fn age(t: SystemTime) -> String {
     let s = t.elapsed().map(|d| d.as_secs()).unwrap_or(0);
     match s {
@@ -282,6 +293,29 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                         ),
                 )
                 .children(badge)
+                .child({
+                    let tab_ix = *tab;
+                    let q = needle(o);
+                    div()
+                        .id(SharedString::from(format!("show-{n}")))
+                        .invisible()
+                        .group_hover(row_id.clone(), |s| s.visible())
+                        .px(px(6.))
+                        .h(px(22.))
+                        .rounded(px(5.))
+                        .flex()
+                        .items_center()
+                        .text_size(px(11. * k))
+                        .text_color(ui.text_tertiary)
+                        .hover(move |d| d.bg(ui.bg_control).text_color(ui.text_primary))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            cx.stop_propagation();
+                            this.activate(tab_ix, window, cx);
+                            let view = this.tabs[tab_ix].view.clone();
+                            view.update(cx, |v, cx| v.find_text(&q, cx));
+                        }))
+                        .child("Show")
+                })
                 .child(
                     div()
                         .id(SharedString::from(format!("copy-{n}")))
