@@ -24,7 +24,7 @@ use crate::links::{find_path_candidates, find_pr_refs, find_tickets, find_urls, 
 use crate::palette::{dim, Palette};
 use crate::terminal::{GridSize, SpawnOptions, Terminal};
 
-actions!(terminal, [Copy, Paste, ClearScrollback, ScrollPageUp, ScrollPageDown]);
+actions!(terminal, [Copy, Paste, ClearScrollback, ScrollPageUp, ScrollPageDown, ShowLinkHints]);
 
 /// Events the terminal view emits to its container (tab/workspace).
 #[derive(Clone, Debug)]
@@ -93,6 +93,10 @@ pub struct TerminalView {
     /// Viewport cell under the mouse, and whether cmd is held (cmd-hover arms a link).
     hover_cell: Option<(usize, usize)>,
     cmd_down: bool,
+    /// Link hint mode: the letters typed so far (labels are drawn on every visible link).
+    hints: Option<String>,
+    /// Labels from the last frame in hint mode: (label, link index).
+    hint_labels: Vec<(String, usize)>,
     /// Size the pane wants but the grid hasn't taken yet (see `request_resize`).
     pending_size: Option<GridSize>,
     resize_task: Option<Task<()>>,
@@ -160,6 +164,9 @@ impl TerminalView {
             path_cache: Default::default(),
             hover_cell: None,
             cmd_down: false,
+            // Debug aid for screenshots without a keyboard: start in hint mode.
+            hints: std::env::var_os("T1K_DEBUG_HINTS").map(|_| String::new()),
+            hint_labels: Vec::new(),
             pending_size: None,
             resize_task: None,
             _events: task,
@@ -255,7 +262,43 @@ impl TerminalView {
 
     // ---- input ---------------------------------------------------------------------------
 
+    fn show_link_hints(&mut self, _: &ShowLinkHints, _: &mut Window, cx: &mut Context<Self>) {
+        self.hints = if self.hints.is_some() { None } else { Some(String::new()) };
+        cx.notify();
+    }
+
+    /// Hint mode keys: letters narrow to a label and open it, ⌫ steps back, anything else exits.
+    fn hint_key(&mut self, ev: &KeyDownEvent, cx: &mut Context<Self>) {
+        let k = &ev.keystroke;
+        let typed = self.hints.get_or_insert_with(String::new);
+        let plain = !k.modifiers.platform && !k.modifiers.control && !k.modifiers.alt;
+        match k.key.as_str() {
+            "backspace" if plain => {
+                typed.pop();
+            }
+            key if plain && key.len() == 1 && key.chars().all(|c| c.is_ascii_lowercase()) => {
+                typed.push_str(key);
+                let typed = typed.clone();
+                if let Some((_, id)) = self.hint_labels.iter().find(|(l, _)| *l == typed) {
+                    if let Some(link) = self.links.get(*id).cloned() {
+                        cx.emit(TerminalEvent::OpenLink(link));
+                    }
+                    self.hints = None;
+                } else if !self.hint_labels.iter().any(|(l, _)| l.starts_with(&typed)) {
+                    self.hints = None;
+                }
+            }
+            _ => self.hints = None,
+        }
+        cx.stop_propagation();
+        cx.notify();
+    }
+
     fn on_key_down(&mut self, ev: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if self.hints.is_some() {
+            self.hint_key(ev, cx);
+            return;
+        }
         let mode = self.terminal.mode();
         if let Some(bytes) = to_esc(&ev.keystroke, mode, self.style.option_as_meta) {
             self.terminal.clear_selection();
@@ -325,6 +368,9 @@ impl TerminalView {
     }
 
     fn on_mouse_down(&mut self, ev: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.hints.take().is_some() {
+            cx.notify();
+        }
         window.focus(&self.focus_handle);
         let Some((col, row, side)) = self.cell_at(ev.position) else { return };
         if ev.modifiers.platform {
@@ -466,6 +512,35 @@ struct Frame {
     cmd_down: bool,
     /// Link under the mouse while cmd is held.
     hovered: Option<usize>,
+    /// Hint mode: typed prefix and (label, link id, first cell) per link.
+    hints: Option<(String, Vec<(String, usize, (usize, usize))>)>,
+}
+
+/// Hint labels in reading order: one letter each while they fit, else two.
+fn hint_labels(link_map: &HashMap<(usize, usize), usize>) -> Vec<(String, usize, (usize, usize))> {
+    const KEYS: &[u8] = b"asdfjklghqweruioptyzxcvbnm";
+    let mut first: HashMap<usize, (usize, usize)> = HashMap::new();
+    for (&(c, r), &id) in link_map {
+        let e = first.entry(id).or_insert((c, r));
+        if (r, c) < (e.1, e.0) {
+            *e = (c, r);
+        }
+    }
+    let mut order: Vec<(usize, (usize, usize))> = first.into_iter().collect();
+    order.sort_by_key(|&(_, (c, r))| (r, c));
+    let n = order.len();
+    order
+        .into_iter()
+        .enumerate()
+        .map(|(i, (id, cell))| {
+            let label = if n <= KEYS.len() {
+                (KEYS[i] as char).to_string()
+            } else {
+                format!("{}{}", KEYS[(i / KEYS.len()) % KEYS.len()] as char, KEYS[i % KEYS.len()] as char)
+            };
+            (label, id, cell)
+        })
+        .collect()
 }
 
 /// Detect links in the viewport: OSC 8 hyperlinks first, then plain-text URLs.
@@ -577,9 +652,14 @@ fn build_frame(view: &TerminalView, focused: bool) -> Frame {
         cache.clear();
     }
     let mut resolve = |text: &str| -> Option<PathBuf> {
-        let base = cwd.as_deref()?;
+        // Absolute and ~ paths resolve without knowing the folder.
+        let relative = !text.starts_with('/') && !text.starts_with("~/");
+        if relative && cwd.is_none() {
+            return None;
+        }
+        let base = cwd.clone().unwrap_or_default();
         let key = base.join(text);
-        cache.entry(key).or_insert_with(|| resolve_path(text, base)).clone()
+        cache.entry(key).or_insert_with(|| resolve_path(text, &base)).clone()
     };
     let (links, link_map) = detect_links(&cells, offset, term.screen_lines(), term.columns(), view.link_rules, &mut resolve);
     drop(cache);
@@ -620,7 +700,8 @@ fn build_frame(view: &TerminalView, focused: bool) -> Frame {
         }
         let is_cursor = show_cursor && focused && cursor.shape == CursorShape::Block && (row_i, col) == cursor_vp;
         // URLs always show; files, PRs and tickets light up while ⌘ is held.
-        let link = link_map.get(&(col, row)).copied().filter(|&i| view.cmd_down || matches!(links[i], Link::Url(_)));
+        let reveal = view.cmd_down || view.hints.is_some();
+        let link = link_map.get(&(col, row)).copied().filter(|&i| reveal || matches!(links[i], Link::Url(_)));
         if link.is_some() && !selected {
             fg = palette.link;
         }
@@ -671,7 +752,8 @@ fn build_frame(view: &TerminalView, focused: bool) -> Frame {
 
     let cursor = (show_cursor && cursor_vp.0 >= 0)
         .then(|| (cursor_vp.1, cursor_vp.0 as usize, cursor.shape, focused));
-    Frame { bg_rects, batches, drawn, cursor, links, link_map, cmd_down: view.cmd_down, hovered }
+    let hints = view.hints.as_ref().map(|typed| (typed.clone(), hint_labels(&link_map)));
+    Frame { bg_rects, batches, drawn, cursor, links, link_map, cmd_down: view.cmd_down || view.hints.is_some(), hovered, hints }
 }
 
 /// Resolve a path-looking token against the tab's folder: `~/`, absolute, relative, and git's
@@ -703,6 +785,7 @@ impl Render for TerminalView {
         let frame = build_frame(self, focused);
         self.links = frame.links.clone();
         self.link_map = frame.link_map.clone();
+        self.hint_labels = frame.hints.as_ref().map(|(_, l)| l.iter().map(|(s, id, _)| (s.clone(), *id)).collect()).unwrap_or_default();
         let pointer = frame.hovered.is_some();
         let palette = self.palette.clone();
         let style = self.style.clone();
@@ -720,6 +803,7 @@ impl Render for TerminalView {
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::paste))
             .on_action(cx.listener(Self::clear_scrollback))
+            .on_action(cx.listener(Self::show_link_hints))
             .on_action(cx.listener(Self::page_up))
             .on_action(cx.listener(Self::page_down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
@@ -940,6 +1024,31 @@ fn paint_frame(
                     gpui::BorderStyle::Solid,
                 )),
             }
+        }
+    }
+
+    // Hint badges: a label on each link's first cell. The typed part fades; labels that no
+    // longer match disappear.
+    if let Some((typed, labels)) = &frame.hints {
+        let bg = hsla(palette.link);
+        let fg = hsla(palette.background);
+        for (label, _, (col, row)) in labels {
+            if *row >= g.rows || !label.starts_with(typed.as_str()) {
+                continue;
+            }
+            let o = at(*col, *row);
+            let w = label.chars().count() as f32 * cw + 4.;
+            window.paint_quad(
+                fill(Bounds::new(point(o.x - px(2.), o.y + px(1.)), size(px(w), px(ch - 2.))), bg).corner_radii(px(3.)),
+            );
+            let font = Font { weight: FontWeight::BOLD, ..style.font() };
+            let runs = [
+                TextRun { len: typed.len(), font: font.clone(), color: fg.opacity(0.45), background_color: None, underline: None, strikethrough: None },
+                TextRun { len: label.len() - typed.len(), font, color: fg, background_color: None, underline: None, strikethrough: None },
+            ];
+            let runs: Vec<TextRun> = runs.into_iter().filter(|r| r.len > 0).collect();
+            let shaped = window.text_system().shape_line(SharedString::from(label.to_uppercase()), style.font_size, &runs, Some(px(cw)));
+            let _ = shaped.paint(o, px(ch), window, cx);
         }
     }
 }

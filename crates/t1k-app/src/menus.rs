@@ -29,6 +29,7 @@ pub fn install(cx: &mut App) {
                     MenuItem::action("Overview", ToggleOverview),
                     MenuItem::action("Jump to Next Needing You", JumpToNeeds),
                     MenuItem::action("Rename Tab…", RenameTab),
+                    MenuItem::action("Open Link…", t1k_terminal::view::ShowLinkHints),
                     MenuItem::separator(),
                     MenuItem::action("Toggle Sidebar", ToggleSidebar),
                     MenuItem::action("Toggle Outputs Panel", ToggleOutputs),

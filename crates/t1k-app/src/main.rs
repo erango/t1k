@@ -17,7 +17,7 @@ mod title;
 mod workspace;
 
 use gpui::{prelude::*, px, size, App, Application, Bounds, KeyBinding, WindowBounds, WindowOptions};
-use t1k_terminal::view::{ClearScrollback, Copy, Paste, ScrollPageDown, ScrollPageUp};
+use t1k_terminal::view::{ClearScrollback, Copy, Paste, ScrollPageDown, ScrollPageUp, ShowLinkHints};
 
 use actions::*;
 use workspace::Workspace;
@@ -58,6 +58,7 @@ fn main() {
             KeyBinding::new("cmd-c", Copy, Some("Terminal")),
             KeyBinding::new("cmd-v", Paste, Some("Terminal")),
             KeyBinding::new("cmd-k", ClearScrollback, Some("Terminal")),
+            KeyBinding::new("cmd-shift-u", ShowLinkHints, Some("Terminal")),
             KeyBinding::new("shift-pageup", ScrollPageUp, Some("Terminal")),
             KeyBinding::new("shift-pagedown", ScrollPageDown, Some("Terminal")),
         ]);
