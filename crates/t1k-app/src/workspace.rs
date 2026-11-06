@@ -323,6 +323,19 @@ impl Workspace {
         self.save();
     }
 
+    /// Give focus back to the active terminal unless an overlay is open.
+    pub fn refocus_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !matches!(self.overlay, Overlay::None) {
+            return;
+        }
+        if let Some(t) = self.tabs.get(self.active) {
+            let h = t.view.read(cx).focus_handle(cx);
+            if !h.is_focused(window) {
+                window.focus(&h);
+            }
+        }
+    }
+
     pub fn activate(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
         if ix >= self.tabs.len() {
             return;
@@ -896,7 +909,13 @@ impl Render for Workspace {
         }
         let root = div()
             .key_context("Workspace")
-            .track_focus(&self.focus_handle)
+            // The workspace takes focus only when there's no terminal to hold it. If it tracked
+            // focus always, every click on chrome (sidebar, title bar, outputs panel) would move
+            // focus off the terminal; the terminal keeps it unless an overlay takes it.
+            .when(self.tabs.is_empty(), |d| d.track_focus(&self.focus_handle))
+            .on_mouse_up(MouseButton::Left, cx.listener(|this, _, window, cx| this.refocus_terminal(window, cx)))
+            .on_mouse_up(MouseButton::Right, cx.listener(|this, _, window, cx| this.refocus_terminal(window, cx)))
+            .on_mouse_up(MouseButton::Middle, cx.listener(|this, _, window, cx| this.refocus_terminal(window, cx)))
             .size_full()
             .flex()
             .flex_row()
