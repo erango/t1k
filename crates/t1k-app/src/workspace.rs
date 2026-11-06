@@ -1062,7 +1062,11 @@ impl Render for Workspace {
         let needs = self.needs_queue().len();
         let badge = if needs > 0 { format!("({needs}) ") } else { String::new() };
         window.set_window_title(&format!("{badge}{title} — T1K"));
-        let active_view = self.tabs.get(self.active).map(|t| t.view.clone());
+        // Cached: sidebar spinners and other workspace repaints reuse the terminal's last frame
+        // unless the terminal itself changed.
+        let active_view = self.tabs.get(self.active).map(|t| {
+            gpui::AnyView::from(t.view.clone()).cached(gpui::StyleRefinement::default().size_full())
+        });
 
         macro_rules! select {
             ($d:expr, $($act:ident => $ix:expr),*) => {

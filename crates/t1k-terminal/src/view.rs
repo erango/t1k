@@ -145,14 +145,22 @@ impl TerminalView {
             }
         });
 
-        cx.on_focus(&focus_handle, window, |this, window, _| {
+        // The workspace caches this view's last frame, so focus changes (hollow vs solid cursor)
+        // must ask for a repaint.
+        cx.on_focus(&focus_handle, window, |this, window, cx| {
             this.terminal.set_focused(window.is_window_active());
+            cx.notify();
         })
         .detach();
-        cx.on_blur(&focus_handle, window, |this, _, _| this.terminal.set_focused(false)).detach();
-        cx.observe_window_activation(window, |this, window, _| {
+        cx.on_blur(&focus_handle, window, |this, _, cx| {
+            this.terminal.set_focused(false);
+            cx.notify();
+        })
+        .detach();
+        cx.observe_window_activation(window, |this, window, cx| {
             let focused = window.is_window_active() && this.focus_handle.is_focused(window);
             this.terminal.set_focused(focused);
+            cx.notify();
         })
         .detach();
 
@@ -623,6 +631,10 @@ impl TerminalView {
 struct TextBatch {
     col: usize,
     row: usize,
+    /// Cells covered (tracked so joining doesn't recount chars).
+    cells: usize,
+    /// Wide or combining glyphs are shaped on their own so they can't shift neighbours.
+    solo: bool,
     text: String,
     fg: Hsla,
     flags: Flags,
@@ -868,43 +880,83 @@ fn build_frame(view: &TerminalView, focused: bool) -> Frame {
             }
         }
 
-        if cell.c == ' ' || cell.c == '\0' || flags.contains(Flags::HIDDEN) {
-            continue;
-        }
+        let blank = cell.c == ' ' || cell.c == '\0' || flags.contains(Flags::HIDDEN);
         let fg_h = hsla(fg);
-        if crate::glyphs::is_builtin(cell.c) {
+        if !blank && crate::glyphs::is_builtin(cell.c) {
             drawn.push((col, row, cell.c, fg_h));
             continue;
         }
         let style_flags = flags & (Flags::BOLD | Flags::ITALIC | Flags::ALL_UNDERLINES | Flags::STRIKEOUT);
+        let contiguous = |b: &TextBatch| b.row == row && b.col + b.cells == col && !b.solo;
+        if blank {
+            // Spaces only matter between glyphs: they extend the current run (whatever its
+            // color) unless they carry an underline or strikethrough of their own. A run
+            // never starts with a space, so blank rows cost nothing.
+            let decorated = style_flags.intersects(Flags::ALL_UNDERLINES | Flags::STRIKEOUT);
+            if let Some(b) = batches.last_mut().filter(|b| contiguous(b) && !decorated && b.link == link) {
+                b.text.push(' ');
+                b.cells += 1;
+            }
+            continue;
+        }
         let underline_color = cell.underline_color().map(|c| hsla(palette.resolve(c, colors)));
-        let can_join = width == 1
-            && cell.zerowidth().is_none()
+        let solo = width == 2 || cell.zerowidth().is_some() || unicode_wide(cell.c);
+        let can_join = !solo
             && batches.last().is_some_and(|b| {
-                b.row == row
-                    && b.col + b.text.chars().count() == col
-                    && b.fg == fg_h
-                    && b.flags == style_flags
-                    && b.underline_color == underline_color
-                    && b.link == link
-                    && !b.text.chars().any(|c| c.len_utf8() > 1 && unicode_wide(c))
+                contiguous(b) && b.fg == fg_h && b.flags == style_flags && b.underline_color == underline_color && b.link == link
             });
         if can_join {
-            batches.last_mut().unwrap().text.push(cell.c);
+            let b = batches.last_mut().unwrap();
+            b.text.push(cell.c);
+            b.cells += 1;
         } else {
             let mut text = String::new();
             text.push(cell.c);
             if let Some(zw) = cell.zerowidth() {
                 text.extend(zw);
             }
-            batches.push(TextBatch { col, row, text, fg: fg_h, flags: style_flags, underline_color, link });
+            batches.push(TextBatch { col, row, cells: width, solo, text, fg: fg_h, flags: style_flags, underline_color, link });
         }
+    }
+
+    // Trailing spaces carry nothing.
+    for b in &mut batches {
+        let trimmed = b.text.trim_end_matches(' ').len();
+        b.cells -= b.text.len() - trimmed;
+        b.text.truncate(trimmed);
     }
 
     let cursor = (show_cursor && cursor_vp.0 >= 0)
         .then(|| (cursor_vp.1, cursor_vp.0 as usize, cursor.shape, focused));
     let hints = view.hints.as_ref().map(|typed| (typed.clone(), hint_labels(&link_map)));
     Frame { bg_rects, highlights, batches, drawn, cursor, links, link_map, cmd_down: view.cmd_down || view.hints.is_some(), hovered, hints }
+}
+
+/// With T1K_PROFILE=1, log average and worst build/paint times every 120 frames.
+mod profile {
+    use std::cell::RefCell;
+    use std::time::Duration;
+
+    thread_local! {
+        static STATS: RefCell<std::collections::HashMap<&'static str, (u32, Duration, Duration)>> = RefCell::default();
+    }
+
+    pub fn record(what: &'static str, d: Duration) {
+        if std::env::var_os("T1K_PROFILE").is_none() {
+            return;
+        }
+        STATS.with(|s| {
+            let mut s = s.borrow_mut();
+            let e = s.entry(what).or_insert((0, Duration::ZERO, Duration::ZERO));
+            e.0 += 1;
+            e.1 += d;
+            e.2 = e.2.max(d);
+            if e.0 == 30 {
+                eprintln!("[profile] {what}: avg {:?}, max {:?}", e.1 / e.0, e.2);
+                *e = (0, Duration::ZERO, Duration::ZERO);
+            }
+        });
+    }
 }
 
 /// URI prefix of the prompt marks written by T1K's shell integration (never shown as links).
@@ -959,7 +1011,9 @@ impl Render for TerminalView {
             s.scan(&self.terminal.term.lock());
         }
         let focused = self.focus_handle.is_focused(window) && window.is_window_active();
+        let t0 = std::time::Instant::now();
         let frame = build_frame(self, focused);
+        profile::record("build_frame", t0.elapsed());
         self.links = frame.links.clone();
         self.link_map = frame.link_map.clone();
         self.hint_labels = frame.hints.as_ref().map(|(_, l)| l.iter().map(|(s, id, _)| (s.clone(), *id)).collect()).unwrap_or_default();
@@ -1026,7 +1080,9 @@ impl Render for TerminalView {
                         }
                     },
                     move |bounds, g, window, cx| {
+                        let t0 = std::time::Instant::now();
                         paint_frame(bounds, g, &frame, &palette, &style, window, cx);
+                        profile::record("paint", t0.elapsed());
                     },
                 )
                 .size_full(),
@@ -1179,11 +1235,10 @@ fn paint_frame(
         }
     }
 
+    // One shaped line per row: every batch on the row becomes a styled run, and the gaps
+    // between batches become plain spaces. Wide and combining glyphs stay on their own.
     let base = style.font();
-    for b in &frame.batches {
-        if b.row >= g.rows {
-            continue;
-        }
+    let run_for = |b: &TextBatch| {
         let font = Font {
             weight: if b.flags.contains(Flags::BOLD) { FontWeight::BOLD } else { FontWeight::NORMAL },
             style: if b.flags.contains(Flags::ITALIC) { FontStyle::Italic } else { FontStyle::Normal },
@@ -1199,25 +1254,38 @@ fn paint_frame(
                 wavy: b.flags.contains(Flags::UNDERCURL),
             })
         };
-        let strikethrough = b
-            .flags
-            .contains(Flags::STRIKEOUT)
-            .then(|| StrikethroughStyle { thickness: px(1.), color: Some(b.fg) });
-        let run = TextRun {
-            len: b.text.len(),
-            font,
-            color: b.fg,
-            background_color: None,
-            underline,
-            strikethrough,
-        };
-        let shaped = window.text_system().shape_line(
-            SharedString::from(b.text.clone()),
-            style.font_size,
-            &[run],
-            Some(px(cw)),
-        );
-        let _ = shaped.paint(at(b.col, b.row), px(ch), window, cx);
+        let strikethrough = b.flags.contains(Flags::STRIKEOUT).then(|| StrikethroughStyle { thickness: px(1.), color: Some(b.fg) });
+        TextRun { len: b.text.len(), font, color: b.fg, background_color: None, underline, strikethrough }
+    };
+    let mut i = 0;
+    let batches = &frame.batches;
+    while i < batches.len() {
+        let first = &batches[i];
+        if first.row >= g.rows {
+            i += 1;
+            continue;
+        }
+        let mut text = first.text.clone();
+        let mut runs = vec![run_for(first)];
+        let mut end = first.col + first.cells;
+        let mut j = i + 1;
+        if !first.solo {
+            while j < batches.len() && batches[j].row == first.row && !batches[j].solo && batches[j].col >= end {
+                let b = &batches[j];
+                let gap = b.col - end;
+                if gap > 0 {
+                    text.extend(std::iter::repeat_n(' ', gap));
+                    runs.push(TextRun { len: gap, font: base.clone(), color: b.fg, background_color: None, underline: None, strikethrough: None });
+                }
+                text.push_str(&b.text);
+                runs.push(run_for(b));
+                end = b.col + b.cells;
+                j += 1;
+            }
+        }
+        let shaped = window.text_system().shape_line(SharedString::from(text), style.font_size, &runs, Some(px(cw)));
+        let _ = shaped.paint(at(first.col, first.row), px(ch), window, cx);
+        i = j;
     }
 
     // Links always carry an underline so they scan at a glance; cmd-hover makes it solid.
