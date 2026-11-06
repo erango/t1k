@@ -921,6 +921,41 @@ fn group_menu(ws: &Workspace, key: std::path::PathBuf, at: Point<Pixels>, window
         this.close_overlay(window, cx);
     })));
 
+    let members: Vec<usize> = ws.tabs.iter().enumerate().filter(|(_, t)| t.group == key).map(|(i, _)| i).collect();
+    let unread = members.iter().filter(|&&i| ws.tabs[i].unread).count();
+    if unread > 0 {
+        let k = key.clone();
+        m = m.child(item("read", format!("Mark all as read ({unread})")).on_click(cx.listener(move |this, _, window, cx| {
+            for t in this.tabs.iter_mut().filter(|t| t.group == k) {
+                t.unread = false;
+            }
+            this.close_overlay(window, cx);
+        })));
+    }
+    let k = key.clone();
+    m = m.child(item("others", "Collapse others".into()).on_click(cx.listener(move |this, _, window, cx| {
+        let others: Vec<std::path::PathBuf> = this.grouped().into_iter().map(|(g, _)| g).filter(|g| *g != k).collect();
+        this.collapsed.extend(others);
+        this.collapsed.remove(&k);
+        this.save();
+        this.close_overlay(window, cx);
+    })));
+    // Quiet = idle shells and finished, seen sessions; closing them loses nothing running.
+    let quiet: Vec<String> = members.iter().filter(|&&i| ws.is_quiet(i)).map(|&i| ws.tabs[i].id.clone()).collect();
+    if !quiet.is_empty() {
+        let n = quiet.len();
+        m = m.child(item("close-quiet", format!("Close {n} quiet tab{}", if n == 1 { "" } else { "s" })).on_click(cx.listener(move |this, _, window, cx| {
+            this.close_overlay(window, cx);
+            for id in &quiet {
+                if let Some(ix) = this.tabs.iter().position(|t| &t.id == id) {
+                    if this.tabs.len() > 1 {
+                        this.close_tab_at(ix, window, cx);
+                    }
+                }
+            }
+        })));
+    }
+
     // Color: none plus the theme's six ANSI hues.
     m = m.child(sep()).child(heading("Color"));
     let current = ws.group_colors.get(&key).copied();

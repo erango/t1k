@@ -916,6 +916,11 @@ fn build_frame(view: &TerminalView, focused: bool) -> Frame {
         // URLs always show; files, PRs and tickets light up while ⌘ is held.
         let reveal = view.cmd_down || view.hints.is_some();
         let link = link_map.get(&(col, row)).copied().filter(|&i| reveal || matches!(links[i], Link::Url(_)));
+        // Hint mode: everything that isn't a link steps back.
+        if view.hints.is_some() && link.is_none() {
+            fg = dim(fg, palette.background);
+            fg = dim(fg, palette.background);
+        }
         if link.is_some() && !selected {
             fg = palette.link;
         }
@@ -1141,7 +1146,39 @@ impl Render for TerminalView {
                 .size_full(),
             )
             .children(self.search.as_ref().map(|s| find_bar(s, &self.palette, cx)))
+            .children(self.hints.as_ref().map(|typed| hint_bar(typed, self.hint_labels.len(), &self.palette)))
     }
+}
+
+/// Hint mode's bottom bar: what you've typed and how to get out.
+fn hint_bar(typed: &str, count: usize, palette: &Palette) -> impl IntoElement {
+    let fg = hsla(palette.foreground);
+    let bg = hsla(palette.background);
+    let raised = gpui::Hsla { l: if bg.l < 0.5 { bg.l + 0.07 } else { bg.l - 0.05 }, ..bg };
+    let amber = gpui::hsla(0.11, 0.85, 0.6, 1.);
+    div()
+        .absolute()
+        .left_0()
+        .right_0()
+        .bottom_0()
+        .h(px(30.))
+        .px(px(14.))
+        .flex()
+        .items_center()
+        .gap(px(12.))
+        .bg(raised)
+        .border_t_1()
+        .border_color(fg.opacity(0.12))
+        .font_family(".SystemUIFont")
+        .text_size(px(12.))
+        .text_color(fg.opacity(0.6))
+        .child(div().text_color(fg).font_weight(FontWeight::SEMIBOLD).child("Hint mode"))
+        .when(!typed.is_empty(), |d| {
+            d.child(div().px(px(6.)).h(px(18.)).flex().items_center().rounded(px(4.)).bg(amber).text_color(bg).font_family("JetBrains Mono").child(format!("{}_", typed.to_uppercase())))
+        })
+        .child(format!("{count} link{} · type a label to open", if count == 1 { "" } else { "s" }))
+        .child(div().flex_1())
+        .child("⌫ back · esc")
 }
 
 /// The find bar: floats at the top right of the terminal.
@@ -1394,7 +1431,8 @@ fn paint_frame(
     // Hint badges: a label on each link's first cell. The typed part fades; labels that no
     // longer match disappear.
     if let Some((typed, labels)) = &frame.hints {
-        let bg = hsla(palette.link);
+        // Labels still in play turn amber once you start typing.
+        let bg = if typed.is_empty() { hsla(palette.link) } else { gpui::hsla(0.11, 0.85, 0.6, 1.) };
         let fg = hsla(palette.background);
         for (label, _, (col, row)) in labels {
             if *row >= g.rows || !label.starts_with(typed.as_str()) {
