@@ -8,6 +8,7 @@ mod links;
 mod menus;
 mod outputs_panel;
 mod overlay;
+mod palette;
 mod platform;
 mod groups;
 mod session;
@@ -57,6 +58,7 @@ fn main() {
             KeyBinding::new("cmd-shift-r", RenameTab, None),
             KeyBinding::new("cmd-shift-o", ToggleOutputs, None),
             KeyBinding::new("cmd-,", OpenSettings, None),
+            KeyBinding::new("cmd-shift-p", ToggleCommandPalette, None),
             KeyBinding::new("cmd-d", SplitRight, None),
             KeyBinding::new("cmd-shift-d", SplitDown, None),
             KeyBinding::new("cmd-[", GoBack, None),

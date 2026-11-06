@@ -16,6 +16,8 @@ use crate::workspace::Workspace;
 
 pub enum Overlay {
     None,
+    /// Command palette (⌘⇧P).
+    Palette { query: String, selected: usize },
     Switcher { query: String, selected: usize },
     Overview { selected: usize },
     Rename { tab: usize, text: String },
@@ -114,6 +116,28 @@ impl Workspace {
                         _ => {}
                     }
                     Some(Overlay::Switcher { query, selected })
+                }
+            },
+            Overlay::Palette { mut query, mut selected } => match input::handle(&mut query, ev) {
+                Key::Cancel => None,
+                Key::Submit => {
+                    let cmds = crate::palette::commands(self);
+                    let pick = crate::palette::results(&cmds, &query).get(selected).copied();
+                    if let Some(c) = pick.and_then(|i| cmds.into_iter().nth(i)) {
+                        self.run_command(c.run, window, cx);
+                        return;
+                    }
+                    None
+                }
+                key => {
+                    let n = crate::palette::results(&crate::palette::commands(self), &query).len();
+                    match key {
+                        Key::Edited => selected = 0,
+                        Key::Up => selected = selected.saturating_sub(1),
+                        Key::Down => selected = (selected + 1).min(n.saturating_sub(1)),
+                        _ => {}
+                    }
+                    Some(Overlay::Palette { query, selected })
                 }
             },
             Overlay::Overview { mut selected } => {
@@ -310,6 +334,10 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                     d.child(div().p(px(14.)).text_size(px(13.)).text_color(ui.text_tertiary).child("No matching tabs"))
                 });
             Some(scrim(ws, true, cx).bg(gpui::black().opacity(0.25)).flex().justify_center().child(panel).into_any_element())
+        }
+        Overlay::Palette { query, selected } => {
+            let panel = crate::palette::render(ws, query, *selected, cx);
+            Some(scrim(ws, true, cx).bg(gpui::black().opacity(0.25)).flex().justify_center().items_start().child(panel).into_any_element())
         }
         Overlay::Overview { selected } => {
             let order = ws.visual_order();

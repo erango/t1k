@@ -284,6 +284,28 @@ impl Workspace {
             this.back.clear();
             this.forward.clear();
         }
+        // Debug aid for screenshots without a keyboard: T1K_DEBUG_OVERLAY=palette|switcher|
+        // overview|settings|menu|groupmenu|termmenu|card opens that surface at launch.
+        if let Ok(which) = std::env::var("T1K_DEBUG_OVERLAY") {
+            let at = gpui::point(px(120.), px(140.));
+            let o = match which.as_str() {
+                "palette" => Some(Overlay::Palette { query: String::new(), selected: 0 }),
+                "switcher" => Some(Overlay::Switcher { query: String::new(), selected: 0 }),
+                "overview" => Some(Overlay::Overview { selected: 0 }),
+                "settings" => Some(Overlay::Settings { section: crate::settings::Section::Appearance }),
+                "menu" => Some(Overlay::Menu { tab: this.active, at }),
+                "groupmenu" => this.tabs.get(this.active).map(|t| Overlay::GroupMenu { key: t.group.clone(), at }),
+                "termmenu" => Some(Overlay::TerminalMenu { tab: this.active, split: false, at: gpui::point(px(600.), px(200.)), link: None, has_selection: false }),
+                "card" => {
+                    this.card = this.tabs.get(this.active).map(|t| t.id.clone());
+                    None
+                }
+                _ => None,
+            };
+            if let Some(o) = o {
+                this.open_overlay(o, window, cx);
+            }
+        }
         this
     }
 
@@ -1198,6 +1220,13 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &SplitDown, window, cx| this.open_split(this.active, true, window, cx)))
             .on_action(cx.listener(|this, _: &FocusOtherPane, window, cx| this.focus_other_pane(window, cx)))
             .on_action(cx.listener(|this, _: &GoBack, window, cx| this.navigate(true, window, cx)))
+            .on_action(cx.listener(|this, _: &ToggleCommandPalette, window, cx| {
+                if matches!(this.overlay, Overlay::Palette { .. }) {
+                    this.close_overlay(window, cx);
+                } else {
+                    this.open_overlay(Overlay::Palette { query: String::new(), selected: 0 }, window, cx);
+                }
+            }))
             .on_action(cx.listener(|this, _: &GoForward, window, cx| this.navigate(false, window, cx)))
             .on_action(cx.listener(|this, _: &IncreaseFontSize, _, _| this.set_font_size(this.config.terminal.font.size + 1.)))
             .on_action(cx.listener(|this, _: &DecreaseFontSize, _, _| this.set_font_size(this.config.terminal.font.size - 1.)))

@@ -62,6 +62,7 @@ This adds hooks to `~/.claude/settings.json` and backs the file up to `settings.
 | ⌘[ / ⌘] | Back / forward through the tabs you visited (also the ‹ › buttons atop the sidebar) |
 | ⌘J | Jump to the next tab that needs you |
 | ⌘P | Find a tab |
+| ⌘⇧P | Command palette: every action, Settings page, toggle and theme |
 | ⌘O | Overview |
 | ⌘⇧O | Outputs panel |
 | ⌘⇧R | Rename tab |
