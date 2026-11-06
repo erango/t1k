@@ -7,7 +7,7 @@ T1K is a terminal for working with many Claude Code agents at once. It's built i
   - Titles come from Claude's own session title.
   - The second line shows what the agent is doing now ("Editing src/auth.rs") or its latest recap.
   - Status changes the moment Claude reports it: working, needs input, done or error.
-- **Needs-you queue.** Tabs waiting on input, tabs with errors and reminders that have gone off are counted in the sidebar, the window title and the Dock badge. ⌘J jumps to the tab that has waited longest.
+- **Needs-you queue.** Tabs waiting on input, tabs with errors and reminders that have gone off are counted in the sidebar, the window title and the Dock badge. ⌘J jumps to the tab that has waited longest. Banners say when a tab needs you; clicking one opens that tab (when T1K runs as T1K.app).
 - **Finding tabs.**
   - ⌘P is a fuzzy switcher over titles, projects, recaps, branches, PR numbers and paths.
   - ⌘O is an overview of every agent as a card.
@@ -19,12 +19,16 @@ T1K is a terminal for working with many Claude Code agents at once. It's built i
   - resume an ended Claude session
   - copy its branch or resume command
   - reveal its folder in Finder
+  - move it to another group
+- **Groups.** Right-click a group header to open a new tab there, rename it, give it a color, change how its tabs sort (needs attention, recently used, order opened) or collapse it. Closed Claude sessions fold into a "Recent" row at the end of their group; one click resumes one in a new tab.
 - **Themes.**
   - 20 built-in themes. You pick one theme for dark mode and one for light; T1K follows macOS by default, and ⌘⇧L toggles.
   - Import Ghostty, iTerm2, Alacritty, Windows Terminal or base16 schemes, from the command line or by dropping the file on the window.
 - **Terminal.**
   - Full color: truecolor and 256 colors.
-  - Links: URLs and OSC 8 hyperlinks are always visible, and ⌘-click opens them.
+  - Links: URLs and OSC 8 hyperlinks are always underlined. Holding ⌘ also lights up file paths (with `:line:col`), `#123` PR references and ticket keys like `ENG-42`. ⌘-click opens a link: files in your editor at the line, PRs in the tab's GitHub repo, tickets in your tracker. ⌘⇧U labels every link with a letter, so you can open one from the keyboard.
+  - Block and box-drawing characters are drawn by T1K, so bars are solid and borders join at any line height.
+  - macOS line editing: ⌘⌫ deletes the line, ⌘← / ⌘→ jump to its start or end, ⌥← / ⌥→ move by word.
   - Fonts: Powerline and Nerd Font icons come through fallback fonts.
   - Scrollback, mouse reporting and focus reporting.
 - **Restore.** On relaunch, tabs, folders, reminders and each tab's last Claude session come back.
@@ -63,6 +67,8 @@ This adds hooks to `~/.claude/settings.json` and backs the file up to `settings.
 | ⌘⇧L | Toggle dark / light |
 | ⌘K | Clear the screen and scrollback |
 | ⌘-click | Open a link |
+| ⌘⇧U | Label every link; type its letter to open it |
+| ⌘⌫ | Delete the line |
 
 ## Configure
 
