@@ -148,6 +148,61 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                     .child("Fold quiet tabs"),
             );
         }
+        // Recent: Claude sessions from closed tabs, folded into one quiet row.
+        let recent = ws.recent_for(&key);
+        if !recent.is_empty() {
+            let open = ws.recent_open.contains(&key);
+            let rk = key.clone();
+            list = list.child(
+                div()
+                    .id(SharedString::from(format!("recent-{}", key.display())))
+                    .h(px(26.))
+                    .flex_none()
+                    .mt(px(ROW_GAP))
+                    .mx(px(INSET))
+                    .px(px(12.))
+                    .rounded(px(6.))
+                    .flex()
+                    .items_center()
+                    .gap(px(9.))
+                    .text_size(px(12. * k))
+                    .text_color(ui.text_tertiary)
+                    .hover(move |d| d.bg(ui.bg_hover).text_color(ui.text_secondary))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if !this.recent_open.remove(&rk) {
+                            this.recent_open.insert(rk.clone());
+                        }
+                        cx.notify();
+                    }))
+                    .child(div().w(px(12.)).text_size(px(9. * k)).child(if open { "▼" } else { "▶" }))
+                    .child(format!("Recent {}", recent.len())),
+            );
+            if open {
+                for r in recent {
+                    let sid = r.session_id.clone();
+                    list = list.child(
+                        div()
+                            .id(SharedString::from(format!("recent-{sid}")))
+                            .h(px(28.))
+                            .flex_none()
+                            .mt(px(ROW_GAP))
+                            .mx(px(INSET))
+                            .pl(px(33.))
+                            .pr(px(12.))
+                            .rounded(px(6.))
+                            .flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .text_size(px(12. * k))
+                            .text_color(ui.text_tertiary)
+                            .hover(move |d| d.bg(ui.bg_hover).text_color(ui.text_primary))
+                            .on_click(cx.listener(move |this, _, window, cx| this.reopen_recent(&sid, window, cx)))
+                            .child(div().flex_1().min_w_0().truncate().child(r.title.clone()))
+                            .child(div().flex_none().text_size(px(11. * k)).child(format!("↺ {}", ago(r.ended_at)))),
+                    );
+                }
+            }
+        }
     }
 
     div()
@@ -366,6 +421,17 @@ fn glyph(tab: &Tab, ui: UiColors, started: Instant, running: bool, k: f32) -> Di
         Some(Status::Done) | Some(Status::Idle) => slot,
         None if running => slot.child(div().size(px(5.)).rounded_full().bg(ui.status_working)),
         None => slot,
+    }
+}
+
+/// "5m", "3h", "2d" since a unix time.
+fn ago(unix: u64) -> String {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(unix);
+    let s = now.saturating_sub(unix);
+    match s {
+        0..=3599 => format!("{}m", (s / 60).max(1)),
+        3600..=86399 => format!("{}h", s / 3600),
+        _ => format!("{}d", s / 86400),
     }
 }
 

@@ -17,6 +17,32 @@ pub struct SavedTab {
     pub last_session: Option<String>,
 }
 
+/// A Claude session that no tab holds any more (tab closed, or replaced by a newer session).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Recent {
+    pub group: PathBuf,
+    pub cwd: PathBuf,
+    pub session_id: String,
+    pub title: String,
+    /// Unix seconds.
+    pub ended_at: u64,
+}
+
+/// Newest 6 per group, nothing older than 14 days, one entry per session.
+pub fn prune_recent(v: &mut Vec<Recent>, now: u64) {
+    v.sort_by(|a, b| b.ended_at.cmp(&a.ended_at));
+    let mut seen = std::collections::HashSet::new();
+    let mut per_group: std::collections::HashMap<PathBuf, usize> = std::collections::HashMap::new();
+    v.retain(|r| {
+        let n = per_group.entry(r.group.clone()).or_default();
+        let keep = now.saturating_sub(r.ended_at) < 14 * 86400 && seen.insert(r.session_id.clone()) && *n < 6;
+        if keep {
+            *n += 1;
+        }
+        keep
+    });
+}
+
 #[derive(Serialize, Deserialize, Default, Debug, Clone)]
 pub struct Session {
     pub tabs: Vec<SavedTab>,
@@ -36,6 +62,8 @@ pub struct Session {
     pub theme_dark: Option<String>,
     #[serde(default)]
     pub theme_light: Option<String>,
+    #[serde(default)]
+    pub recent: Vec<Recent>,
 }
 
 pub fn support_dir() -> Option<PathBuf> {
@@ -75,4 +103,25 @@ pub fn find_transcript(session_id: &str) -> Option<PathBuf> {
     let projects = PathBuf::from(std::env::var_os("HOME")?).join(".claude/projects");
     let name = format!("{session_id}.jsonl");
     std::fs::read_dir(projects).ok()?.flatten().map(|d| d.path().join(&name)).find(|p| p.is_file())
+}
+
+#[cfg(test)]
+mod recent_tests {
+    use super::*;
+
+    fn r(g: &str, id: &str, at: u64) -> Recent {
+        Recent { group: g.into(), cwd: g.into(), session_id: id.into(), title: id.into(), ended_at: at }
+    }
+
+    #[test]
+    fn prune_keeps_newest_per_group() {
+        let now = 100 * 86400;
+        let mut v: Vec<Recent> = (0..8).map(|i| r("/a", &format!("s{i}"), now - i * 60)).collect();
+        v.push(r("/b", "old", now - 15 * 86400));
+        v.push(r("/b", "s0", now - 30)); // duplicate id
+        prune_recent(&mut v, now);
+        assert_eq!(v.iter().filter(|x| x.group == PathBuf::from("/a")).count(), 6);
+        assert!(!v.iter().any(|x| x.session_id == "old"));
+        assert_eq!(v.iter().filter(|x| x.session_id == "s0").count(), 1);
+    }
 }

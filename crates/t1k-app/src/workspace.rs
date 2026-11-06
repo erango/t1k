@@ -116,6 +116,10 @@ pub struct Workspace {
     pub collapsed: HashSet<PathBuf>,
     /// Groups whose quiet tabs are shown even in calm mode.
     pub show_quiet: HashSet<PathBuf>,
+    /// Ended Claude sessions per project, newest first (persisted).
+    pub recent: Vec<session::Recent>,
+    /// Groups whose Recent list is expanded.
+    pub recent_open: HashSet<PathBuf>,
     pub group_names: HashMap<PathBuf, String>,
     pub sidebar_open: bool,
     /// Sidebar shows two-line rows (hover intent or ⌥ held).
@@ -205,6 +209,8 @@ impl Workspace {
             focus_handle: cx.focus_handle(),
             collapsed: saved.collapsed.iter().cloned().collect(),
             show_quiet: HashSet::new(),
+            recent: Vec::new(),
+            recent_open: HashSet::new(),
             group_names: saved.group_names.iter().cloned().collect(),
             sidebar_open: saved.sidebar_open.unwrap_or(true),
             card: None,
@@ -232,6 +238,7 @@ impl Workspace {
         cx.observe_window_appearance(window, |this, window, cx| this.apply_theme(window, cx)).detach();
         this.apply_theme(window, cx);
 
+        this.recent = saved.recent.clone();
         let restore: Vec<SavedTab> = saved.tabs.into_iter().filter(|t| t.cwd.as_ref().is_none_or(|p| p.is_dir())).collect();
         if restore.is_empty() || std::env::var_os("T1K_FRESH").is_some() {
             this.open_tab(None, None, window, cx);
@@ -406,6 +413,7 @@ impl Workspace {
         let order = self.visual_order();
         let pos = order.iter().position(|&i| i == ix).unwrap_or(0);
         let next = order.get(pos + 1).or_else(|| pos.checked_sub(1).and_then(|p| order.get(p))).copied();
+        self.remember_session(ix);
         self.tabs.remove(ix);
         if self.tabs.is_empty() {
             self.save();
@@ -534,8 +542,14 @@ impl Workspace {
         let sid = session_id.unwrap_or_default();
         let new_session = tab.agent.as_ref().is_none_or(|a| !sid.is_empty() && a.session_id != sid);
         if new_session {
+            // The session this tab held before goes to Recent.
+            if tab.agent.as_ref().is_some_and(|a| !a.session_id.is_empty()) {
+                self.remember_session(ix);
+            }
+            let tab = &mut self.tabs[ix];
             tab.agent = Some(AgentState::new(sid));
         }
+        let tab = &mut self.tabs[ix];
         let before = tab.agent.as_ref().map(|a| a.status.clone());
         let finished = tab.agent.as_mut().unwrap().apply_hook(hook);
         if finished && !visible {
@@ -585,6 +599,38 @@ impl Workspace {
     }
 
     /// Type `claude --resume <id>` into a tab sitting at its shell prompt.
+    /// Put a tab's Claude session into Recent (on close, or when a new session replaces it).
+    fn remember_session(&mut self, ix: usize) {
+        let Some(t) = self.tabs.get(ix) else { return };
+        let sid = t.agent.as_ref().map(|a| a.session_id.clone()).filter(|s| !s.is_empty()).or_else(|| t.last_session.clone());
+        let (Some(sid), Some(cwd)) = (sid, t.cwd.clone()) else { return };
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        self.recent.insert(
+            0,
+            session::Recent { group: t.group.clone(), cwd, session_id: sid, title: t.title(), ended_at: now },
+        );
+        session::prune_recent(&mut self.recent, now);
+    }
+
+    /// Recent sessions for a group that no open tab holds.
+    pub fn recent_for(&self, group: &PathBuf) -> Vec<&session::Recent> {
+        let open: HashSet<&str> = self.tabs.iter().filter_map(|t| t.agent.as_ref()).map(|a| a.session_id.as_str()).collect();
+        self.recent.iter().filter(|r| &r.group == group && !open.contains(r.session_id.as_str())).collect()
+    }
+
+    /// Open a Recent session in a new tab: `claude --resume` in its folder.
+    pub fn reopen_recent(&mut self, session_id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(r) = self.recent.iter().find(|r| r.session_id == session_id).cloned() else { return };
+        let cwd = r.cwd.is_dir().then(|| r.cwd.clone());
+        self.open_tab(cwd, None, window, cx);
+        let ix = self.tabs.len() - 1;
+        self.tabs[ix].last_session = Some(r.session_id.clone());
+        // The shell reads this once it's up; typeahead is kept until then.
+        self.tabs[ix].view.read(cx).terminal.write(format!("claude --resume {}\r", r.session_id).into_bytes());
+        self.recent.retain(|x| x.session_id != r.session_id);
+        self.save();
+    }
+
     pub fn resume_session(&mut self, tab: usize, session_id: &str, cx: &mut Context<Self>) {
         if let Some(t) = self.tabs.get(tab) {
             if t.program.is_none() {
@@ -655,6 +701,7 @@ impl Workspace {
             group_names: self.group_names.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             sidebar_open: Some(self.sidebar_open),
             outputs_open: self.panel.open,
+            recent: self.recent.clone(),
             ..Default::default()
         }
     }
