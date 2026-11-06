@@ -107,6 +107,8 @@ pub struct Workspace {
     pub active: usize,
     focus_handle: FocusHandle,
     pub collapsed: HashSet<PathBuf>,
+    /// Groups whose quiet tabs are shown even in calm mode.
+    pub show_quiet: HashSet<PathBuf>,
     pub group_names: HashMap<PathBuf, String>,
     pub sidebar_open: bool,
     /// Sidebar shows two-line rows (hover intent or ⌥ held).
@@ -189,6 +191,7 @@ impl Workspace {
             active: 0,
             focus_handle: cx.focus_handle(),
             collapsed: saved.collapsed.iter().cloned().collect(),
+            show_quiet: HashSet::new(),
             group_names: saved.group_names.iter().cloned().collect(),
             sidebar_open: saved.sidebar_open.unwrap_or(true),
             detail: false,
@@ -526,10 +529,33 @@ impl Workspace {
     }
 
     pub fn jump_next_needs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.walk_needs(1, window, cx);
+    }
+
+    /// Walk the Needs-you queue (longest-waiting first) from the current tab.
+    fn walk_needs(&mut self, dir: isize, window: &mut Window, cx: &mut Context<Self>) {
         let q = self.needs_queue();
-        if let Some(&ix) = q.iter().find(|&&i| i != self.active).or(q.first()) {
-            self.activate(ix, window, cx);
+        if q.is_empty() {
+            return;
         }
+        let n = q.len() as isize;
+        let next = match q.iter().position(|&i| i == self.active) {
+            Some(p) => q[((p as isize + dir).rem_euclid(n)) as usize],
+            None if dir > 0 => q[0],
+            None => q[(n - 1) as usize],
+        };
+        self.activate(next, window, cx);
+    }
+
+    /// Tabs folded into "+N quiet" in calm mode: nothing to see, not selected.
+    pub fn is_quiet(&self, i: usize) -> bool {
+        let t = &self.tabs[i];
+        i != self.active
+            && !t.unread
+            && !t.reminder_due
+            && t.reminder_at.is_none()
+            && t.program.is_none()
+            && matches!(t.status(), None | Some(Status::Done) | Some(Status::Idle) | Some(Status::Ended))
     }
 
     pub fn session(&self) -> Session {
@@ -847,6 +873,7 @@ impl Render for Workspace {
                 this.import_themes(paths.paths(), window, cx);
             }))
             .on_action(cx.listener(Self::jump_to_needs))
+            .on_action(cx.listener(|this, _: &JumpToNeedsBack, window, cx| this.walk_needs(-1, window, cx)))
             .on_action(cx.listener(|this, _: &ToggleSwitcher, window, cx| {
                 if matches!(this.overlay, Overlay::Switcher { .. }) {
                     this.close_overlay(window, cx);

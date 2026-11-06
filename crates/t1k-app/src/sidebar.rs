@@ -31,6 +31,8 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             list = list.child(div().mt(px(8.)).mb(px(12.)).mx(px(12.)).h(px(1.)).bg(ui.border));
         }
         let label = ws.group_label(&key);
+        let renamed = ws.group_names.contains_key(&key);
+        let folder = crate::groups::label(&key);
         let count = tabs.len();
         let has_active = tabs.contains(&ws.active);
         let toggle_key = key.clone();
@@ -46,7 +48,14 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 .items_center()
                 .gap(px(6.))
                 .hover(move |d| d.bg(ui.bg_hover))
-                .on_click(cx.listener(move |this, _, _, cx| this.toggle_group(toggle_key.clone(), cx)))
+                .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
+                    this.toggle_group(toggle_key.clone(), cx);
+                    if ev.click_count() == 2 {
+                        // Second click undid the collapse; open rename instead.
+                        let text = this.group_label(&toggle_key);
+                        this.open_overlay(crate::overlay::Overlay::RenameGroup { key: toggle_key.clone(), text }, window, cx);
+                    }
+                }))
                 .child(
                     div()
                         .w(px(12.))
@@ -63,6 +72,10 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                         .text_color(ui.text_secondary)
                         .child(label),
                 )
+                .when(renamed, |d| {
+                    // Renamed groups keep the real folder name visible.
+                    d.child(div().flex_none().text_size(px(10.)).font_family("JetBrains Mono").text_color(ui.text_disabled).child(folder.clone()))
+                })
                 .when(collapsed, |d| {
                     // Collapsed summary: tab count, accent if it hides the active tab.
                     d.child(
@@ -76,8 +89,64 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         if collapsed {
             continue;
         }
+        // Calm mode folds quiet tabs (nothing new, not selected) into one "+N quiet" row.
+        let fold = !detail && !ws.show_quiet.contains(&key);
+        let quiet: Vec<usize> = tabs.iter().copied().filter(|&i| ws.is_quiet(i)).collect();
+        let fold = fold && quiet.len() >= 2;
         for ix in tabs {
+            if fold && quiet.contains(&ix) {
+                continue;
+            }
             list = list.child(row(ws, ix, detail, cx));
+        }
+        if fold {
+            let k = key.clone();
+            list = list.child(
+                div()
+                    .id(SharedString::from(format!("quiet-{}", key.display())))
+                    .h(px(26.))
+                    .flex_none()
+                    .mt(px(ROW_GAP))
+                    .mx(px(INSET))
+                    .px(px(12.))
+                    .rounded(px(6.))
+                    .flex()
+                    .items_center()
+                    .gap(px(9.))
+                    .text_size(px(12.))
+                    .text_color(ui.text_tertiary)
+                    .hover(move |d| d.bg(ui.bg_hover).text_color(ui.text_secondary))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.show_quiet.insert(k.clone());
+                        cx.notify();
+                    }))
+                    .child(div().w(px(12.)))
+                    .child(format!("+{} quiet", quiet.len())),
+            );
+        } else if ws.show_quiet.contains(&key) && !detail && quiet.len() >= 2 {
+            let k = key.clone();
+            list = list.child(
+                div()
+                    .id(SharedString::from(format!("unquiet-{}", key.display())))
+                    .h(px(26.))
+                    .flex_none()
+                    .mt(px(ROW_GAP))
+                    .mx(px(INSET))
+                    .px(px(12.))
+                    .rounded(px(6.))
+                    .flex()
+                    .items_center()
+                    .gap(px(9.))
+                    .text_size(px(12.))
+                    .text_color(ui.text_tertiary)
+                    .hover(move |d| d.bg(ui.bg_hover))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.show_quiet.remove(&k);
+                        cx.notify();
+                    }))
+                    .child(div().w(px(12.)))
+                    .child("Fold quiet tabs"),
+            );
         }
     }
 

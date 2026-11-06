@@ -47,6 +47,7 @@ fn main() {
             KeyBinding::new("cmd-shift-l", ToggleAppearance, None),
             KeyBinding::new("cmd-\\", ToggleSidebar, None),
             KeyBinding::new("cmd-j", JumpToNeeds, None),
+            KeyBinding::new("cmd-shift-j", JumpToNeedsBack, None),
             KeyBinding::new("cmd-p", ToggleSwitcher, None),
             KeyBinding::new("cmd-o", ToggleOverview, None),
             KeyBinding::new("cmd-shift-r", RenameTab, None),

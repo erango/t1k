@@ -19,6 +19,7 @@ pub enum Overlay {
     Switcher { query: String, selected: usize },
     Overview { selected: usize },
     Rename { tab: usize, text: String },
+    RenameGroup { key: std::path::PathBuf, text: String },
     Menu { tab: usize, at: Point<Pixels> },
     Settings { section: crate::settings::Section },
 }
@@ -156,6 +157,20 @@ impl Workspace {
                 }
                 Key::Cancel => None,
                 _ => Some(Overlay::Rename { tab, text }),
+            },
+            Overlay::RenameGroup { key, mut text } => match input::handle(&mut text, ev) {
+                Key::Submit => {
+                    let text = text.trim().to_string();
+                    if text.is_empty() || text == groups::label(&key) {
+                        self.group_names.remove(&key);
+                    } else {
+                        self.group_names.insert(key, text);
+                    }
+                    self.save();
+                    None
+                }
+                Key::Cancel => None,
+                _ => Some(Overlay::RenameGroup { key, text }),
             },
             Overlay::Menu { tab, at } => (ev.keystroke.key != "escape").then_some(Overlay::Menu { tab, at }),
             Overlay::Settings { section } => (ev.keystroke.key != "escape").then_some(Overlay::Settings { section }),
@@ -315,8 +330,20 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                     .into_any_element(),
             )
         }
-        Overlay::Rename { tab, text } => {
-            let label = ws.tabs.get(*tab).map(|t| ws.group_label(&t.group)).unwrap_or_default();
+        Overlay::Rename { .. } | Overlay::RenameGroup { .. } => {
+            let (title, text, hint) = match &ws.overlay {
+                Overlay::Rename { tab, text } => (
+                    format!("Rename tab in {}", ws.tabs.get(*tab).map(|t| ws.group_label(&t.group)).unwrap_or_default()),
+                    text,
+                    "Enter to save · empty resets to the automatic title · Esc",
+                ),
+                Overlay::RenameGroup { key, text } => (
+                    format!("Rename group · folder {}", groups::tilde(key)),
+                    text,
+                    "Enter to save · empty resets to the folder name · Esc",
+                ),
+                _ => unreachable!(),
+            };
             let panel = div()
                 .w(px(420.))
                 .mt(px(120.))
@@ -330,7 +357,7 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                 .flex_col()
                 .gap(px(8.))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .child(div().text_size(px(12.)).text_color(ui.text_tertiary).child(format!("Rename tab in {label}")))
+                .child(div().text_size(px(12.)).text_color(ui.text_tertiary).child(title))
                 .child(
                     div()
                         .h(px(34.))
@@ -343,7 +370,7 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                         .text_color(ui.text_primary)
                         .child(format!("{text}▏")),
                 )
-                .child(div().text_size(px(11.)).text_color(ui.text_tertiary).child("Enter to save · empty resets to the automatic title · Esc"));
+                .child(div().text_size(px(11.)).text_color(ui.text_tertiary).child(hint));
             Some(scrim(ws, true, cx).flex().justify_center().child(panel).into_any_element())
         }
         Overlay::Settings { section } => {
