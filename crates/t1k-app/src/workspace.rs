@@ -176,6 +176,8 @@ pub struct Workspace {
     /// Tabs visited before / after the current one (ids), for ⌘[ / ⌘].
     /// Whether T1K's Claude Code hooks are in ~/.claude/settings.json (refreshed while polling).
     pub hooks_installed: bool,
+    /// Text typed into Settings' search.
+    pub settings_query: String,
     pub back: Vec<String>,
     pub forward: Vec<String>,
     navigating: bool,
@@ -284,6 +286,7 @@ impl Workspace {
             ui: dark.ui(),
             overlay: Overlay::None,
             hooks_installed: crate::settings::claude_hooks_installed(),
+            settings_query: String::new(),
             back: Vec::new(),
             forward: Vec::new(),
             navigating: false,
@@ -370,6 +373,11 @@ impl Workspace {
                 "switcher" => Some(Overlay::Switcher { query: String::new(), selected: 0 }),
                 "overview" => Some(Overlay::Overview { selected: 0 }),
                 "settings" => Some(Overlay::Settings { section: crate::settings::Section::Appearance }),
+                "settings-interface" => Some(Overlay::Settings { section: crate::settings::Section::Interface }),
+                "settings-search" => {
+                    this.settings_query = "font".into();
+                    Some(Overlay::Settings { section: crate::settings::Section::Appearance })
+                }
                 "menu" => Some(Overlay::Menu { tab: this.active, at }),
                 "groupmenu" => this.tabs.get(this.active).map(|t| Overlay::GroupMenu { key: t.group.clone(), at }),
                 "termmenu" => Some(Overlay::TerminalMenu { tab: this.active, split: false, at: gpui::point(px(600.), px(200.)), link: None, has_selection: false }),

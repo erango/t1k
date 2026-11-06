@@ -58,18 +58,40 @@ impl Workspace {
         s
     }
 
+    /// Which field a query matched best, for the switcher's tag ("branch", "recap"...).
+    pub fn matched_field(&self, i: usize, query: &str) -> Option<&'static str> {
+        if query.trim().is_empty() {
+            return None;
+        }
+        let t = &self.tabs[i];
+        let a = t.agent.as_ref();
+        let fields: Vec<(&'static str, String)> = vec![
+            ("title", t.title()),
+            ("project", self.group_label(&t.group)),
+            ("branch", t.branch().unwrap_or_default()),
+            ("PR", a.map(|a| a.prs.iter().map(|(n, _)| format!("#{n} PR{n}")).collect::<Vec<_>>().join(" ")).unwrap_or_default()),
+            ("now", a.and_then(|a| a.now.clone()).unwrap_or_default()),
+            ("recap", a.and_then(|a| a.recap.clone()).unwrap_or_default()),
+            ("prompt", a.and_then(|a| a.first_prompt.clone()).unwrap_or_default()),
+            ("path", t.cwd.as_deref().map(groups::tilde).unwrap_or_default()),
+        ];
+        let hays: Vec<String> = fields.iter().map(|(_, v)| v.clone()).collect();
+        fuzzy(query, &hays).into_iter().max_by_key(|&(score, _)| score).map(|(_, k)| fields[k].0)
+    }
+
     /// Switcher ranking: match score, then needs-you first, then most recently used.
     pub fn switcher_results(&self, query: &str) -> Vec<usize> {
         let mut idx: Vec<usize> = (0..self.tabs.len()).collect();
         if query.trim().is_empty() {
-            idx.sort_by_key(|&i| (self.tabs[i].urgency().min(2), std::cmp::Reverse(self.tabs[i].last_active)));
+            idx.sort_by_key(|&i| (!self.tabs[i].needs_you(), self.tabs[i].urgency().min(2), std::cmp::Reverse(self.tabs[i].last_active)));
             return idx;
         }
         let hays: Vec<String> = idx.iter().map(|&i| self.haystack(i)).collect();
         let mut scored: Vec<(u32, usize)> =
             fuzzy(query, &hays).into_iter().map(|(s, k)| (s, idx[k])).collect();
+        // Tabs that need you always lead (their own section), then by score.
         scored.sort_by_key(|&(s, i)| {
-            (std::cmp::Reverse(s), self.tabs[i].urgency().min(2), std::cmp::Reverse(self.tabs[i].last_active))
+            (!self.tabs[i].needs_you(), std::cmp::Reverse(s), self.tabs[i].urgency().min(2), std::cmp::Reverse(self.tabs[i].last_active))
         });
         scored.into_iter().map(|(_, i)| i).collect()
     }
@@ -83,6 +105,7 @@ impl Workspace {
 
     pub fn close_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.overlay = Overlay::None;
+        self.settings_query.clear();
         if let Some(t) = self.tabs.get(self.active) {
             let h = gpui::Focusable::focus_handle(t.view.read(cx), cx);
             window.focus(&h);
@@ -209,7 +232,15 @@ impl Workspace {
             o @ Overlay::TerminalMenu { .. } => (ev.keystroke.key != "escape").then_some(o),
             o @ Overlay::SidebarView { .. } => (ev.keystroke.key != "escape").then_some(o),
             o @ Overlay::MoreMenu { .. } => (ev.keystroke.key != "escape").then_some(o),
-            Overlay::Settings { section } => (ev.keystroke.key != "escape").then_some(Overlay::Settings { section }),
+            // Typing searches; Esc clears the search, then closes.
+            Overlay::Settings { section } => match input::handle(&mut self.settings_query, ev) {
+                Key::Cancel if !self.settings_query.is_empty() => {
+                    self.settings_query.clear();
+                    Some(Overlay::Settings { section })
+                }
+                Key::Cancel => None,
+                _ => Some(Overlay::Settings { section }),
+            },
         };
         match next {
             Some(o) => {
@@ -281,35 +312,72 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
         Overlay::Switcher { query, selected } => {
             let results = ws.switcher_results(query);
             let selected = *selected;
-            let rows = results.iter().take(9).enumerate().map(|(n, &i)| {
+            // Sections: NEEDS YOU first, then everything else.
+            let needs_count = results.iter().take(9).filter(|&&i| ws.tabs[i].needs_you()).count();
+            let section = |label: &'static str, color: gpui::Hsla| {
+                div().h(px(22.)).px(px(14.)).flex().items_center().text_size(px(10.5)).font_weight(FontWeight::SEMIBOLD).text_color(color).child(label)
+            };
+            let mut rows: Vec<AnyElement> = Vec::new();
+            for (n, &i) in results.iter().take(9).enumerate() {
+                if n == 0 && needs_count > 0 {
+                    rows.push(section("NEEDS YOU", ui.status_needs).into_any_element());
+                }
+                if n == needs_count && (needs_count > 0 || !query.is_empty()) {
+                    rows.push(section(if query.is_empty() { "TABS" } else { "MATCHES" }, ui.text_tertiary).into_any_element());
+                }
                 let t = &ws.tabs[i];
                 let is_sel = n == selected;
-                div()
-                    .id(SharedString::from(format!("sw-{i}")))
-                    .h(px(54.))
-                    .px(px(14.))
-                    .rounded(px(8.))
-                    .flex()
-                    .flex_col()
-                    .justify_center()
-                    .gap(px(2.))
-                    .when(is_sel, |d| d.bg(ui.bg_selected))
-                    .hover(move |d| d.bg(ui.bg_hover))
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.close_overlay(window, cx);
-                        this.activate(i, window, cx);
-                    }))
-                    .child(
-                        div()
-                            .flex()
-                            .gap(px(8.))
-                            .items_center()
-                            .child(crate::sidebar::glyph(t, ui, ws.started, t.program.is_some(), 1.))
-                            .child(div().flex_1().truncate().text_size(px(14.)).text_color(ui.text_primary).child(t.title()))
-                            .child(div().text_size(px(11.)).text_color(ui.text_tertiary).child(ws.group_label(&t.group))),
-                    )
-                    .child(div().pl(px(20.)).truncate().text_size(px(12.)).text_color(ui.text_quiet).child(t.subtitle()))
-            });
+                let tag = ws.matched_field(i, query);
+                let age = t.agent.as_ref().map(|a| {
+                    let s = a.since.elapsed().as_secs();
+                    if s < 60 { format!("{s}s") } else if s < 3600 { format!("{}m", s / 60) } else { format!("{}h", s / 3600) }
+                });
+                let sub_color = match t.status() {
+                    Some(Status::NeedsInput { .. }) => ui.status_needs,
+                    Some(Status::Ended) => ui.text_disabled,
+                    _ => ui.text_quiet,
+                };
+                rows.push(
+                    div()
+                        .id(SharedString::from(format!("sw-{i}")))
+                        .h(px(54.))
+                        .px(px(12.))
+                        .rounded(px(7.))
+                        .flex()
+                        .items_center()
+                        .gap(px(12.))
+                        .when(is_sel, |d| d.bg(ui.bg_selected))
+                        .hover(move |d| d.bg(ui.bg_hover))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.close_overlay(window, cx);
+                            this.activate(i, window, cx);
+                        }))
+                        .child(crate::app_icon::badge(t, ui))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .gap(px(2.))
+                                .child(
+                                    div()
+                                        .flex()
+                                        .gap(px(8.))
+                                        .items_center()
+                                        .child(div().min_w_0().truncate().text_size(px(13.5)).text_color(ui.text_primary).child(t.title()))
+                                        .child(div().flex_none().text_size(px(12.)).text_color(ui.text_tertiary).child(ws.group_label(&t.group)))
+                                        .children(t.branch().map(|b| div().flex_none().text_size(px(11.5)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(b))),
+                                )
+                                .child(div().truncate().text_size(px(12.)).text_color(sub_color).child(t.subtitle())),
+                        )
+                        .children(tag.map(|f| {
+                            div().flex_none().px(px(6.)).h(px(18.)).flex().items_center().rounded(px(4.)).border_1().border_color(ui.border).text_size(px(10.5)).text_color(ui.text_tertiary).child(f)
+                        }))
+                        .child(div().w(px(44.)).flex_none().flex().justify_end().text_size(px(11.)).font_family("JetBrains Mono").text_color(ui.text_tertiary).children(age))
+                        .into_any_element(),
+                );
+            }
             let panel = div()
                 .w(px(720.))
                 .max_h(px(560.))
@@ -1140,7 +1208,7 @@ fn sidebar_view_menu(ws: &Workspace, at: Point<Pixels>, cx: &mut Context<Workspa
     m = m.child(sep());
     m = m.child(
         check("sv-more".into(), "More in Settings…", false).on_click(cx.listener(|this, _, window, cx| {
-            this.open_overlay(Overlay::Settings { section: crate::settings::Section::Sidebar }, window, cx)
+            this.open_overlay(Overlay::Settings { section: crate::settings::Section::Interface }, window, cx)
         })),
     );
     m.into_any_element()

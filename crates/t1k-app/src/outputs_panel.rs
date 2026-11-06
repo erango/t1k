@@ -232,118 +232,175 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
     }
 
     let mut list = div().id("outputs-list").flex_1().min_h_0().overflow_y_scroll().px(px(6.)).pb(px(12.)).flex().flex_col();
-    for (n, (tab, o)) in items.iter().enumerate() {
-        let target = o.target.clone();
-        let copy_target = o.target.clone();
-        let is_file = o.kind == Kind::File;
-        let tab_title = ws.tabs.get(*tab).map(|t| t.title()).unwrap_or_default();
-        let pr = (o.kind == Kind::Pr).then(|| ws.panel.prs.get(&o.target).cloned().flatten()).flatten();
-        let badge = pr.map(|p| {
-            let (label, color) = match (p.state.as_str(), p.draft) {
-                ("MERGED", _) => ("Merged", ui.accent),
-                ("CLOSED", _) => ("Closed", ui.text_tertiary),
-                (_, true) => ("Draft", ui.text_tertiary),
-                _ => ("Open", ui.status_done),
-            };
-            let (ok, bad, wait) = p.checks;
-            let ci = if bad > 0 {
-                Some(("✗", ui.status_error))
-            } else if wait > 0 {
-                Some(("•", ui.status_needs))
-            } else if ok > 0 {
-                Some(("✓", ui.status_done))
-            } else {
-                None
-            };
-            div()
-                .flex()
-                .gap(px(4.))
-                .items_center()
-                .text_size(px(11. * k))
-                .children(ci.map(|(g, c)| div().text_color(c).child(g)))
-                .child(div().text_color(color).child(label))
-        });
-        let row_id = SharedString::from(format!("out-{n}"));
+    // Sections by kind (design): PRs as cards first, then docs/artifacts, tickets, deploys, files.
+    let sections: [(&str, &[Kind]); 5] = [
+        ("PULL REQUESTS", &[Kind::Pr]),
+        ("DOCS + ARTIFACTS", &[Kind::Doc, Kind::Artifact]),
+        ("TICKETS", &[Kind::Ticket]),
+        ("DEPLOYS", &[Kind::Deploy]),
+        ("FILES", &[Kind::File]),
+    ];
+    let mut n = 0usize;
+    for (label, kinds) in sections {
+        let in_section: Vec<&&(usize, Output)> = items.iter().filter(|(_, o)| kinds.contains(&o.kind)).collect();
+        if in_section.is_empty() {
+            continue;
+        }
         list = list.child(
             div()
-                .id(row_id.clone())
-                .group(row_id.clone())
-                .h(px(44.))
-                .flex_none()
-                .px(px(8.))
-                .rounded(px(6.))
+                .h(px(24.))
+                .mt(px(6.))
+                .px(px(10.))
                 .flex()
                 .items_center()
-                .gap(px(10.))
-                .hover(move |d| d.bg(ui.bg_hover))
-                .on_click(cx.listener(move |_, _, _, cx| {
-                    if is_file {
-                        cx.open_with_system(std::path::Path::new(&target));
-                    } else {
-                        cx.open_url(&target);
-                    }
-                }))
-                .child(div().w(px(16.)).flex_none().text_size(px(13. * k)).text_color(ui.text_tertiary).child(icon(o.kind)))
-                .child(
+                .gap(px(6.))
+                .text_size(px(10.5 * k))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(ui.text_tertiary)
+                .child(label)
+                .child(div().font_family("JetBrains Mono").text_color(ui.text_disabled).child(in_section.len().to_string())),
+        );
+        for (tab, o) in in_section.into_iter().map(|x| (x.0, &x.1)) {
+            n += 1;
+            let target = o.target.clone();
+            let copy_target = o.target.clone();
+            let is_file = o.kind == Kind::File;
+            let tab_title = ws.tabs.get(tab).map(|t| t.title()).unwrap_or_default();
+            let row_id = SharedString::from(format!("out-{n}"));
+            let open = cx.listener(move |_, _, _, cx| {
+                if is_file {
+                    cx.open_with_system(std::path::Path::new(&target));
+                } else {
+                    cx.open_url(&target);
+                }
+            });
+            let hover_buttons = {
+                let q = needle(o);
+                let tab_ix = tab;
+                let rid = row_id.clone();
+                div()
+                    .flex()
+                    .gap(px(2.))
+                    .invisible()
+                    .group_hover(rid, |s| s.visible())
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("show-{n}")))
+                            .px(px(6.))
+                            .h(px(22.))
+                            .rounded(px(5.))
+                            .flex()
+                            .items_center()
+                            .text_size(px(11. * k))
+                            .text_color(ui.text_tertiary)
+                            .hover(move |d| d.bg(ui.bg_control).text_color(ui.text_primary))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                cx.stop_propagation();
+                                this.activate(tab_ix, window, cx);
+                                let view = this.tabs[tab_ix].view.clone();
+                                view.update(cx, |v, cx| v.find_text(&q, cx));
+                            }))
+                            .child("Show"),
+                    )
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("copy-{n}")))
+                            .px(px(6.))
+                            .h(px(22.))
+                            .rounded(px(5.))
+                            .flex()
+                            .items_center()
+                            .text_size(px(11. * k))
+                            .text_color(ui.text_tertiary)
+                            .hover(move |d| d.bg(ui.bg_control).text_color(ui.text_primary))
+                            .on_click(cx.listener(move |_, _, _, cx| {
+                                cx.stop_propagation();
+                                cx.write_to_clipboard(ClipboardItem::new_string(copy_target.clone()));
+                            }))
+                            .child("Copy"),
+                    )
+            };
+            if o.kind == Kind::Pr {
+                // PR card: number, state, CI summary, tab and age.
+                let pr = ws.panel.prs.get(&o.target).cloned().flatten();
+                let (state, state_color) = match pr.as_ref().map(|p| (p.state.as_str(), p.draft)) {
+                    Some(("MERGED", _)) => ("Merged", ui.accent),
+                    Some(("CLOSED", _)) => ("Closed", ui.text_tertiary),
+                    Some((_, true)) => ("Draft", ui.text_tertiary),
+                    Some(_) => ("Open", ui.link),
+                    None => ("…", ui.text_disabled),
+                };
+                let checks = pr.map(|p| p.checks).unwrap_or((0, 0, 0));
+                list = list.child(
                     div()
-                        .flex_1()
-                        .min_w_0()
+                        .id(row_id.clone())
+                        .group(row_id.clone())
+                        .mx(px(4.))
+                        .mb(px(6.))
+                        .p(px(10.))
+                        .rounded(px(8.))
+                        .bg(ui.bg_raised)
+                        .border_1()
+                        .border_color(ui.border)
                         .flex()
                         .flex_col()
-                        .gap(px(1.))
-                        .child(div().truncate().text_size(px(13. * k)).text_color(ui.text_primary).child(o.label.clone()))
+                        .gap(px(6.))
+                        .hover(move |d| d.border_color(ui.text_disabled))
+                        .on_click(open)
                         .child(
                             div()
-                                .truncate()
-                                .text_size(px(11. * k))
-                                .text_color(ui.text_tertiary)
-                                .child(format!("{tab_title} · {}", age(o.at))),
-                        ),
-                )
-                .children(badge)
-                .child({
-                    let tab_ix = *tab;
-                    let q = needle(o);
-                    div()
-                        .id(SharedString::from(format!("show-{n}")))
-                        .invisible()
-                        .group_hover(row_id.clone(), |s| s.visible())
-                        .px(px(6.))
-                        .h(px(22.))
-                        .rounded(px(5.))
-                        .flex()
-                        .items_center()
-                        .text_size(px(11. * k))
-                        .text_color(ui.text_tertiary)
-                        .hover(move |d| d.bg(ui.bg_control).text_color(ui.text_primary))
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            cx.stop_propagation();
-                            this.activate(tab_ix, window, cx);
-                            let view = this.tabs[tab_ix].view.clone();
-                            view.update(cx, |v, cx| v.find_text(&q, cx));
-                        }))
-                        .child("Show")
-                })
-                .child(
-                    div()
-                        .id(SharedString::from(format!("copy-{n}")))
-                        .invisible()
-                        .group_hover(row_id, |s| s.visible())
-                        .px(px(6.))
-                        .h(px(22.))
-                        .rounded(px(5.))
-                        .flex()
-                        .items_center()
-                        .text_size(px(11. * k))
-                        .text_color(ui.text_tertiary)
-                        .hover(move |d| d.bg(ui.bg_control).text_color(ui.text_primary))
-                        .on_click(cx.listener(move |_, _, _, cx| {
-                            cx.stop_propagation();
-                            cx.write_to_clipboard(ClipboardItem::new_string(copy_target.clone()));
-                        }))
-                        .child("Copy"),
-                ),
-        );
+                                .flex()
+                                .items_center()
+                                .gap(px(8.))
+                                .child(div().text_size(px(13. * k)).font_family("JetBrains Mono").font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).child(o.label.clone()))
+                                .child(
+                                    div().px(px(7.)).h(px(18.)).flex().items_center().rounded(px(9.)).bg(state_color.opacity(0.15)).text_size(px(10.5)).font_weight(FontWeight::SEMIBOLD).text_color(state_color).child(state),
+                                )
+                                .child(div().flex_1())
+                                .child(hover_buttons),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .gap(px(10.))
+                                .text_size(px(11.5 * k))
+                                .when(checks.0 > 0, |d| d.child(div().text_color(ui.status_done).child(format!("✓ {} passed", checks.0))))
+                                .when(checks.1 > 0, |d| d.child(div().text_color(ui.status_error).child(format!("✗ {} failed", checks.1))))
+                                .when(checks.2 > 0, |d| d.child(div().text_color(ui.status_needs).child(format!("● {} running", checks.2))))
+                                .when(checks == (0, 0, 0), |d| d.child(div().text_color(ui.text_tertiary).child("No checks"))),
+                        )
+                        .child(div().truncate().text_size(px(11. * k)).text_color(ui.text_tertiary).child(format!("{tab_title} · {}", age(o.at)))),
+                );
+                continue;
+            }
+            list = list.child(
+                div()
+                    .id(row_id.clone())
+                    .group(row_id.clone())
+                    .min_h(px(34.))
+                    .flex_none()
+                    .px(px(10.))
+                    .py(px(4.))
+                    .rounded(px(6.))
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .hover(move |d| d.bg(ui.bg_hover))
+                    .on_click(open)
+                    .child(div().w(px(16.)).flex_none().text_size(px(13. * k)).text_color(ui.text_tertiary).child(icon(o.kind)))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap(px(1.))
+                            .child(div().truncate().text_size(px(12.5 * k)).text_color(ui.text_primary).child(o.label.clone()))
+                            .child(div().truncate().text_size(px(11. * k)).text_color(ui.text_tertiary).child(format!("{tab_title} · {}", age(o.at)))),
+                    )
+                    .child(hover_buttons),
+            );
+        }
     }
     if items.is_empty() {
         let hint = match scope {
