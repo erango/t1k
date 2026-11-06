@@ -49,6 +49,27 @@ pub fn prune_recent(v: &mut Vec<Recent>, now: u64) {
     });
 }
 
+/// Window frame from the last run, in screen points.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+pub struct SavedWindow {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+    /// "windowed", "maximized" or "fullscreen".
+    #[serde(default)]
+    pub state: WindowState,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum WindowState {
+    #[default]
+    Windowed,
+    Maximized,
+    Fullscreen,
+}
+
 #[derive(Serialize, Deserialize, Default, Debug, Clone)]
 pub struct Session {
     pub tabs: Vec<SavedTab>,
@@ -70,6 +91,8 @@ pub struct Session {
     pub theme_light: Option<String>,
     #[serde(default)]
     pub recent: Vec<Recent>,
+    #[serde(default)]
+    pub window: Option<SavedWindow>,
     /// Group color: index 1-6 into the theme's ANSI colors.
     #[serde(default)]
     pub group_colors: Vec<(PathBuf, u8)>,

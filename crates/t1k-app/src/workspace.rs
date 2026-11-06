@@ -176,6 +176,9 @@ pub struct Workspace {
     /// Tabs visited before / after the current one (ids), for ⌘[ / ⌘].
     /// Whether T1K's Claude Code hooks are in ~/.claude/settings.json (refreshed while polling).
     pub hooks_installed: bool,
+    /// The window's frame, kept current as it moves and resizes; saved with the session.
+    window_frame: Option<session::SavedWindow>,
+    saved_frame: Option<session::SavedWindow>,
     /// Text typed into Settings' search.
     pub settings_query: String,
     pub back: Vec<String>,
@@ -287,6 +290,8 @@ impl Workspace {
             overlay: Overlay::None,
             hooks_installed: crate::settings::claude_hooks_installed(),
             settings_query: String::new(),
+            window_frame: None,
+            saved_frame: None,
             back: Vec::new(),
             forward: Vec::new(),
             navigating: false,
@@ -304,9 +309,17 @@ impl Workspace {
             _fast: fast,
         };
         cx.observe_window_appearance(window, |this, window, cx| this.apply_theme(window, cx)).detach();
+        // Remember where the window is; saved with the session (debounced through `poll`).
+        cx.observe_window_bounds(window, |this, window, _| this.window_frame = Some(frame_of(window))).detach();
+        cx.on_app_quit(|this, _| {
+            this.save();
+            async {}
+        })
+        .detach();
         this.apply_theme(window, cx);
 
         this.recent = saved.recent.clone();
+        this.window_frame = Some(frame_of(window));
         let restore: Vec<SavedTab> = saved.tabs.into_iter().filter(|t| t.cwd.as_ref().is_none_or(|p| p.is_dir())).collect();
         if restore.is_empty() || std::env::var_os("T1K_FRESH").is_some() {
             this.open_tab(None, None, window, cx);
@@ -726,6 +739,10 @@ impl Workspace {
         if changed {
             cx.notify();
         }
+        if self.window_frame != self.saved_frame {
+            self.saved_frame = self.window_frame;
+            changed = true;
+        }
         if regrouped || changed {
             self.save();
         }
@@ -954,6 +971,7 @@ impl Workspace {
             sidebar_open: Some(self.sidebar_open),
             outputs_open: self.panel.open,
             recent: self.recent.clone(),
+            window: self.window_frame,
             group_colors: self.group_colors.iter().map(|(k, v)| (k.clone(), *v)).collect(),
             group_sort: self.group_sort.iter().map(|(k, v)| (k.clone(), *v)).collect(),
             ..Default::default()
@@ -1298,5 +1316,22 @@ impl Render for Workspace {
         )
         .children(panel)
         .children(overlay)
+    }
+}
+
+/// The window's frame and state, for saving.
+fn frame_of(window: &Window) -> session::SavedWindow {
+    use gpui::WindowBounds as B;
+    let (b, state) = match window.window_bounds() {
+        B::Windowed(b) => (b, session::WindowState::Windowed),
+        B::Maximized(b) => (b, session::WindowState::Maximized),
+        B::Fullscreen(b) => (b, session::WindowState::Fullscreen),
+    };
+    session::SavedWindow {
+        x: f32::from(b.origin.x),
+        y: f32::from(b.origin.y),
+        w: f32::from(b.size.width),
+        h: f32::from(b.size.height),
+        state,
     }
 }

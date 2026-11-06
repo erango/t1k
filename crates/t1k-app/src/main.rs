@@ -30,6 +30,32 @@ use t1k_terminal::view::{ClearScrollback, Copy, Find, FindNext, FindPrevious, Ne
 use actions::*;
 use workspace::Workspace;
 
+/// The window frame from last time, if it still lands on a connected display (a monitor may
+/// have been unplugged since).
+fn restored_bounds(cx: &App) -> Option<WindowBounds> {
+    use session::WindowState;
+    let w = session::load().window?;
+    if w.w < 200. || w.h < 150. {
+        return None;
+    }
+    let b = Bounds::new(gpui::point(px(w.x), px(w.y)), size(px(w.w), px(w.h)));
+    // At least a 120×60 corner of it must be on some display.
+    let visible = cx.displays().iter().any(|d| {
+        let s = d.bounds();
+        let ix = f32::from(b.right().min(s.right())) - f32::from(b.left().max(s.left()));
+        let iy = f32::from(b.bottom().min(s.bottom())) - f32::from(b.top().max(s.top()));
+        ix >= 120. && iy >= 60.
+    });
+    if !visible {
+        return None;
+    }
+    Some(match w.state {
+        WindowState::Windowed => WindowBounds::Windowed(b),
+        WindowState::Maximized => WindowBounds::Maximized(b),
+        WindowState::Fullscreen => WindowBounds::Fullscreen(b),
+    })
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if cli::run(&args) {
@@ -105,10 +131,10 @@ fn main() {
         })
         .detach();
 
-        let bounds = Bounds::centered(None, size(px(1100.), px(720.)), cx);
+        let window_bounds = restored_bounds(cx).unwrap_or_else(|| WindowBounds::Windowed(Bounds::centered(None, size(px(1100.), px(720.)), cx)));
         cx.open_window(
             WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                window_bounds: Some(window_bounds),
                 titlebar: Some(gpui::TitlebarOptions {
                     title: Some("T1K".into()),
                     appears_transparent: true,
