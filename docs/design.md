@@ -109,7 +109,7 @@ Amber and red are used only for states where a person needs to act.
 - Tabs within a group are ordered: NeedsInput, Error, Done-unseen, Working, Done-seen, Idle.
 - Groups are sorted by their most urgent tab.
 - Ended tabs move into a collapsed "Recent" section after 10 minutes. Pressing Enter on one resumes it.
-- The badge counts NeedsInput and Error tabs only.
+- The badge counts NeedsInput and Error tabs only. (Superseded by v2 below: reminders that are due count too.)
 - ⌘J walks the queue from the longest-waiting tab. ⌘⇧J walks it backwards.
 
 ## Motion
@@ -144,7 +144,7 @@ The selected row fills with `bg.terminal` and runs flush to the sidebar's right 
 
 - **Loud** states are NeedsInput (amber), Error (red), and Unread or Reminder due (accent).
 - **Quiet** states are Working (a gray spinner), plus seen-done and Idle (no glyph). Ended tabs live in the Recent section.
-- The queue and the Dock badge count NeedsInput, Error and Reminder due. Unread tabs are not counted.
+- The queue and the Dock badge count NeedsInput, Error and Reminder due (decided 2026-11-06). Unread tabs are not counted.
 
 ### New and changed tokens
 
