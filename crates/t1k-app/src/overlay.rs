@@ -67,6 +67,7 @@ impl Workspace {
     }
 
     pub fn open_overlay(&mut self, o: Overlay, window: &mut Window, cx: &mut Context<Self>) {
+        self.hide_card(cx);
         self.overlay = o;
         window.focus(&self.overlay_focus);
         cx.notify();
@@ -233,6 +234,8 @@ fn scrim(ws: &Workspace, close_on_click: bool, cx: &mut Context<Workspace>) -> g
         .id("overlay")
         .absolute()
         .inset_0()
+        // Swallow hover and scroll so the sidebar and terminal underneath don't react.
+        .occlude()
         .track_focus(&ws.overlay_focus)
         .on_key_down(cx.listener(Workspace::overlay_key))
         .when(close_on_click, |d| d.on_click(cx.listener(|this, _, window, cx| this.close_overlay(window, cx))))
@@ -539,6 +542,18 @@ fn menu(ws: &Workspace, tab: usize, at: Point<Pixels>, window: &Window, cx: &mut
         }),
     ));
     m = m.child(item("rename", "Rename…".into()).on_click(cx.listener(move |this, _, window, cx| this.start_rename(tab, window, cx))));
+    if t.split.is_some() {
+        m = m.child(item("close-split", "Close split".into()).on_click(cx.listener(move |this, _, window, cx| {
+            this.close_overlay(window, cx);
+            this.close_split(tab, window, cx);
+        })));
+    } else {
+        m = m.child(item("split", "Open in split  ⌘D".into()).on_click(cx.listener(move |this, _, window, cx| {
+            this.close_overlay(window, cx);
+            this.activate(tab, window, cx);
+            this.open_split(tab, false, window, cx);
+        })));
+    }
     if t.manual_title.is_some() {
         m = m.child(item("reset", "Reset to automatic title".into()).on_click(cx.listener(move |this, _, window, cx| {
             if let Some(t) = this.tabs.get_mut(tab) {

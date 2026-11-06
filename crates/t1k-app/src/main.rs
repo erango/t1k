@@ -13,6 +13,7 @@ mod groups;
 mod session;
 mod settings;
 mod shell;
+mod split;
 mod sidebar;
 mod title;
 mod workspace;
@@ -56,6 +57,10 @@ fn main() {
             KeyBinding::new("cmd-shift-r", RenameTab, None),
             KeyBinding::new("cmd-shift-o", ToggleOutputs, None),
             KeyBinding::new("cmd-,", OpenSettings, None),
+            KeyBinding::new("cmd-d", SplitRight, None),
+            KeyBinding::new("cmd-shift-d", SplitDown, None),
+            KeyBinding::new("cmd-[", FocusOtherPane, None),
+            KeyBinding::new("cmd-]", FocusOtherPane, None),
             KeyBinding::new("cmd-=", IncreaseFontSize, None),
             KeyBinding::new("cmd-+", IncreaseFontSize, None),
             KeyBinding::new("cmd--", DecreaseFontSize, None),

@@ -290,7 +290,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         .when(!alt && (selected || unseen), |d| d.font_weight(FontWeight::SEMIBOLD))
         .text_color(if alt { ui.text_quiet } else if selected { ui.text_primary } else { ui.text_secondary })
         .child(if alt { tab.subtitle() } else { tab.title() });
-    let carded = ws.card.as_deref() == Some(tab.id.as_str()) && !alt;
+    let carded = ws.card.as_deref() == Some(tab.id.as_str()) && !alt && matches!(ws.overlay, crate::overlay::Overlay::None);
     let hover_id = tab.id.clone();
 
     let mut el = div()

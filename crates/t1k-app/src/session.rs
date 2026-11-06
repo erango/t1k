@@ -18,6 +18,9 @@ pub struct SavedTab {
     /// Group the user moved this tab to (it stays there whatever its folder).
     #[serde(default)]
     pub pinned_group: Option<PathBuf>,
+    /// Split pane: its folder and whether it sits below the main pane.
+    #[serde(default)]
+    pub split: Option<(Option<PathBuf>, bool)>,
 }
 
 /// A Claude session that no tab holds any more (tab closed, or replaced by a newer session).

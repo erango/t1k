@@ -47,6 +47,8 @@ pub struct Tab {
     pub last_session: Option<String>,
     /// Set when the user moved the tab to a group by hand; folder changes don't regroup it.
     pub pinned_group: Option<PathBuf>,
+    /// A second terminal beside or below the main one.
+    pub split: Option<crate::split::Split>,
     _sub: Subscription,
 }
 
@@ -264,6 +266,10 @@ impl Workspace {
                     tab.group = g.clone();
                     tab.pinned_group = Some(g);
                 }
+                if let Some((cwd, vertical)) = t.split {
+                    let ix = this.tabs.len() - 1;
+                    this.open_split_in(ix, cwd, vertical, window, cx);
+                }
             }
             let active = saved.active.min(this.tabs.len() - 1);
             this.activate(active, window, cx);
@@ -282,30 +288,7 @@ impl Workspace {
     ) {
         let id = uuid::Uuid::new_v4().to_string();
         let cwd = cwd.or_else(|| std::env::var_os("HOME").map(Into::into));
-        let mut env = HashMap::new();
-        if let Some(sock) = &self.socket {
-            env.insert("T1K_SOCKET".into(), sock.display().to_string());
-        }
-        if let Ok(exe) = std::env::current_exe() {
-            env.insert("T1K_BIN".into(), exe.display().to_string());
-        }
-        if self.config.terminal.shell_integration {
-            if let Some(dir) = crate::shell::zsh_dir() {
-                if let Ok(orig) = std::env::var("ZDOTDIR") {
-                    env.insert("T1K_ORIG_ZDOTDIR".into(), orig);
-                }
-                env.insert("ZDOTDIR".into(), dir.display().to_string());
-            }
-        }
-        let opts = SpawnOptions { working_directory: cwd.clone(), env, tab_id: id.clone() };
-        let palette = self.theme.palette();
-        let style = self.terminal_style();
-        let view = cx.new(|cx| {
-            let mut v = TerminalView::new(opts, window, cx).expect("failed to spawn shell in pty");
-            v.palette = palette;
-            v.style = style;
-            v
-        });
+        let view = self.spawn_view(cwd.clone(), id.clone(), window, cx);
         let sub = cx.subscribe_in(&view, window, |this: &mut Self, view, ev: &TerminalEvent, window, cx| {
             let Some(ix) = this.tabs.iter().position(|t| &t.view == view) else { return };
             match ev {
@@ -350,10 +333,39 @@ impl Workspace {
             reminder_due: false,
             last_session: None,
             pinned_group: None,
+            split: None,
             _sub: sub,
         });
         self.activate(self.tabs.len() - 1, window, cx);
         self.save();
+    }
+
+    /// A new terminal (shell in a pty) with the app's env, theme and style.
+    pub fn spawn_view(&self, cwd: Option<PathBuf>, tab_id: String, window: &mut Window, cx: &mut Context<Self>) -> Entity<TerminalView> {
+        let mut env = HashMap::new();
+        if let Some(sock) = &self.socket {
+            env.insert("T1K_SOCKET".into(), sock.display().to_string());
+        }
+        if let Ok(exe) = std::env::current_exe() {
+            env.insert("T1K_BIN".into(), exe.display().to_string());
+        }
+        if self.config.terminal.shell_integration {
+            if let Some(dir) = crate::shell::zsh_dir() {
+                if let Ok(orig) = std::env::var("ZDOTDIR") {
+                    env.insert("T1K_ORIG_ZDOTDIR".into(), orig);
+                }
+                env.insert("ZDOTDIR".into(), dir.display().to_string());
+            }
+        }
+        let opts = SpawnOptions { working_directory: cwd, env, tab_id };
+        let palette = self.theme.palette();
+        let style = self.terminal_style();
+        cx.new(|cx| {
+            let mut v = TerminalView::new(opts, window, cx).expect("failed to spawn shell in pty");
+            v.palette = palette;
+            v.style = style;
+            v
+        })
     }
 
     fn repo_for(&mut self, group: &PathBuf) -> Option<String> {
@@ -401,7 +413,8 @@ impl Workspace {
         }
         if let Some(t) = self.tabs.get(self.active) {
             let h = t.view.read(cx).focus_handle(cx);
-            if !h.is_focused(window) {
+            let split_focused = t.split.as_ref().is_some_and(|s| s.view.read(cx).focus_handle(cx).is_focused(window));
+            if !h.is_focused(window) && !split_focused {
                 window.focus(&h);
             }
         }
@@ -520,6 +533,11 @@ impl Workspace {
                 }
                 t.program = program;
                 changed = true;
+            }
+            if let Some(sp) = t.split.as_mut() {
+                if let Some(c) = sp.view.read(cx).terminal.cwd() {
+                    sp.cwd = Some(c);
+                }
             }
             if cwd.is_some() && cwd != t.cwd {
                 let group = groups::project_root(cwd.as_deref().unwrap());
@@ -752,6 +770,7 @@ impl Workspace {
                     last_session: t.agent.as_ref().map(|a| a.session_id.clone()).filter(|s| !s.is_empty())
                         .or_else(|| t.last_session.clone()),
                     pinned_group: t.pinned_group.clone(),
+                    split: t.split.as_ref().map(|s| (s.cwd.clone(), s.vertical)),
                 }
             }).collect(),
             active: self.visual_order().iter().position(|&i| i == self.active).unwrap_or(0),
@@ -839,6 +858,12 @@ impl Workspace {
     }
 
     fn close_tab(&mut self, _: &CloseTab, window: &mut Window, cx: &mut Context<Self>) {
+        // ⌘W in a split closes just that pane.
+        let split_focused = self.tabs.get(self.active).and_then(|t| t.split.as_ref()).is_some_and(|s| s.view.read(cx).focus_handle(cx).is_focused(window));
+        if split_focused {
+            self.close_split(self.active, window, cx);
+            return;
+        }
         self.close_tab_at(self.active, window, cx);
     }
 
@@ -1064,9 +1089,7 @@ impl Render for Workspace {
         window.set_window_title(&format!("{badge}{title} — T1K"));
         // Cached: sidebar spinners and other workspace repaints reuse the terminal's last frame
         // unless the terminal itself changed.
-        let active_view = self.tabs.get(self.active).map(|t| {
-            gpui::AnyView::from(t.view.clone()).cached(gpui::StyleRefinement::default().size_full())
-        });
+        let active_view = self.tabs.get(self.active).map(|t| crate::split::render_panes(t, self.ui, window, cx));
 
         macro_rules! select {
             ($d:expr, $($act:ident => $ix:expr),*) => {
@@ -1118,6 +1141,9 @@ impl Render for Workspace {
                 this.open_overlay(Overlay::Settings { section: crate::settings::Section::Appearance }, window, cx)
             }))
             .on_action(cx.listener(Self::toggle_appearance))
+            .on_action(cx.listener(|this, _: &SplitRight, window, cx| this.open_split(this.active, false, window, cx)))
+            .on_action(cx.listener(|this, _: &SplitDown, window, cx| this.open_split(this.active, true, window, cx)))
+            .on_action(cx.listener(|this, _: &FocusOtherPane, window, cx| this.focus_other_pane(window, cx)))
             .on_action(cx.listener(|this, _: &IncreaseFontSize, _, _| this.set_font_size(this.config.terminal.font.size + 1.)))
             .on_action(cx.listener(|this, _: &DecreaseFontSize, _, _| this.set_font_size(this.config.terminal.font.size - 1.)))
             .on_action(cx.listener(|this, _: &ResetFontSize, _, _| this.set_font_size(crate::config::FontCfg::default().size)))

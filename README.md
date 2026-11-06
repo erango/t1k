@@ -71,6 +71,7 @@ This adds hooks to `~/.claude/settings.json` and backs the file up to `settings.
 | ⌘⇧U | Label every link; type its letter to open it |
 | ⌘⌫ | Delete the line |
 | ⌘F, ⌘G / ⌘⇧G | Find in scrollback, next / previous match |
+| ⌘D / ⌘⇧D | Split the tab right / down (a second shell); ⌘[ ⌘] switch pane, ⌘W closes the focused split |
 | ⌘↑ / ⌘↓ | Jump to the previous / next prompt (zsh) |
 | ⌘+ / ⌘− / ⌘0 | Bigger / smaller / default text |
 
