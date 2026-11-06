@@ -311,6 +311,10 @@ impl Workspace {
                 TerminalEvent::Exited => this.close_tab_at(ix, window, cx),
                 TerminalEvent::Bell => {}
                 TerminalEvent::OpenLink(link) => this.open_link(ix, link, cx),
+                TerminalEvent::ContextMenu { at, link, has_selection } => {
+                    let o = Overlay::TerminalMenu { tab: ix, split: false, at: *at, link: link.clone(), has_selection: *has_selection };
+                    this.open_overlay(o, window, cx);
+                }
             }
         });
         let group = cwd.as_deref().map(groups::project_root).unwrap_or_default();

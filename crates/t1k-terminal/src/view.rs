@@ -32,6 +32,8 @@ pub enum TerminalEvent {
     TitleChanged(String),
     /// ⌘-click (or hint mode) on a link. The app opens it: browser, editor, PR or tracker.
     OpenLink(Link),
+    /// Right-click: the app shows the terminal menu at `at` (window coordinates).
+    ContextMenu { at: Point<Pixels>, link: Option<Link>, has_selection: bool },
     Bell,
     Exited,
 }
@@ -506,6 +508,52 @@ impl TerminalView {
             let b = if pressed { button } else { 3 };
             self.terminal.write(vec![0x1b, b'[', b'M', 32 + b, 33 + col as u8, 33 + row as u8]);
         }
+    }
+
+    /// Right-click: programs that take the mouse get the click; otherwise the app shows the
+    /// terminal menu (copy, paste, link actions, find, split...).
+    fn on_right_mouse_down(&mut self, ev: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        window.focus(&self.focus_handle);
+        let cell = self.cell_at(ev.position);
+        if let Some((col, row, _)) = cell {
+            if self.mouse_reporting(ev.modifiers.shift) {
+                self.report_mouse(2, col, row, true);
+                self.report_mouse(2, col, row, false);
+                return;
+            }
+        }
+        let link = cell.and_then(|(c, r, _)| self.link_at(c, r));
+        let has_selection = self.terminal.selection_text().is_some();
+        cx.emit(TerminalEvent::ContextMenu { at: ev.position, link, has_selection });
+        cx.stop_propagation();
+    }
+
+    pub fn copy_selection(&self, cx: &mut Context<Self>) {
+        if let Some(text) = self.terminal.selection_text() {
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
+        }
+    }
+
+    pub fn paste_clipboard(&self, cx: &mut Context<Self>) {
+        if let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) {
+            self.terminal.paste(&text);
+        }
+    }
+
+    pub fn select_all(&mut self, cx: &mut Context<Self>) {
+        self.terminal.select_all();
+        cx.notify();
+    }
+
+    pub fn clear(&mut self, cx: &mut Context<Self>) {
+        self.terminal.term.lock().grid_mut().clear_history();
+        self.terminal.write(&b"\x0c"[..]);
+        cx.notify();
+    }
+
+    pub fn open_find(&mut self, cx: &mut Context<Self>) {
+        self.search.get_or_insert_with(Default::default).dirty = true;
+        cx.notify();
     }
 
     fn on_mouse_down(&mut self, ev: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -1044,6 +1092,7 @@ impl Render for TerminalView {
             .on_action(cx.listener(Self::page_up))
             .on_action(cx.listener(Self::page_down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
+            .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right_mouse_down))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_scroll_wheel(cx.listener(Self::on_scroll))

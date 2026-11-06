@@ -206,6 +206,18 @@ impl Terminal {
         }
     }
 
+    /// Select the whole scrollback and screen.
+    pub fn select_all(&self) {
+        use alacritty_terminal::grid::Dimensions;
+        use alacritty_terminal::index::{Column, Point};
+        let mut term = self.term.lock();
+        let start = Point::new(term.topmost_line(), Column(0));
+        let end = Point::new(term.bottommost_line(), term.last_column());
+        let mut sel = Selection::new(SelectionType::Simple, start, Side::Left);
+        sel.update(end, Side::Right);
+        term.selection = Some(sel);
+    }
+
     pub fn clear_selection(&self) {
         self.term.lock().selection = None;
     }

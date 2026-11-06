@@ -22,6 +22,8 @@ pub enum Overlay {
     RenameGroup { key: std::path::PathBuf, text: String },
     Menu { tab: usize, at: Point<Pixels> },
     GroupMenu { key: std::path::PathBuf, at: Point<Pixels> },
+    /// Right-click in a terminal pane (`split`: the tab's split pane rather than its main one).
+    TerminalMenu { tab: usize, split: bool, at: Point<Pixels>, link: Option<t1k_terminal::links::Link>, has_selection: bool },
     Settings { section: crate::settings::Section },
 }
 
@@ -176,6 +178,7 @@ impl Workspace {
             },
             Overlay::Menu { tab, at } => (ev.keystroke.key != "escape").then_some(Overlay::Menu { tab, at }),
             Overlay::GroupMenu { key, at } => (ev.keystroke.key != "escape").then_some(Overlay::GroupMenu { key, at }),
+            o @ Overlay::TerminalMenu { .. } => (ev.keystroke.key != "escape").then_some(o),
             Overlay::Settings { section } => (ev.keystroke.key != "escape").then_some(Overlay::Settings { section }),
         };
         match next {
@@ -388,6 +391,10 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
         }
         Overlay::GroupMenu { key, at } => {
             let m = group_menu(ws, key.clone(), *at, window, cx);
+            Some(scrim(ws, true, cx).child(m).into_any_element())
+        }
+        Overlay::TerminalMenu { tab, split, at, link, has_selection } => {
+            let m = terminal_menu(ws, *tab, *split, *at, link.clone(), *has_selection, window, cx);
             Some(scrim(ws, true, cx).child(m).into_any_element())
         }
     }
@@ -817,4 +824,115 @@ mod tests {
         let d = super::until_tomorrow_9().as_secs();
         assert!(d > 0 && d <= 33 * 3600);
     }
+}
+
+/// Right-click menu inside a terminal pane.
+#[allow(clippy::too_many_arguments)]
+fn terminal_menu(
+    ws: &Workspace,
+    tab: usize,
+    split: bool,
+    at: Point<Pixels>,
+    link: Option<t1k_terminal::links::Link>,
+    has_selection: bool,
+    window: &Window,
+    cx: &mut Context<Workspace>,
+) -> AnyElement {
+    let ui = ws.ui;
+    let Some(t) = ws.tabs.get(tab) else { return div().into_any_element() };
+    let Some(view) = (if split { t.split.as_ref().map(|s| s.view.clone()) } else { Some(t.view.clone()) }) else {
+        return div().into_any_element();
+    };
+    let item = |id: &str, label: &str, keys: &str, enabled: bool| {
+        div()
+            .id(SharedString::from(format!("tmenu-{id}")))
+            .h(px(26.))
+            .px(px(10.))
+            .rounded(px(5.))
+            .flex()
+            .items_center()
+            .text_size(px(13.))
+            .text_color(if enabled { ui.text_primary } else { ui.text_disabled })
+            .when(enabled, |d| d.hover(move |d| d.bg(ui.accent.opacity(0.25))))
+            .child(div().flex_1().truncate().child(label.to_string()))
+            .child(div().text_size(px(11.)).text_color(ui.text_tertiary).child(keys.to_string()))
+    };
+    let sep = || div().h(px(1.)).my(px(4.)).mx(px(6.)).bg(ui.border);
+    // Run something on the pane, close the menu and give the pane focus back.
+    let act = |f: fn(&mut t1k_terminal::view::TerminalView, &mut Context<t1k_terminal::view::TerminalView>)| {
+        let view = view.clone();
+        cx.listener(move |this: &mut Workspace, _: &gpui::ClickEvent, window: &mut Window, cx: &mut Context<Workspace>| {
+            this.close_overlay(window, cx);
+            let h = gpui::Focusable::focus_handle(view.read(cx), cx);
+            window.focus(&h);
+            view.update(cx, |v, cx| f(v, cx));
+        })
+    };
+    let mut m = div()
+        .absolute()
+        .left(at.x)
+        .w(px(230.))
+        .p(px(5.))
+        .rounded(px(8.))
+        .bg(ui.bg_raised)
+        .border_1()
+        .border_color(ui.border)
+        .shadow_lg()
+        .flex()
+        .flex_col()
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
+
+    if let Some(link) = link {
+        let label = match &link {
+            t1k_terminal::links::Link::Url(_) => "Open link",
+            t1k_terminal::links::Link::File { .. } => "Open file",
+            t1k_terminal::links::Link::Pr(_) => "Open PR",
+            t1k_terminal::links::Link::Ticket(_) => "Open ticket",
+        };
+        let open = link.clone();
+        m = m.child(item("open", label, "⌘click", true).on_click(cx.listener(move |this, _, window, cx| {
+            this.close_overlay(window, cx);
+            this.open_link(tab, &open, cx);
+        })));
+        let text = link.label();
+        m = m.child(item("copy-link", "Copy link", "", true).on_click(cx.listener(move |this, _, window, cx| {
+            cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
+            this.close_overlay(window, cx);
+        })));
+        m = m.child(sep());
+    }
+    let copy = item("copy", "Copy", "⌘C", has_selection);
+    m = m.child(if has_selection { copy.on_click(act(|v, cx| v.copy_selection(cx))) } else { copy });
+    m = m.child(item("paste", "Paste", "⌘V", true).on_click(act(|v, cx| v.paste_clipboard(cx))));
+    m = m.child(item("select-all", "Select all", "", true).on_click(act(|v, cx| v.select_all(cx))));
+    m = m.child(sep());
+    m = m.child(item("find", "Find…", "⌘F", true).on_click(act(|v, cx| v.open_find(cx))));
+    m = m.child(item("clear", "Clear", "⌘K", true).on_click(act(|v, cx| v.clear(cx))));
+    m = m.child(sep());
+    if split {
+        m = m.child(item("close-split", "Close split", "⌘W", true).on_click(cx.listener(move |this, _, window, cx| {
+            this.close_overlay(window, cx);
+            this.close_split(tab, window, cx);
+        })));
+    } else if t.split.is_none() {
+        m = m.child(item("split-right", "Split right", "⌘D", true).on_click(cx.listener(move |this, _, window, cx| {
+            this.close_overlay(window, cx);
+            this.open_split(tab, false, window, cx);
+        })));
+        m = m.child(item("split-down", "Split down", "⌘⇧D", true).on_click(cx.listener(move |this, _, window, cx| {
+            this.close_overlay(window, cx);
+            this.open_split(tab, true, window, cx);
+        })));
+    } else {
+        m = m.child(item("other-pane", "Switch pane", "⌘]", true).on_click(cx.listener(move |this, _, window, cx| {
+            this.close_overlay(window, cx);
+            this.focus_other_pane(window, cx);
+        })));
+    }
+
+    let vh = f32::from(window.viewport_size().height);
+    let vw = f32::from(window.viewport_size().width);
+    let top = f32::from(at.y).min(vh - 330.).max(8.);
+    let left = f32::from(at.x).min(vw - 240.).max(8.);
+    m.top(px(top)).left(px(left)).into_any_element()
 }
