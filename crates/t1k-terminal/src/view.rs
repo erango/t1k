@@ -86,6 +86,9 @@ pub struct TerminalView {
     /// Viewport cell under the mouse, and whether cmd is held (cmd-hover arms a link).
     hover_cell: Option<(usize, usize)>,
     cmd_down: bool,
+    /// Size the pane wants but the grid hasn't taken yet (see `request_resize`).
+    pending_size: Option<GridSize>,
+    resize_task: Option<Task<()>>,
     _events: Task<()>,
 }
 
@@ -148,8 +151,48 @@ impl TerminalView {
             links: Vec::new(),
             hover_cell: None,
             cmd_down: false,
+            pending_size: None,
+            resize_task: None,
             _events: task,
         })
+    }
+
+    /// Resize the grid once the pane size has settled.
+    ///
+    /// Every resize reflows the grid and makes full-screen programs redraw. Claude Code, for one,
+    /// erases the visible rows and repaints its header; whatever the reflow pushed into
+    /// scrollback stays there as a stale copy. Resizing on every frame of a window drag or panel
+    /// toggle left a stack of copies, so intermediate sizes are skipped: the grid keeps its old
+    /// size (clipped) until the pane has held one size for `SETTLE`.
+    fn request_resize(&mut self, g: GridSize, cx: &mut Context<Self>) {
+        const SETTLE: std::time::Duration = std::time::Duration::from_millis(120);
+        if g == self.terminal.size {
+            self.pending_size = None;
+            self.resize_task = None;
+            return;
+        }
+        let cell_changed = g.cell_width != self.terminal.size.cell_width || g.cell_height != self.terminal.size.cell_height;
+        // First layout and font changes apply at once; they aren't part of a drag.
+        if self.layout.is_none() || cell_changed {
+            self.pending_size = None;
+            self.resize_task = None;
+            self.terminal.resize(g);
+            return;
+        }
+        if self.pending_size == Some(g) {
+            return;
+        }
+        self.pending_size = Some(g);
+        self.resize_task = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(SETTLE).await;
+            let _ = this.update(cx, |view, cx| {
+                if view.pending_size == Some(g) {
+                    view.pending_size = None;
+                    view.terminal.resize(g);
+                    cx.notify();
+                }
+            });
+        }));
     }
 
     fn handle_event(&mut self, ev: AlacEvent, cx: &mut Context<Self>) {
@@ -604,6 +647,7 @@ impl Render for TerminalView {
             .key_context("Terminal")
             .track_focus(&self.focus_handle)
             .size_full()
+            .overflow_hidden()
             .bg(hsla(palette.background))
             .p(style.padding)
             .on_key_down(cx.listener(Self::on_key_down))
@@ -638,11 +682,14 @@ impl Render for TerminalView {
                                 cell_width: cell_w,
                                 cell_height: cell_h,
                             };
-                            entity.update(cx, |view, _| {
-                                view.terminal.resize(g);
-                                view.layout = Some((bounds, g));
-                            });
-                            g
+                            // Paint with the grid's actual size; it may lag the pane while a
+                            // resize settles (the pane clips the difference).
+                            entity.update(cx, |view, cx| {
+                                view.request_resize(g, cx);
+                                let applied = view.terminal.size;
+                                view.layout = Some((bounds, applied));
+                                applied
+                            })
                         }
                     },
                     move |bounds, g, window, cx| {
