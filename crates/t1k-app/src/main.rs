@@ -61,6 +61,13 @@ fn main() {
             KeyBinding::new("shift-pagedown", ScrollPageDown, Some("Terminal")),
         ]);
         cx.on_action(|_: &Quit, cx| cx.quit());
+        // Remove this process's hook socket on the way out.
+        cx.on_app_quit(|_| async {
+            if let Some(d) = session::support_dir() {
+                let _ = std::fs::remove_file(t1k_agent::server::socket_path(&d));
+            }
+        })
+        .detach();
         menus::install(cx);
         cx.on_window_closed(|cx| {
             if cx.windows().is_empty() {

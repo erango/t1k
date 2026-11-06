@@ -178,7 +178,10 @@ impl Workspace {
 
         // Agent socket: hooks in this window's tabs report here.
         let (tx, agent_rx) = channel();
-        let socket = session::support_dir().map(|d| t1k_agent::server::socket_path(&d));
+        let socket = session::support_dir().map(|d| {
+            t1k_agent::server::remove_stale(&d);
+            t1k_agent::server::socket_path(&d)
+        });
         let socket = socket.filter(|p| match t1k_agent::server::serve(p, tx, || {}) {
             Ok(()) => true,
             Err(e) => {
