@@ -1295,3 +1295,22 @@ fn paint_frame(
         }
     }
 }
+
+#[cfg(test)]
+mod prompt_tests {
+    use super::prompt_starts;
+    use alacritty_terminal::event::VoidListener;
+    use alacritty_terminal::term::{test::TermSize, Config, Term};
+    use alacritty_terminal::vte::ansi::Processor;
+
+    #[test]
+    fn finds_marked_prompts() {
+        let mut term = Term::new(Config::default(), &TermSize::new(40, 10), VoidListener);
+        let mut parser: Processor = Processor::new();
+        let open = "\x1b]8;;t1k://prompt\x1b\\";
+        let close = "\x1b]8;;\x1b\\";
+        let text = format!("{open}$ ls{close}\r\na\r\nb\r\n{open}$ git status{close}\r\nclean\r\n{open}$ ");
+        parser.advance(&mut term, text.as_bytes());
+        assert_eq!(prompt_starts(&term), vec![0, 3, 5]);
+    }
+}
