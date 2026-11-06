@@ -400,7 +400,9 @@ impl Workspace {
         }
         if self.config.terminal.shell_integration {
             if let Some(dir) = crate::shell::zsh_dir() {
-                if let Ok(orig) = std::env::var("ZDOTDIR") {
+                // An empty ZDOTDIR means "unset" to us; restoring it as "" would make zsh look
+                // for /.zshrc.
+                if let Ok(orig) = std::env::var("ZDOTDIR").map(|z| z.trim().to_string()).and_then(|z| if z.is_empty() { Err(std::env::VarError::NotPresent) } else { Ok(z) }) {
                     env.insert("T1K_ORIG_ZDOTDIR".into(), orig);
                 }
                 env.insert("ZDOTDIR".into(), dir.display().to_string());

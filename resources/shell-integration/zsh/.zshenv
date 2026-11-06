@@ -3,11 +3,11 @@
 # can jump between prompts with Cmd-Up / Cmd-Down. Your .zprofile and .zshrc load as usual.
 # Turn it off with terminal.shell_integration = false in ~/.config/t1k/config.toml.
 
-if [[ -n "${T1K_ORIG_ZDOTDIR+x}" ]]; then
+if [[ -n "${T1K_ORIG_ZDOTDIR}" ]]; then
   ZDOTDIR="$T1K_ORIG_ZDOTDIR"
   unset T1K_ORIG_ZDOTDIR
 else
-  unset ZDOTDIR
+  unset ZDOTDIR T1K_ORIG_ZDOTDIR
 fi
 
 [[ -f "${ZDOTDIR:-$HOME}/.zshenv" ]] && builtin source "${ZDOTDIR:-$HOME}/.zshenv"
