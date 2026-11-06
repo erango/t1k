@@ -14,61 +14,9 @@ fn stroke(window: &mut Window, color: Hsla, build: impl FnOnce(&mut PathBuilder)
     }
 }
 
-fn rect(p: &mut PathBuilder, o: gpui::Point<Pixels>, x: f32, y: f32, w: f32, h: f32) {
-    let pt = |a: f32, b: f32| point(o.x + px(a), o.y + px(b));
-    p.add_polygon(&[pt(x, y), pt(x + w, y), pt(x + w, y + h), pt(x, y + h)], true);
-}
 
-/// 2×2 grid (Overview).
-pub fn grid(color: Hsla) -> impl IntoElement {
-    icon(move |b, window| {
-        stroke(window, color, |p| {
-            for (x, y) in [(2., 2.), (8., 2.), (2., 8.), (8., 8.)] {
-                rect(p, b.origin, x, y, 4., 4.);
-            }
-        })
-    })
-}
 
-/// Window with a right-hand panel (Outputs); the panel fills when open.
-pub fn panel_right(color: Hsla, open: bool) -> impl IntoElement {
-    icon(move |b, window| {
-        let o = b.origin;
-        if open {
-            let mut f = PathBuilder::fill();
-            rect(&mut f, o, 8.5, 2.5, 3., 9.);
-            if let Ok(path) = f.build() {
-                window.paint_path(path, color.opacity(0.5));
-            }
-        }
-        stroke(window, color, |p| {
-            rect(p, o, 1.5, 2., 11., 10.);
-            p.move_to(point(o.x + px(8.5), o.y + px(2.)));
-            p.line_to(point(o.x + px(8.5), o.y + px(12.)));
-        })
-    })
-}
 
-/// Circle with its left half filled (follow the system appearance).
-pub fn half_circle(color: Hsla) -> impl IntoElement {
-    icon(move |b, window| {
-        let c = point(b.origin.x + px(7.), b.origin.y + px(7.));
-        let r = 5.;
-        let at = |a: f32| point(c.x + px(r * a.cos()), c.y + px(r * a.sin()));
-        // Left half, filled.
-        let mut f = PathBuilder::fill();
-        let steps = 16;
-        let half: Vec<_> = (0..=steps).map(|i| at(std::f32::consts::FRAC_PI_2 + i as f32 / steps as f32 * std::f32::consts::PI)).collect();
-        f.add_polygon(&half, true);
-        if let Ok(path) = f.build() {
-            window.paint_path(path, color);
-        }
-        stroke(window, color, |p| {
-            let ring: Vec<_> = (0..=32).map(|i| at(i as f32 / 32. * std::f32::consts::TAU)).collect();
-            p.add_polygon(&ring, true);
-        })
-    })
-}
 
 /// Two sliders (view options).
 pub fn sliders(color: Hsla) -> impl IntoElement {

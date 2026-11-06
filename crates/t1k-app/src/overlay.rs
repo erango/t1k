@@ -18,6 +18,8 @@ pub enum Overlay {
     None,
     /// Sidebar view options (button in the sidebar's top strip).
     SidebarView { at: Point<Pixels> },
+    /// The session strip's ⋯ menu.
+    MoreMenu { at: Point<Pixels> },
     /// Command palette (⌘⇧P).
     Palette { query: String, selected: usize },
     Switcher { query: String, selected: usize },
@@ -206,6 +208,7 @@ impl Workspace {
             Overlay::GroupMenu { key, at } => (ev.keystroke.key != "escape").then_some(Overlay::GroupMenu { key, at }),
             o @ Overlay::TerminalMenu { .. } => (ev.keystroke.key != "escape").then_some(o),
             o @ Overlay::SidebarView { .. } => (ev.keystroke.key != "escape").then_some(o),
+            o @ Overlay::MoreMenu { .. } => (ev.keystroke.key != "escape").then_some(o),
             Overlay::Settings { section } => (ev.keystroke.key != "escape").then_some(Overlay::Settings { section }),
         };
         match next {
@@ -369,6 +372,10 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                         .child("matches title · recap · project · branch · PR · files"),
                 );
             Some(scrim(ws, true, cx).bg(gpui::black().opacity(0.25)).flex().justify_center().items_start().child(panel).into_any_element())
+        }
+        Overlay::MoreMenu { at } => {
+            let m = more_menu(ws, *at, cx);
+            Some(scrim(ws, true, cx).child(m).into_any_element())
         }
         Overlay::SidebarView { at } => {
             let m = sidebar_view_menu(ws, *at, cx);
@@ -1137,4 +1144,84 @@ fn sidebar_view_menu(ws: &Workspace, at: Point<Pixels>, cx: &mut Context<Workspa
         })),
     );
     m.into_any_element()
+}
+
+/// The session strip's ⋯ menu: appearance, then actions that used to be title-bar buttons.
+fn more_menu(ws: &Workspace, at: Point<Pixels>, cx: &mut Context<Workspace>) -> AnyElement {
+    use crate::actions::*;
+    use t1k_terminal::view as term;
+    let ui = ws.ui;
+    let item = |id: &'static str, label: &'static str, keys: &'static str| {
+        div()
+            .id(id)
+            .h(px(26.))
+            .px(px(10.))
+            .rounded(px(5.))
+            .flex()
+            .items_center()
+            .text_size(px(13.))
+            .text_color(ui.text_primary)
+            .hover(move |d| d.bg(ui.accent.opacity(0.25)))
+            .child(div().flex_1().child(label))
+            .child(div().text_size(px(11.5)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(keys))
+    };
+    let run = |a: Box<dyn gpui::Action>| {
+        let a = std::cell::RefCell::new(Some(a));
+        cx.listener(move |this: &mut Workspace, _: &gpui::ClickEvent, window: &mut Window, cx: &mut Context<Workspace>| {
+            if let Some(a) = a.borrow_mut().take() {
+                this.run_command(crate::palette::Run::Action(a), window, cx);
+            }
+        })
+    };
+    let sep = || div().h(px(1.)).my(px(4.)).mx(px(6.)).bg(ui.border);
+    let mode = ws.config.appearance.clone();
+    let mut seg = div().flex().gap(px(4.)).px(px(8.)).py(px(4.));
+    for (v, label) in [("system", "System"), ("dark", "Dark"), ("light", "Light")] {
+        let on = mode == v;
+        seg = seg.child(
+            div()
+                .id(SharedString::from(format!("more-mode-{v}")))
+                .flex_1()
+                .h(px(24.))
+                .rounded(px(5.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_size(px(12.))
+                .text_color(if on { ui.text_primary } else { ui.text_tertiary })
+                .when(on, |d| d.bg(ui.bg_control))
+                .hover(move |d| d.text_color(ui.text_primary))
+                .on_click(cx.listener(move |_, _, _, _| crate::config::set(&["appearance"], v)))
+                .child(label),
+        );
+    }
+    div()
+        .absolute()
+        .left(at.x)
+        .top(at.y)
+        .w(px(240.))
+        .p(px(5.))
+        .rounded(px(8.))
+        .bg(ui.bg_raised)
+        .border_1()
+        .border_color(ui.border)
+        .shadow_lg()
+        .flex()
+        .flex_col()
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .child(div().px(px(10.)).pt(px(4.)).text_size(px(11.)).text_color(ui.text_tertiary).child("Appearance"))
+        .child(seg)
+        .child(sep())
+        .child(item("more-overview", "Overview", "⌘O").on_click(run(Box::new(ToggleOverview))))
+        .child(item("more-find", "Find in terminal", "⌘F").on_click(run(Box::new(term::Find))))
+        .child(item("more-split", "Split right", "⌘D").on_click(run(Box::new(SplitRight))))
+        .child(item("more-rename", "Rename tab", "⌘⇧R").on_click(run(Box::new(RenameTab))))
+        .child(item("more-remind", "Remind me…", "").on_click(cx.listener(move |this, _, window, cx| {
+            let tab = this.active;
+            this.open_overlay(Overlay::Menu { tab, at }, window, cx);
+        })))
+        .child(sep())
+        .child(item("more-palette", "Command palette", "⌘⇧P").on_click(run(Box::new(ToggleCommandPalette))))
+        .child(item("more-settings", "Settings", "⌘,").on_click(run(Box::new(OpenSettings))))
+        .into_any_element()
 }

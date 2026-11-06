@@ -334,12 +334,38 @@ impl Workspace {
             this.back.clear();
             this.forward.clear();
         }
+        // Debug aid: T1K_DEBUG_AGENT=working|needs|error|done fakes a Claude session on the
+        // active tab, for screenshots of the strip, sidebar and card.
+        if let Ok(state) = std::env::var("T1K_DEBUG_AGENT") {
+            if let Some(t) = this.tabs.get_mut(this.active) {
+                use t1k_agent::hooks::Hook;
+                let mut a = AgentState::new("debug".into());
+                a.apply_hook(Hook::UserPromptSubmit { prompt: "Link hint mode for terminal".into() });
+                a.apply_hook(Hook::PreToolUse { tool: "Edit".into(), input: serde_json::json!({"file_path": "/x/src/links.rs"}) });
+                a.goal = Some("Link hint mode for terminal".into());
+                a.branch = Some("feat/hints".into());
+                a.context_tokens = Some(142_000);
+                a.recap = Some("Labels render in reading order; next, dim non-link text.".into());
+                a.prs.push((418, "https://github.com/erango/t1k/pull/418".into()));
+                match state.as_str() {
+                    "needs" => { a.apply_hook(Hook::Notification { message: "Claude needs your permission to use Bash".into() }); }
+                    "error" => { a.apply_hook(Hook::Stop); }
+                    "done" => { a.apply_hook(Hook::Stop); }
+                    _ => {}
+                }
+                if state == "error" {
+                    a.status = Status::Error { message: "API error 529 · overloaded".into() };
+                }
+                t.agent = Some(a);
+            }
+        }
         // Debug aid for screenshots without a keyboard: T1K_DEBUG_OVERLAY=palette|switcher|
         // overview|settings|menu|groupmenu|termmenu|card opens that surface at launch.
         if let Ok(which) = std::env::var("T1K_DEBUG_OVERLAY") {
             let at = gpui::point(px(120.), px(140.));
             let o = match which.as_str() {
                 "palette" => Some(Overlay::Palette { query: String::new(), selected: 0 }),
+                "more" => Some(Overlay::MoreMenu { at: gpui::point(px(900.), px(44.)) }),
                 "sidebarview" => Some(Overlay::SidebarView { at: gpui::point(px(90.), px(44.)) }),
                 "switcher" => Some(Overlay::Switcher { query: String::new(), selected: 0 }),
                 "overview" => Some(Overlay::Overview { selected: 0 }),
@@ -1132,17 +1158,6 @@ impl Workspace {
         self.write_appearance();
     }
 
-    /// Title-bar button: System → Dark → Light → System.
-    fn cycle_appearance(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.mode = match self.mode {
-            AppearanceMode::System => AppearanceMode::Dark,
-            AppearanceMode::Dark => AppearanceMode::Light,
-            AppearanceMode::Light => AppearanceMode::System,
-        };
-        self.apply_theme(window, cx);
-        self.write_appearance();
-    }
-
     fn follow_system(&mut self, _: &FollowSystemAppearance, window: &mut Window, cx: &mut Context<Self>) {
         self.mode = AppearanceMode::System;
         self.apply_theme(window, cx);
@@ -1162,97 +1177,7 @@ impl Workspace {
     }
 
     fn render_titlebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let ui = self.ui;
-        let tab = self.tabs.get(self.active);
-        let title: String = tab.map(|t| t.title()).unwrap_or_default();
-        // Project, then branch (design header): where this agent works.
-        let project = tab.map(|t| self.group_label(&t.group)).unwrap_or_default();
-        let branch = tab.and_then(|t| t.agent.as_ref()).and_then(|a| a.branch.clone());
-        let icon_button = |id: &'static str, on: bool| {
-            div()
-                .id(id)
-                .w(px(26.))
-                .h(px(24.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(6.))
-                .text_color(if on { ui.text_primary } else { ui.text_tertiary })
-                .when(on, |d| d.bg(ui.bg_selected))
-                .hover(move |d| d.bg(ui.bg_hover).text_color(ui.text_primary))
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        };
-        div()
-            .id("titlebar")
-            .h(px(38.))
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap(px(10.))
-            .pr(px(12.))
-            .pl(px(if self.sidebar_open { 16. } else { 84. }))
-            .bg(ui.bg_terminal)
-            .border_b_1()
-            .border_color(ui.border)
-            .on_mouse_down(MouseButton::Left, |ev, window, _| {
-                if ev.click_count == 2 {
-                    window.zoom_window();
-                } else {
-                    window.start_window_move();
-                }
-            })
-            .child(div().min_w_0().text_size(px(13.)).font_weight(gpui::FontWeight::MEDIUM).text_color(ui.text_primary).truncate().child(title.clone()))
-            .when(!project.eq_ignore_ascii_case(&title), |d| {
-                d.child(div().flex_none().text_size(px(12.)).text_color(ui.text_tertiary).child(project.clone()))
-            })
-            .children(branch.map(|b| div().flex_none().text_size(px(11.5)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(b)))
-            .child(div().flex_1())
-            .child(
-                div()
-                    .id("jump")
-                    .w(px(200.))
-                    .h(px(24.))
-                    .px(px(8.))
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .gap(px(6.))
-                    .rounded(px(6.))
-                    .bg(ui.bg_hover)
-                    .border_1()
-                    .border_color(ui.border)
-                    .text_size(px(12.))
-                    .text_color(ui.text_tertiary)
-                    .hover(move |d| d.text_color(ui.text_secondary))
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.open_overlay(Overlay::Switcher { query: String::new(), selected: 0 }, window, cx)
-                    }))
-                    .child("⌕")
-                    .child(div().flex_1().child("Jump to agent…"))
-                    .child(div().text_size(px(11.)).font_family("JetBrains Mono").child("⌘P")),
-            )
-            .child({
-                // Shows the mode, not just the current look: System, Dark or Light.
-                let icon = match self.mode {
-                    AppearanceMode::System => crate::icons::half_circle(ui.text_secondary).into_any_element(),
-                    AppearanceMode::Dark => div().text_size(px(14.)).child("☾").into_any_element(),
-                    AppearanceMode::Light => div().text_size(px(14.)).child("☀").into_any_element(),
-                };
-                icon_button("appearance", false)
-                    .on_click(cx.listener(|this, _, window, cx| this.cycle_appearance(window, cx)))
-                    .child(icon)
-            })
-            .child(
-                icon_button("overview", false)
-                    .on_click(cx.listener(|this, _, window, cx| this.open_overlay(Overlay::Overview { selected: 0 }, window, cx)))
-                    .child(crate::icons::grid(ui.text_secondary)),
-            )
-            .child(
-                icon_button("outputs-toggle", self.panel.open)
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_outputs(cx)))
-                    .child(crate::icons::panel_right(if self.panel.open { ui.text_primary } else { ui.text_secondary }, self.panel.open)),
-            )
+        crate::strip::render(self, cx)
     }
 }
 

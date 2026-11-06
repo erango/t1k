@@ -17,6 +17,7 @@ mod session;
 mod settings;
 mod shell;
 mod split;
+mod strip;
 mod sidebar;
 mod title;
 mod workspace;
