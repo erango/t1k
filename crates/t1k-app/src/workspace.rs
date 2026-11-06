@@ -877,6 +877,14 @@ impl Workspace {
         (mode, dark, light)
     }
 
+    /// ⌘+ / ⌘− / ⌘0: written to config.toml, so it sticks and the reload applies it everywhere.
+    fn set_font_size(&mut self, size: f32) {
+        let size = size.clamp(8., 32.).round();
+        if size != self.config.terminal.font.size {
+            crate::config::set_value(&["terminal", "font", "size"], toml_edit::Value::from(size as i64));
+        }
+    }
+
     pub fn terminal_style(&self) -> TerminalStyle {
         let t = &self.config.terminal;
         TerminalStyle {
@@ -886,6 +894,7 @@ impl Workspace {
             line_height: t.font.line_height.clamp(0.8, 3.),
             padding: px(t.padding.clamp(0., 64.)),
             option_as_meta: t.option_as_meta,
+            copy_on_select: t.copy_on_select,
         }
     }
 
@@ -1097,6 +1106,9 @@ impl Render for Workspace {
                 this.open_overlay(Overlay::Settings { section: crate::settings::Section::Appearance }, window, cx)
             }))
             .on_action(cx.listener(Self::toggle_appearance))
+            .on_action(cx.listener(|this, _: &IncreaseFontSize, _, _| this.set_font_size(this.config.terminal.font.size + 1.)))
+            .on_action(cx.listener(|this, _: &DecreaseFontSize, _, _| this.set_font_size(this.config.terminal.font.size - 1.)))
+            .on_action(cx.listener(|this, _: &ResetFontSize, _, _| this.set_font_size(crate::config::FontCfg::default().size)))
             .on_action(cx.listener(Self::follow_system))
             .on_action(cx.listener(Self::select_theme))
             .on_modifiers_changed(cx.listener(|this, ev: &gpui::ModifiersChangedEvent, _, cx| {

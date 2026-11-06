@@ -219,6 +219,7 @@ fn section_body(ws: &Workspace, section: Section, window: &mut Window, cx: &mut 
                 .child(row(ui, "Line height", "terminal.font.line_height", stepper(ui, "lh", c.terminal.font.line_height as f64, 0.05, (1., 2.), &["terminal", "font", "line_height"], |v| format!("{v:.2}"), cx)))
                 .child(row(ui, "Padding", "terminal.padding", stepper(ui, "pad", c.terminal.padding as f64, 2., (0., 40.), &["terminal", "padding"], |v| format!("{v:.0} px"), cx)))
                 .child(row(ui, "Option key sends Meta (Esc+)", "terminal.option_as_meta", toggle(ui, "meta", c.terminal.option_as_meta, &["terminal", "option_as_meta"], cx)))
+                .child(row(ui, "Copy on select", "terminal.copy_on_select", toggle(ui, "cos", c.terminal.copy_on_select, &["terminal", "copy_on_select"], cx)))
                 .child(
                     div()
                         .mt(px(14.))

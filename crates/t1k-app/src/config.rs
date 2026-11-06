@@ -20,6 +20,8 @@ light = "Mercury Light"
 [terminal]
 padding = 10
 option_as_meta = false
+# Copy text to the clipboard as soon as you finish selecting it.
+copy_on_select = false
 
 [terminal.font]
 family = "JetBrains Mono"
@@ -133,6 +135,7 @@ pub struct ThemeCfg {
 pub struct TerminalCfg {
     pub padding: f32,
     pub option_as_meta: bool,
+    pub copy_on_select: bool,
     pub font: FontCfg,
 }
 
@@ -172,7 +175,7 @@ impl Default for ThemeCfg {
 }
 impl Default for TerminalCfg {
     fn default() -> Self {
-        Self { padding: 10., option_as_meta: false, font: FontCfg::default() }
+        Self { padding: 10., option_as_meta: false, copy_on_select: false, font: FontCfg::default() }
     }
 }
 impl Default for FontCfg {

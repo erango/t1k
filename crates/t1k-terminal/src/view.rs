@@ -45,6 +45,8 @@ pub struct TerminalStyle {
     pub line_height: f32,
     pub padding: Pixels,
     pub option_as_meta: bool,
+    /// Copy the selection to the clipboard as soon as the mouse is released.
+    pub copy_on_select: bool,
 }
 
 impl TerminalStyle {
@@ -71,6 +73,7 @@ impl Default for TerminalStyle {
             line_height: 1.3,
             padding: px(10.),
             option_as_meta: false,
+            copy_on_select: false,
         }
     }
 }
@@ -438,8 +441,12 @@ impl TerminalView {
             self.report_mouse(0, col, row, false);
             return;
         }
-        if self.terminal.selection_text().is_none() {
-            self.terminal.clear_selection();
+        match self.terminal.selection_text() {
+            None => self.terminal.clear_selection(),
+            Some(text) if self.style.copy_on_select && !text.is_empty() => {
+                cx.write_to_clipboard(ClipboardItem::new_string(text));
+            }
+            Some(_) => {}
         }
         cx.notify();
     }
