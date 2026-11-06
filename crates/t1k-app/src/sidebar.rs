@@ -41,6 +41,8 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         group = group.child(
             div()
                 .id(SharedString::from(format!("group-{}", key.display())))
+                .group(SharedString::from(format!("gh-{}", key.display())))
+                .relative()
                 .h(px(26.))
                 .flex_none()
                 .mx(px(INSET))
@@ -114,6 +116,55 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                         }
                         d.child(agg)
                     }
+                })
+                // v3-f D: on hover, + (new tab in this project) and ⋯ (group menu).
+                .child({
+                    let gid = SharedString::from(format!("gh-{}", key.display()));
+                    let k1 = key.clone();
+                    let k2 = key.clone();
+                    let small = |id: String| {
+                        div()
+                            .id(SharedString::from(id))
+                            .size(px(20.))
+                            .rounded(px(5.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .hover(move |d| d.bg(ui.bg_control))
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    };
+                    // Floats over the right end (covering the counts) so it takes no space.
+                    div()
+                        .absolute()
+                        .right(px(4.))
+                        .top(px(3.))
+                        .pl(px(6.))
+                        .flex()
+                        .gap(px(2.))
+                        .rounded(px(6.))
+                        .bg(ui.bg_hover)
+                        .invisible()
+                        .group_hover(gid, |s| s.visible())
+                        .child(
+                            small(format!("gplus-{}", key.display()))
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    cx.stop_propagation();
+                                    let cwd = k1.is_dir().then(|| k1.clone());
+                                    this.open_tab(cwd, None, window, cx);
+                                }))
+                                .tooltip(crate::tooltip::text(ui, "New tab in this project"))
+                                .child(crate::icons::plus(ui.text_secondary)),
+                        )
+                        .child(
+                            small(format!("gmore-{}", key.display()))
+                                .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
+                                    cx.stop_propagation();
+                                    this.open_overlay(crate::overlay::Overlay::GroupMenu { key: k2.clone(), at: ev.position() }, window, cx);
+                                }))
+                                .text_size(px(13.))
+                                .text_color(ui.text_tertiary)
+                                .child("⋯"),
+                        )
                 }),
         );
         if !folded {
@@ -217,10 +268,31 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                         window.start_window_move();
                     }
                 })
+                // v3-f B: window-level actions as plain icons beside ‹ ›.
+                .child(
+                    ghost("sidebar-view", ui)
+                        .on_click(cx.listener(|this, ev: &gpui::ClickEvent, window, cx| {
+                            let p = ev.position();
+                            let at = gpui::point(p.x - px(30.), p.y + px(18.));
+                            this.open_overlay(crate::overlay::Overlay::SidebarView { at }, window, cx);
+                        }))
+                        .tooltip(crate::tooltip::text(ui, "View options"))
+                        .child(crate::icons::filter_lines(ui.text_tertiary)),
+                )
+                .child(
+                    ghost("new-tab", ui)
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            let cwd = this.tabs.get(this.active).and_then(|t| t.cwd.clone());
+                            this.open_tab(cwd, None, window, cx);
+                        }))
+                        .tooltip(crate::tooltip::text(ui, "New tab  ⌘T"))
+                        .child(crate::icons::plus(ui.text_secondary)),
+                )
+                .child(div().w(px(1.)).h(px(14.)).mx(px(4.)).bg(ui.border))
                 .child(nav_button(ws, true, cx))
                 .child(nav_button(ws, false, cx)),
         )
-        // Find, new tab and view options, together where you navigate.
+        // Find owns its row.
         .child(
             div()
                 .flex_none()
@@ -243,33 +315,23 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                         .child(div().flex_1().child("Find tab"))
                         .child(div().text_size(px(11.)).font_family("JetBrains Mono").text_color(ui.text_disabled).child("⌘P")),
                 )
-                .child(
-                    field("new-tab")
-                        .w(px(30.))
-                        .justify_center()
-                        .text_size(px(16.))
-                        .text_color(ui.text_secondary)
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            let cwd = this.tabs.get(this.active).and_then(|t| t.cwd.clone());
-                            this.open_tab(cwd, None, window, cx);
-                        }))
-                        .child("+"),
-                )
-                .child(
-                    field("sidebar-view")
-                        .w(px(30.))
-                        .justify_center()
-                        .on_click(cx.listener(|this, ev: &gpui::ClickEvent, window, cx| {
-                            let p = ev.position();
-                            let at = gpui::point(p.x - px(200.), p.y + px(18.));
-                            this.open_overlay(crate::overlay::Overlay::SidebarView { at }, window, cx);
-                        }))
-                        .child(crate::icons::sliders(ui.text_secondary)),
-                ),
         )
         .children(attention(ws, cx))
         .child(list)
         .into_any_element()
+}
+
+/// A boxless 24 px icon button for the title strip.
+fn ghost(id: &'static str, ui: UiColors) -> gpui::Stateful<Div> {
+    div()
+        .id(id)
+        .size(px(24.))
+        .rounded(px(6.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .hover(move |d| d.bg(ui.bg_hover))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
 }
 
 /// A low row inside a group (quiet fold, Recent).
