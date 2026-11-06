@@ -4,6 +4,7 @@
 //! Claude's own title (`ai-title`), recaps (`away_summary`), PR links and API errors.
 
 pub mod hooks;
+pub mod outputs;
 pub mod server;
 pub mod state;
 pub mod transcript;

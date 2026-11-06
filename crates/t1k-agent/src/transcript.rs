@@ -23,6 +23,8 @@ pub enum Entry {
     PrLink { url: String, number: u64 },
     Branch(String),
     TurnDone { duration_ms: u64 },
+    /// A link worth listing as a session output (PR, artifact, doc, ticket, deploy).
+    Url(String),
 }
 
 pub struct Tail {
@@ -75,12 +77,54 @@ impl Tail {
 const INTERESTING: &[&str] =
     &["\"ai-title\"", "\"custom-title\"", "away_summary", "api_error", "pr-link", "turn_duration", "\"gitBranch\""];
 
+/// Text that can mention session outputs: Claude's replies, the user's prompts, and tool
+/// results from tools like artifact publishing, but not file contents or shell output.
+fn output_text(v: &Value, out: &mut String) {
+    let kind = v.get("type").and_then(Value::as_str);
+    if !matches!(kind, Some("assistant") | Some("user")) {
+        return;
+    }
+    if let Some(r) = v.get("toolUseResult").and_then(Value::as_object) {
+        // File reads/edits/writes, and shell output (greps, test logs) mention URLs in passing.
+        // PRs opened from the shell still arrive as `pr-link` entries.
+        if ["file", "filePath", "originalFile", "stdout"].iter().any(|k| r.contains_key(*k)) {
+            return;
+        }
+    }
+    let Some(content) = v.get("message").and_then(|m| m.get("content")) else { return };
+    fn walk(c: &Value, out: &mut String) {
+        match c {
+            Value::String(s) => {
+                out.push_str(s);
+                out.push('\n');
+            }
+            Value::Array(items) => items.iter().for_each(|i| walk(i, out)),
+            Value::Object(o) => match o.get("type").and_then(Value::as_str) {
+                Some("text") => walk(o.get("text").unwrap_or(&Value::Null), out),
+                Some("tool_result") => walk(o.get("content").unwrap_or(&Value::Null), out),
+                // tool_use inputs (code being written), thinking, images: skip.
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+    walk(content, out);
+}
+
 pub fn parse_line(line: &[u8]) -> Option<Vec<Entry>> {
     let s = std::str::from_utf8(line).ok()?;
-    if !INTERESTING.iter().any(|k| s.contains(k)) {
+    let has_url = s.contains("https://");
+    if !has_url && !INTERESTING.iter().any(|k| s.contains(k)) {
         return None;
     }
     let v: Value = serde_json::from_str(s).ok()?;
+    let urls: Vec<Entry> = if has_url {
+        let mut text = String::new();
+        output_text(&v, &mut text);
+        crate::outputs::urls_in(&text).into_iter().filter(|u| crate::outputs::classify(u).is_some()).map(Entry::Url).collect()
+    } else {
+        Vec::new()
+    };
     let str_of = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
     let mut out = Vec::new();
     match v.get("type").and_then(Value::as_str) {
@@ -111,6 +155,7 @@ pub fn parse_line(line: &[u8]) -> Option<Vec<Entry>> {
     if let Some(b) = str_of("gitBranch").filter(|b| !b.is_empty() && b != "HEAD") {
         out.push(Entry::Branch(b));
     }
+    out.extend(urls);
     (!out.is_empty()).then_some(out)
 }
 
@@ -129,7 +174,10 @@ mod tests {
             Some(vec![Entry::AwaySummary("Done; next ship it.".into()), Entry::Branch("main".into())])
         );
         let l = br#"{"type":"pr-link","prNumber":23,"prUrl":"https://github.com/a/b/pull/23"}"#;
-        assert_eq!(parse_line(l), Some(vec![Entry::PrLink { url: "https://github.com/a/b/pull/23".into(), number: 23 }]));
+        assert_eq!(
+            parse_line(l),
+            Some(vec![Entry::PrLink { url: "https://github.com/a/b/pull/23".into(), number: 23 }])
+        );
         assert_eq!(parse_line(br#"{"type":"assistant","message":{}}"#), None);
         assert_eq!(parse_line(b"not json \"ai-title\""), None);
     }

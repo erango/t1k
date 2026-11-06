@@ -5,6 +5,7 @@ mod cli;
 mod config;
 mod input;
 mod menus;
+mod outputs_panel;
 mod overlay;
 mod groups;
 mod session;
@@ -47,6 +48,7 @@ fn main() {
             KeyBinding::new("cmd-p", ToggleSwitcher, None),
             KeyBinding::new("cmd-o", ToggleOverview, None),
             KeyBinding::new("cmd-shift-r", RenameTab, None),
+            KeyBinding::new("cmd-shift-o", ToggleOutputs, None),
             KeyBinding::new("cmd-c", Copy, Some("Terminal")),
             KeyBinding::new("cmd-v", Paste, Some("Terminal")),
             KeyBinding::new("cmd-k", ClearScrollback, Some("Terminal")),

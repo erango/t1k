@@ -1,0 +1,325 @@
+//! Right-hand panel listing what sessions produced: PRs (with live state), artifacts, docs,
+//! tickets, deploys and edited files. Scope: this tab, its project, or everything.
+
+use std::collections::{HashMap, HashSet};
+use std::process::Command;
+use std::time::{Duration, Instant, SystemTime};
+
+use gpui::{div, prelude::*, px, AnyElement, ClipboardItem, Context, FontWeight, SharedString};
+use t1k_agent::outputs::{Kind, Output};
+
+use crate::workspace::Workspace;
+
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum Scope {
+    #[default]
+    Tab,
+    Project,
+    All,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PrInfo {
+    pub state: String,
+    pub draft: bool,
+    /// (passed, failed, pending)
+    pub checks: (u32, u32, u32),
+    pub fetched: Instant,
+}
+
+#[derive(Default)]
+pub struct PanelState {
+    pub open: bool,
+    pub scope: Scope,
+    pub filter: Option<Kind>,
+    pub prs: HashMap<String, Option<PrInfo>>,
+    pub(crate) inflight: HashSet<String>,
+}
+
+const PR_TTL: Duration = Duration::from_secs(300);
+
+/// `gh pr view` → state, draft, CI summary. None if gh is missing or the PR isn't reachable.
+fn fetch_pr(url: &str) -> Option<PrInfo> {
+    let out = Command::new("gh")
+        .args(["pr", "view", url, "--json", "state,isDraft,statusCheckRollup"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
+    let mut checks = (0, 0, 0);
+    for c in v["statusCheckRollup"].as_array().into_iter().flatten() {
+        let concl = c["conclusion"].as_str().or(c["state"].as_str()).unwrap_or("");
+        match concl {
+            "SUCCESS" | "NEUTRAL" | "SKIPPED" => checks.0 += 1,
+            "FAILURE" | "ERROR" | "CANCELLED" | "TIMED_OUT" | "ACTION_REQUIRED" => checks.1 += 1,
+            _ => checks.2 += 1,
+        }
+    }
+    Some(PrInfo {
+        state: v["state"].as_str().unwrap_or("").to_string(),
+        draft: v["isDraft"].as_bool().unwrap_or(false),
+        checks,
+        fetched: Instant::now(),
+    })
+}
+
+impl Workspace {
+    /// Outputs in scope, newest first, with the tab they came from.
+    pub fn outputs_in_scope(&self) -> Vec<(usize, Output)> {
+        let active_group = self.tabs.get(self.active).map(|t| t.group.clone());
+        let mut v: Vec<(usize, Output)> = Vec::new();
+        for (i, t) in self.tabs.iter().enumerate() {
+            let in_scope = match self.panel.scope {
+                Scope::Tab => i == self.active,
+                Scope::Project => Some(&t.group) == active_group.as_ref(),
+                Scope::All => true,
+            };
+            if !in_scope {
+                continue;
+            }
+            for o in t.agent.iter().flat_map(|a| a.outputs.iter()) {
+                if !v.iter().any(|(_, x)| x.target == o.target) {
+                    v.push((i, o.clone()));
+                }
+            }
+        }
+        v.sort_by(|a, b| b.1.at.cmp(&a.1.at));
+        v
+    }
+
+    /// Fetch PR state for PRs in view that we don't know yet (or that went stale).
+    pub fn refresh_prs(&mut self, cx: &mut Context<Self>) {
+        if !self.panel.open {
+            return;
+        }
+        let stale: Vec<String> = self
+            .outputs_in_scope()
+            .into_iter()
+            .filter(|(_, o)| o.kind == Kind::Pr)
+            .map(|(_, o)| o.target)
+            .filter(|u| !self.panel.inflight.contains(u))
+            .filter(|u| match self.panel.prs.get(u) {
+                None => true,
+                Some(Some(info)) => info.fetched.elapsed() > PR_TTL,
+                // Failed lookups aren't retried until restart.
+                Some(None) => false,
+            })
+            .take(6)
+            .collect();
+        for url in stale {
+            self.panel.inflight.insert(url.clone());
+            let task = cx.background_spawn({
+                let url = url.clone();
+                async move { fetch_pr(&url) }
+            });
+            cx.spawn(async move |this, cx| {
+                let info = task.await;
+                let _ = this.update(cx, |ws, cx| {
+                    ws.panel.inflight.remove(&url);
+                    ws.panel.prs.insert(url, info);
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
+    }
+}
+
+fn age(t: SystemTime) -> String {
+    let s = t.elapsed().map(|d| d.as_secs()).unwrap_or(0);
+    match s {
+        0..=59 => "now".into(),
+        60..=3599 => format!("{}m", s / 60),
+        3600..=86399 => format!("{}h", s / 3600),
+        _ => format!("{}d", s / 86400),
+    }
+}
+
+fn icon(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Pr => "⇄",
+        Kind::Artifact => "◫",
+        Kind::Doc => "≡",
+        Kind::Ticket => "#",
+        Kind::Deploy => "▲",
+        Kind::File => "✎",
+    }
+}
+
+pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
+    let ui = ws.ui;
+    let all = ws.outputs_in_scope();
+    let items: Vec<&(usize, Output)> = all.iter().filter(|(_, o)| ws.panel.filter.is_none_or(|k| o.kind == k)).collect();
+
+    let seg = |id: &str, label: &str, on: bool| {
+        div()
+            .id(SharedString::from(format!("scope-{id}")))
+            .px(px(8.))
+            .h(px(22.))
+            .rounded(px(5.))
+            .flex()
+            .items_center()
+            .text_size(px(12.))
+            .text_color(if on { ui.text_primary } else { ui.text_tertiary })
+            .when(on, |d| d.bg(ui.bg_control))
+            .hover(move |d| d.text_color(ui.text_primary))
+            .child(label.to_string())
+    };
+    let scope = ws.panel.scope;
+    let header = div()
+        .h(px(38.))
+        .flex_none()
+        .px(px(14.))
+        .flex()
+        .items_center()
+        .gap(px(4.))
+        .child(div().flex_1().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).child("Outputs"))
+        .child(seg("tab", "Tab", scope == Scope::Tab).on_click(cx.listener(|this, _, _, cx| {
+            this.panel.scope = Scope::Tab;
+            this.refresh_prs(cx);
+            cx.notify();
+        })))
+        .child(seg("project", "Project", scope == Scope::Project).on_click(cx.listener(|this, _, _, cx| {
+            this.panel.scope = Scope::Project;
+            this.refresh_prs(cx);
+            cx.notify();
+        })))
+        .child(seg("all", "All", scope == Scope::All).on_click(cx.listener(|this, _, _, cx| {
+            this.panel.scope = Scope::All;
+            this.refresh_prs(cx);
+            cx.notify();
+        })));
+
+    // Filter chips: only kinds present, with counts.
+    let mut chips = div().flex().flex_wrap().gap(px(4.)).px(px(12.)).pb(px(8.));
+    let filter = ws.panel.filter;
+    chips = chips.child(seg("k-all", &format!("All {}", all.len()), filter.is_none()).on_click(cx.listener(|this, _, _, cx| {
+        this.panel.filter = None;
+        cx.notify();
+    })));
+    for k in Kind::ALL {
+        let n = all.iter().filter(|(_, o)| o.kind == k).count();
+        if n == 0 {
+            continue;
+        }
+        chips = chips.child(
+            seg(k.label(), &format!("{} {n}", k.label()), filter == Some(k)).on_click(cx.listener(move |this, _, _, cx| {
+                this.panel.filter = if this.panel.filter == Some(k) { None } else { Some(k) };
+                cx.notify();
+            })),
+        );
+    }
+
+    let mut list = div().id("outputs-list").flex_1().min_h_0().overflow_y_scroll().px(px(6.)).pb(px(12.)).flex().flex_col();
+    for (n, (tab, o)) in items.iter().enumerate() {
+        let target = o.target.clone();
+        let copy_target = o.target.clone();
+        let is_file = o.kind == Kind::File;
+        let tab_title = ws.tabs.get(*tab).map(|t| t.title()).unwrap_or_default();
+        let pr = (o.kind == Kind::Pr).then(|| ws.panel.prs.get(&o.target).cloned().flatten()).flatten();
+        let badge = pr.map(|p| {
+            let (label, color) = match (p.state.as_str(), p.draft) {
+                ("MERGED", _) => ("Merged", ui.accent),
+                ("CLOSED", _) => ("Closed", ui.text_tertiary),
+                (_, true) => ("Draft", ui.text_tertiary),
+                _ => ("Open", ui.status_done),
+            };
+            let (ok, bad, wait) = p.checks;
+            let ci = if bad > 0 {
+                Some(("✗", ui.status_error))
+            } else if wait > 0 {
+                Some(("•", ui.status_needs))
+            } else if ok > 0 {
+                Some(("✓", ui.status_done))
+            } else {
+                None
+            };
+            div()
+                .flex()
+                .gap(px(4.))
+                .items_center()
+                .text_size(px(11.))
+                .children(ci.map(|(g, c)| div().text_color(c).child(g)))
+                .child(div().text_color(color).child(label))
+        });
+        let row_id = SharedString::from(format!("out-{n}"));
+        list = list.child(
+            div()
+                .id(row_id.clone())
+                .group(row_id.clone())
+                .h(px(44.))
+                .flex_none()
+                .px(px(8.))
+                .rounded(px(6.))
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .hover(move |d| d.bg(ui.bg_hover))
+                .on_click(cx.listener(move |_, _, _, cx| {
+                    if is_file {
+                        cx.open_with_system(std::path::Path::new(&target));
+                    } else {
+                        cx.open_url(&target);
+                    }
+                }))
+                .child(div().w(px(16.)).flex_none().text_size(px(13.)).text_color(ui.text_tertiary).child(icon(o.kind)))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap(px(1.))
+                        .child(div().truncate().text_size(px(13.)).text_color(ui.text_primary).child(o.label.clone()))
+                        .child(
+                            div()
+                                .truncate()
+                                .text_size(px(11.))
+                                .text_color(ui.text_tertiary)
+                                .child(format!("{tab_title} · {}", age(o.at))),
+                        ),
+                )
+                .children(badge)
+                .child(
+                    div()
+                        .id(SharedString::from(format!("copy-{n}")))
+                        .invisible()
+                        .group_hover(row_id, |s| s.visible())
+                        .px(px(6.))
+                        .h(px(22.))
+                        .rounded(px(5.))
+                        .flex()
+                        .items_center()
+                        .text_size(px(11.))
+                        .text_color(ui.text_tertiary)
+                        .hover(move |d| d.bg(ui.bg_control).text_color(ui.text_primary))
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            cx.stop_propagation();
+                            cx.write_to_clipboard(ClipboardItem::new_string(copy_target.clone()));
+                        }))
+                        .child("Copy"),
+                ),
+        );
+    }
+    if items.is_empty() {
+        let hint = match scope {
+            Scope::Tab => "Nothing from this tab yet. PRs, artifacts, docs, tickets and edited files from its Claude session show up here.",
+            Scope::Project => "Nothing from this project's tabs yet.",
+            Scope::All => "No session outputs yet.",
+        };
+        list = list.child(div().p(px(14.)).text_size(px(12.)).text_color(ui.text_tertiary).child(hint));
+    }
+
+    div()
+        .id("outputs-panel")
+        .w(px(380.))
+        .flex_none()
+        .h_full()
+        .flex()
+        .flex_col()
+        .bg(ui.bg_sidebar)
+        .child(header)
+        .child(chips)
+        .child(list)
+        .into_any_element()
+}

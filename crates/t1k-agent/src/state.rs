@@ -1,9 +1,10 @@
 //! Per-tab agent state: status machine plus the "agent card" fields (goal, now, recap, links).
 
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 
 use crate::hooks::{describe_tool, Hook};
+use crate::outputs::{classify, Kind, Output};
 use crate::transcript::{Entry, Tail};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -51,6 +52,8 @@ pub struct AgentState {
     pub recap: Option<String>,
     pub branch: Option<String>,
     pub prs: Vec<(u64, String)>,
+    /// Everything the session produced, newest last (deduped by target).
+    pub outputs: Vec<Output>,
     custom_title: bool,
     tail: Option<Tail>,
 }
@@ -67,9 +70,30 @@ impl AgentState {
             recap: None,
             branch: None,
             prs: Vec::new(),
+            outputs: Vec::new(),
             custom_title: false,
             tail: None,
         }
+    }
+
+    pub fn add_output(&mut self, kind: Kind, target: String, label: String) {
+        self.outputs.retain(|o| o.target != target);
+        self.outputs.push(Output { kind, target, label, at: SystemTime::now() });
+    }
+
+    fn add_url(&mut self, url: &str) {
+        if let Some((kind, target, label)) = classify(url) {
+            self.add_output(kind, target, label);
+        }
+    }
+
+    /// A session from a previous run: ended, with its transcript attached so the title, recap
+    /// and outputs come back.
+    pub fn restored(session_id: String, transcript: PathBuf) -> Self {
+        let mut a = Self::new(session_id);
+        a.status = Status::Ended;
+        a.tail = Some(Tail::new(transcript));
+        a
     }
 
     fn set_status(&mut self, s: Status) {
@@ -108,6 +132,13 @@ impl AgentState {
                 self.set_status(Status::Working);
             }
             Hook::PreToolUse { tool, input } => {
+                if matches!(tool.as_str(), "Edit" | "MultiEdit" | "Write" | "NotebookEdit") {
+                    let path = input.get("file_path").or_else(|| input.get("notebook_path")).and_then(|v| v.as_str());
+                    if let Some(p) = path {
+                        let name = p.rsplit('/').next().unwrap_or(p).to_string();
+                        self.add_output(Kind::File, p.to_string(), name);
+                    }
+                }
                 self.now = Some(describe_tool(&tool, &input));
                 self.set_status(Status::Working);
             }
@@ -154,9 +185,20 @@ impl AgentState {
                     }
                 }
                 Entry::PrLink { url, number } => {
+                    self.add_url(&url);
                     if !self.prs.iter().any(|(_, u)| *u == url) {
                         self.prs.push((number, url));
                     }
+                }
+                Entry::Url(u) => {
+                    if let Some((Kind::Pr, canon, _)) = classify(&u) {
+                        if let Some(n) = canon.rsplit('/').next().and_then(|n| n.parse().ok()) {
+                            if !self.prs.iter().any(|(_, x)| *x == canon) {
+                                self.prs.push((n, canon));
+                            }
+                        }
+                    }
+                    self.add_url(&u);
                 }
                 Entry::Branch(b) => self.branch = Some(b),
                 Entry::TurnDone { .. } => {}

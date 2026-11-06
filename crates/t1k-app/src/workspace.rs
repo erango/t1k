@@ -87,7 +87,7 @@ impl Tab {
                 Status::NeedsInput { reason } => Some(reason.clone()),
                 Status::Error { message } => Some(message.clone()),
                 Status::Done | Status::Idle => a.recap.clone(),
-                Status::Ended => Some("Session ended".into()),
+                Status::Ended => a.recap.clone().or_else(|| Some("Session ended".into())),
             };
             if let Some(l) = line {
                 return l;
@@ -119,6 +119,7 @@ pub struct Workspace {
     pub theme: &'static Theme,
     pub ui: UiColors,
     pub overlay: Overlay,
+    pub panel: crate::outputs_panel::PanelState,
     pub overlay_focus: FocusHandle,
     pub config: Config,
     watcher: config::Watcher,
@@ -197,6 +198,7 @@ impl Workspace {
             theme: dark,
             ui: dark.ui(),
             overlay: Overlay::None,
+            panel: crate::outputs_panel::PanelState { open: saved.outputs_open, ..Default::default() },
             overlay_focus: cx.focus_handle(),
             config,
             watcher,
@@ -218,6 +220,12 @@ impl Workspace {
                 this.open_tab(t.cwd, t.manual_title, window, cx);
                 let tab = this.tabs.last_mut().unwrap();
                 tab.reminder_at = t.reminder_at.map(|s| UNIX_EPOCH + Duration::from_secs(s));
+                // Re-attach the last Claude session's transcript: title, recap and outputs return.
+                if let Some(sid) = &t.last_session {
+                    if let Some(path) = session::find_transcript(sid) {
+                        tab.agent = Some(AgentState::restored(sid.clone(), path));
+                    }
+                }
                 tab.last_session = t.last_session;
             }
             let active = saved.active.min(this.tabs.len() - 1);
@@ -386,6 +394,10 @@ impl Workspace {
         if regrouped || changed {
             self.save();
         }
+        self.refresh_prs(cx);
+        if changed {
+            self.debug_dump();
+        }
     }
 
     /// Every 100 ms: apply agent messages; keep spinners moving while anything works.
@@ -452,6 +464,10 @@ impl Workspace {
                     t.unread,
                     t.subtitle()
                 );
+                for o in t.agent.iter().flat_map(|a| a.outputs.iter()) {
+                    let pr = self.panel.prs.get(&o.target).cloned().flatten().map(|p| format!(" [{} {:?}]", p.state, p.checks));
+                    out += &format!("      {} {}{}\n", o.kind.label(), o.label, pr.unwrap_or_default());
+                }
             }
         }
         let _ = std::fs::write(path, out);
@@ -504,6 +520,7 @@ impl Workspace {
             collapsed: self.collapsed.iter().cloned().collect(),
             group_names: self.group_names.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             sidebar_open: Some(self.sidebar_open),
+            outputs_open: self.panel.open,
             ..Default::default()
         }
     }
@@ -668,6 +685,18 @@ impl Workspace {
         }
     }
 
+    fn active_output_count(&self) -> Option<usize> {
+        let n = self.tabs.get(self.active)?.agent.as_ref()?.outputs.len();
+        (n > 0).then_some(n)
+    }
+
+    pub fn toggle_outputs(&mut self, cx: &mut Context<Self>) {
+        self.panel.open = !self.panel.open;
+        self.refresh_prs(cx);
+        self.save();
+        cx.notify();
+    }
+
     fn toggle_appearance(&mut self, _: &ToggleAppearance, window: &mut Window, cx: &mut Context<Self>) {
         self.mode = if self.theme.is_dark() { AppearanceMode::Light } else { AppearanceMode::Dark };
         self.apply_theme(window, cx);
@@ -718,6 +747,24 @@ impl Workspace {
             .child(div().text_size(px(13.)).font_weight(gpui::FontWeight::MEDIUM).text_color(ui.text_primary).truncate().child(title))
             .child(div().text_size(px(12.)).text_color(ui.text_tertiary).truncate().child(place))
             .child(div().flex_1())
+            .child(
+                div()
+                    .id("outputs-toggle")
+                    .h(px(24.))
+                    .px(px(8.))
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .rounded(px(6.))
+                    .text_size(px(12.))
+                    .text_color(if self.panel.open { ui.text_primary } else { ui.text_tertiary })
+                    .when(self.panel.open, |d| d.bg(ui.bg_selected))
+                    .hover(move |d| d.bg(ui.bg_hover).text_color(ui.text_primary))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_outputs(cx)))
+                    .child("Outputs")
+                    .children(self.active_output_count().map(|n| div().text_color(ui.text_tertiary).child(n.to_string()))),
+            )
             .child(
                 div()
                     .id("appearance")
@@ -788,6 +835,7 @@ impl Render for Workspace {
                 }
             }))
             .on_action(cx.listener(|this, _: &RenameTab, window, cx| this.start_rename(this.active, window, cx)))
+            .on_action(cx.listener(|this, _: &ToggleOutputs, _, cx| this.toggle_outputs(cx)))
             .on_action(cx.listener(Self::toggle_appearance))
             .on_action(cx.listener(Self::follow_system))
             .on_action(cx.listener(Self::select_theme))
@@ -802,6 +850,7 @@ impl Render for Workspace {
 
         let sidebar = self.sidebar_open.then(|| crate::sidebar::render(self, cx));
         let overlay = crate::overlay::render(self, window, cx);
+        let panel = self.panel.open.then(|| crate::outputs_panel::render(self, cx));
         root.relative().children(sidebar).child(
             div()
                 .flex_1()
@@ -812,6 +861,7 @@ impl Render for Workspace {
                 .child(self.render_titlebar(cx))
                 .child(div().flex_1().min_h_0().children(active_view)),
         )
+        .children(panel)
         .children(overlay)
     }
 }

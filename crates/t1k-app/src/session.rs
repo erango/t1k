@@ -29,6 +29,8 @@ pub struct Session {
     #[serde(default)]
     pub sidebar_open: Option<bool>,
     #[serde(default)]
+    pub outputs_open: bool,
+    #[serde(default)]
     pub appearance: Option<String>,
     #[serde(default)]
     pub theme_dark: Option<String>,
@@ -63,4 +65,14 @@ pub fn save(s: &Session) {
     if std::fs::write(&tmp, json).is_ok() {
         let _ = std::fs::rename(tmp, p);
     }
+}
+
+/// Find a Claude session's transcript: ~/.claude/projects/<any>/<session_id>.jsonl.
+pub fn find_transcript(session_id: &str) -> Option<PathBuf> {
+    if session_id.is_empty() || session_id.contains('/') {
+        return None;
+    }
+    let projects = PathBuf::from(std::env::var_os("HOME")?).join(".claude/projects");
+    let name = format!("{session_id}.jsonl");
+    std::fs::read_dir(projects).ok()?.flatten().map(|d| d.path().join(&name)).find(|p| p.is_file())
 }

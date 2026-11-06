@@ -26,6 +26,7 @@ pub fn install(cx: &mut App) {
                     MenuItem::action("Rename Tab…", RenameTab),
                     MenuItem::separator(),
                     MenuItem::action("Toggle Sidebar", ToggleSidebar),
+                    MenuItem::action("Toggle Outputs Panel", ToggleOutputs),
                     MenuItem::separator(),
                     MenuItem::action("Toggle Dark / Light", ToggleAppearance),
                     MenuItem::action("Follow System Appearance", FollowSystemAppearance),
