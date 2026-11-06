@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+gpui = { version = "0.2.2", features = ["runtime_shaders"] }
+alacritty_terminal = "0.26.0"
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"

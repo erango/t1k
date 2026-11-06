@@ -1,0 +1,17 @@
+[package]
+name = "t1k-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "t1k"
+path = "src/main.rs"
+
+[dependencies]
+gpui.workspace = true
+t1k-terminal = { path = "../t1k-terminal" }
+anyhow.workspace = true
+log.workspace = true
+env_logger.workspace = true
+uuid = { version = "1", features = ["v4"] }
