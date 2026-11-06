@@ -924,7 +924,7 @@ fn terminal_menu(
             this.open_split(tab, true, window, cx);
         })));
     } else {
-        m = m.child(item("other-pane", "Switch pane", "⌘]", true).on_click(cx.listener(move |this, _, window, cx| {
+        m = m.child(item("other-pane", "Switch pane", "⌘⌥→", true).on_click(cx.listener(move |this, _, window, cx| {
             this.close_overlay(window, cx);
             this.focus_other_pane(window, cx);
         })));

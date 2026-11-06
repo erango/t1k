@@ -225,13 +225,20 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             div()
                 .h(px(38.))
                 .flex_none()
+                .flex()
+                .items_center()
+                .justify_end()
+                .pr(px(10.))
+                .gap(px(2.))
                 .on_mouse_down(MouseButton::Left, |ev, window, _| {
                     if ev.click_count == 2 {
                         window.zoom_window();
                     } else {
                         window.start_window_move();
                     }
-                }),
+                })
+                .child(nav_button(ws, true, cx))
+                .child(nav_button(ws, false, cx)),
         )
         .children(needs_bar(ws, cx))
         .child(list)
@@ -429,6 +436,28 @@ fn glyph(tab: &Tab, ui: UiColors, started: Instant, running: bool, k: f32) -> Di
         None if running => slot.child(div().size(px(5.)).rounded_full().bg(ui.status_working)),
         None => slot,
     }
+}
+
+/// ‹ / › in the sidebar's title strip: back and forward through visited tabs (⌘[ / ⌘]).
+fn nav_button(ws: &Workspace, back: bool, cx: &mut Context<Workspace>) -> impl IntoElement {
+    let ui = ws.ui;
+    let enabled = ws.can_navigate(back);
+    div()
+        .id(if back { "nav-back" } else { "nav-forward" })
+        .size(px(24.))
+        .rounded(px(5.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_size(px(17.))
+        .text_color(if enabled { ui.text_secondary } else { ui.text_disabled })
+        // Don't drag the window from the buttons.
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .when(enabled, |d| {
+            d.hover(move |d| d.bg(ui.bg_hover).text_color(ui.text_primary))
+                .on_click(cx.listener(move |this, _, window, cx| this.navigate(back, window, cx)))
+        })
+        .child(if back { "‹" } else { "›" })
 }
 
 /// "5m", "3h", "2d" since a unix time.

@@ -139,6 +139,10 @@ pub struct Workspace {
     pub theme: &'static Theme,
     pub ui: UiColors,
     pub overlay: Overlay,
+    /// Tabs visited before / after the current one (ids), for ⌘[ / ⌘].
+    pub back: Vec<String>,
+    pub forward: Vec<String>,
+    navigating: bool,
     pub panel: crate::outputs_panel::PanelState,
     pub overlay_focus: FocusHandle,
     pub config: Config,
@@ -230,6 +234,9 @@ impl Workspace {
             theme: dark,
             ui: dark.ui(),
             overlay: Overlay::None,
+            back: Vec::new(),
+            forward: Vec::new(),
+            navigating: false,
             panel: crate::outputs_panel::PanelState { open: saved.outputs_open, ..Default::default() },
             overlay_focus: cx.focus_handle(),
             config,
@@ -273,6 +280,9 @@ impl Workspace {
             }
             let active = saved.active.min(this.tabs.len() - 1);
             this.activate(active, window, cx);
+            // Restoring opened every tab; that isn't history.
+            this.back.clear();
+            this.forward.clear();
         }
         this
     }
@@ -428,6 +438,18 @@ impl Workspace {
         if ix >= self.tabs.len() {
             return;
         }
+        // Visiting a tab records where you came from, like a browser; back/forward don't.
+        if ix != self.active && !self.navigating {
+            if let Some(cur) = self.tabs.get(self.active).map(|t| t.id.clone()) {
+                if self.back.last() != Some(&cur) {
+                    self.back.push(cur);
+                }
+                if self.back.len() > 100 {
+                    self.back.remove(0);
+                }
+                self.forward.clear();
+            }
+        }
         self.active = ix;
         let t = &mut self.tabs[ix];
         t.unread = false;
@@ -439,6 +461,33 @@ impl Workspace {
         let handle = self.tabs[ix].view.read(cx).focus_handle(cx);
         window.focus(&handle);
         cx.notify();
+    }
+
+    /// ⌘[ (`back`) / ⌘]: return to the previously visited tab, skipping closed ones.
+    pub fn navigate(&mut self, back: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let current = self.tabs.get(self.active).map(|t| t.id.clone());
+        loop {
+            let next = if back { self.back.pop() } else { self.forward.pop() };
+            let Some(id) = next else { return };
+            if Some(&id) == current.as_ref() {
+                continue;
+            }
+            let Some(ix) = self.tabs.iter().position(|t| t.id == id) else { continue };
+            if let Some(cur) = current {
+                if back { self.forward.push(cur) } else { self.back.push(cur) }
+            }
+            self.navigating = true;
+            self.activate(ix, window, cx);
+            self.navigating = false;
+            return;
+        }
+    }
+
+    /// Whether back / forward have anywhere open to go.
+    pub fn can_navigate(&self, back: bool) -> bool {
+        let stack = if back { &self.back } else { &self.forward };
+        let current = self.tabs.get(self.active).map(|t| t.id.as_str());
+        stack.iter().any(|id| Some(id.as_str()) != current && self.tabs.iter().any(|t| &t.id == id))
     }
 
     pub fn close_tab_at(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -1148,6 +1197,8 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &SplitRight, window, cx| this.open_split(this.active, false, window, cx)))
             .on_action(cx.listener(|this, _: &SplitDown, window, cx| this.open_split(this.active, true, window, cx)))
             .on_action(cx.listener(|this, _: &FocusOtherPane, window, cx| this.focus_other_pane(window, cx)))
+            .on_action(cx.listener(|this, _: &GoBack, window, cx| this.navigate(true, window, cx)))
+            .on_action(cx.listener(|this, _: &GoForward, window, cx| this.navigate(false, window, cx)))
             .on_action(cx.listener(|this, _: &IncreaseFontSize, _, _| this.set_font_size(this.config.terminal.font.size + 1.)))
             .on_action(cx.listener(|this, _: &DecreaseFontSize, _, _| this.set_font_size(this.config.terminal.font.size - 1.)))
             .on_action(cx.listener(|this, _: &ResetFontSize, _, _| this.set_font_size(crate::config::FontCfg::default().size)))

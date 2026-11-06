@@ -29,6 +29,8 @@ pub fn install(cx: &mut App) {
                     MenuItem::action("Find Next", t1k_terminal::view::FindNext),
                     MenuItem::action("Find Previous", t1k_terminal::view::FindPrevious),
                     MenuItem::separator(),
+                    MenuItem::action("Back", GoBack),
+                    MenuItem::action("Forward", GoForward),
                     MenuItem::action("Find Tab…", ToggleSwitcher),
                     MenuItem::action("Overview", ToggleOverview),
                     MenuItem::action("Jump to Next Needing You", JumpToNeeds),

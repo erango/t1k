@@ -91,7 +91,7 @@ impl Workspace {
         }
     }
 
-    /// ⌘[ / ⌘]: move focus between the main pane and the split.
+    /// ⌘⌥ + arrow: move focus between the main pane and the split.
     pub fn focus_other_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(t) = self.tabs.get(self.active) else { return };
         let Some(s) = &t.split else { return };
