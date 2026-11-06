@@ -10,6 +10,7 @@ mod overlay;
 mod platform;
 mod groups;
 mod session;
+mod settings;
 mod sidebar;
 mod workspace;
 
@@ -50,6 +51,7 @@ fn main() {
             KeyBinding::new("cmd-o", ToggleOverview, None),
             KeyBinding::new("cmd-shift-r", RenameTab, None),
             KeyBinding::new("cmd-shift-o", ToggleOutputs, None),
+            KeyBinding::new("cmd-,", OpenSettings, None),
             KeyBinding::new("cmd-c", Copy, Some("Terminal")),
             KeyBinding::new("cmd-v", Paste, Some("Terminal")),
             KeyBinding::new("cmd-k", ClearScrollback, Some("Terminal")),

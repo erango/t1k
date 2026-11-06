@@ -20,6 +20,7 @@ pub enum Overlay {
     Overview { selected: usize },
     Rename { tab: usize, text: String },
     Menu { tab: usize, at: Point<Pixels> },
+    Settings { section: crate::settings::Section },
 }
 
 const CARD_W: f32 = 264.;
@@ -157,6 +158,7 @@ impl Workspace {
                 _ => Some(Overlay::Rename { tab, text }),
             },
             Overlay::Menu { tab, at } => (ev.keystroke.key != "escape").then_some(Overlay::Menu { tab, at }),
+            Overlay::Settings { section } => (ev.keystroke.key != "escape").then_some(Overlay::Settings { section }),
         };
         match next {
             Some(o) => {
@@ -343,6 +345,10 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                 )
                 .child(div().text_size(px(11.)).text_color(ui.text_tertiary).child("Enter to save · empty resets to the automatic title · Esc"));
             Some(scrim(ws, true, cx).flex().justify_center().child(panel).into_any_element())
+        }
+        Overlay::Settings { section } => {
+            let panel = crate::settings::render(ws, *section, window, cx);
+            Some(scrim(ws, true, cx).bg(gpui::black().opacity(0.3)).flex().justify_center().child(panel).into_any_element())
         }
         Overlay::Menu { tab, at } => {
             let m = menu(ws, *tab, *at, window, cx);

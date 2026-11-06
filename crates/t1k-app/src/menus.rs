@@ -15,7 +15,12 @@ pub fn install(cx: &mut App) {
         cx.set_menus(vec![
             Menu {
                 name: "T1K".into(),
-                items: vec![MenuItem::action("New Tab", NewTab), MenuItem::action("Quit T1K", Quit)],
+                items: vec![
+                    MenuItem::action("Settings…", OpenSettings),
+                    MenuItem::separator(),
+                    MenuItem::action("New Tab", NewTab),
+                    MenuItem::action("Quit T1K", Quit),
+                ],
             },
             Menu {
                 name: "View".into(),

@@ -864,6 +864,9 @@ impl Render for Workspace {
             }))
             .on_action(cx.listener(|this, _: &RenameTab, window, cx| this.start_rename(this.active, window, cx)))
             .on_action(cx.listener(|this, _: &ToggleOutputs, _, cx| this.toggle_outputs(cx)))
+            .on_action(cx.listener(|this, _: &OpenSettings, window, cx| {
+                this.open_overlay(Overlay::Settings { section: crate::settings::Section::Appearance }, window, cx)
+            }))
             .on_action(cx.listener(Self::toggle_appearance))
             .on_action(cx.listener(Self::follow_system))
             .on_action(cx.listener(Self::select_theme))

@@ -180,24 +180,54 @@ impl Watcher {
     }
 }
 
-/// Set a key in config.toml, keeping comments and layout. `keys` is a path like ["theme", "dark"].
+/// Set a string key in config.toml, keeping comments and layout. `keys` is a path like ["theme", "dark"].
 pub fn set(keys: &[&str], value: &str) {
+    set_value(keys, value.into());
+}
+
+/// Set any value in config.toml, keeping comments and layout.
+pub fn set_value(keys: &[&str], value: toml_edit::Value) {
     let Some(p) = path() else { return };
     let text = std::fs::read_to_string(&p).unwrap_or_else(|_| TEMPLATE.into());
-    let Ok(mut doc) = text.parse::<toml_edit::DocumentMut>() else { return };
-    let (last, parents) = keys.split_last().unwrap();
+    if let Some(out) = edit(&text, keys, value) {
+        let _ = std::fs::write(&p, out);
+    }
+}
+
+/// Return `text` with `keys` set to `value`, creating tables as needed. None if `text` isn't TOML.
+pub fn edit(text: &str, keys: &[&str], value: toml_edit::Value) -> Option<String> {
+    let mut doc = text.parse::<toml_edit::DocumentMut>().ok()?;
+    let (last, parents) = keys.split_last()?;
     let mut table = doc.as_table_mut();
     for k in parents {
         let entry = table.entry(k).or_insert(toml_edit::table());
-        let Some(t) = entry.as_table_mut() else { return };
-        table = t;
+        table = entry.as_table_mut()?;
     }
-    table[*last] = toml_edit::value(value);
-    let _ = std::fs::write(&p, doc.to_string());
+    // Keep the existing value's trailing comment.
+    let decor = table.get(last).and_then(|i| i.as_value()).map(|v| v.decor().clone());
+    let mut value = value;
+    if let Some(d) = decor {
+        *value.decor_mut() = d;
+    }
+    table[*last] = toml_edit::Item::Value(value);
+    Some(doc.to_string())
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn edit_keeps_comments() {
+        let out = super::edit(super::TEMPLATE, &["terminal", "font", "size"], 15.into()).unwrap();
+        assert!(out.contains("size = 15"));
+        assert!(out.contains("# Tried in order for glyphs"));
+        let out = super::edit(&out, &["notify", "done"], true.into()).unwrap();
+        let c: super::Config = toml::from_str(&out).unwrap();
+        assert!(c.notify.done);
+        assert_eq!(c.terminal.font.size, 15.);
+        let out = super::edit("", &["theme", "dark"], "Dracula".into()).unwrap();
+        assert!(out.contains("[theme]") && out.contains("dark = \"Dracula\""));
+    }
+
     #[test]
     fn template_is_complete() {
         // The commented template written on first run must say exactly the defaults.
