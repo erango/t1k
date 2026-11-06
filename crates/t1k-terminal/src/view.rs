@@ -24,7 +24,7 @@ use crate::links::{find_path_candidates, find_pr_refs, find_tickets, find_urls, 
 use crate::palette::{dim, Palette};
 use crate::terminal::{GridSize, SpawnOptions, Terminal};
 
-actions!(terminal, [Copy, Paste, ClearScrollback, ScrollPageUp, ScrollPageDown, ShowLinkHints, Find, FindNext, FindPrevious]);
+actions!(terminal, [Copy, Paste, ClearScrollback, ScrollPageUp, ScrollPageDown, ShowLinkHints, Find, FindNext, FindPrevious, PreviousPrompt, NextPrompt]);
 
 /// Events the terminal view emits to its container (tab/workspace).
 #[derive(Clone, Debug)]
@@ -348,6 +348,35 @@ impl TerminalView {
             self.terminal.term.lock().scroll_to_point(*m.start());
         }
         self.search = Some(s);
+        cx.notify();
+    }
+
+    fn previous_prompt(&mut self, _: &PreviousPrompt, _: &mut Window, cx: &mut Context<Self>) {
+        self.jump_prompt(false, cx);
+    }
+
+    fn next_prompt(&mut self, _: &NextPrompt, _: &mut Window, cx: &mut Context<Self>) {
+        self.jump_prompt(true, cx);
+    }
+
+    /// Scroll so the previous / next prompt (marked by shell integration) is the top line.
+    fn jump_prompt(&mut self, down: bool, cx: &mut Context<Self>) {
+        let mut term = self.terminal.term.lock();
+        let offset = term.grid().display_offset() as i32;
+        let top = -offset;
+        let starts = prompt_starts(&term);
+        let target = if down {
+            starts.iter().copied().find(|&l| l > top)
+        } else {
+            starts.iter().copied().rev().find(|&l| l < top)
+        };
+        match target {
+            // Put the prompt line at the top of the view (clamped by the scrollback).
+            Some(line) => term.scroll_display(alacritty_terminal::grid::Scroll::Delta(-line - offset)),
+            None if down => term.scroll_display(alacritty_terminal::grid::Scroll::Bottom),
+            None => {}
+        }
+        drop(term);
         cx.notify();
     }
 
@@ -683,7 +712,7 @@ fn detect_links(
         if flags.contains(Flags::WRAPLINE) {
             wraps[row] = true;
         }
-        if let Some(h) = ind.cell.hyperlink() {
+        if let Some(h) = ind.cell.hyperlink().filter(|h| !h.uri().starts_with(PROMPT_MARK)) {
             let uri = h.uri().to_string();
             let id = *osc_ids.entry(uri.clone()).or_insert_with(|| {
                 links.push(Link::Url(uri));
@@ -878,6 +907,29 @@ fn build_frame(view: &TerminalView, focused: bool) -> Frame {
     Frame { bg_rects, highlights, batches, drawn, cursor, links, link_map, cmd_down: view.cmd_down || view.hints.is_some(), hovered, hints }
 }
 
+/// URI prefix of the prompt marks written by T1K's shell integration (never shown as links).
+const PROMPT_MARK: &str = "t1k://prompt";
+
+/// Lines (grid coordinates, history negative) where a marked prompt begins, oldest first.
+fn prompt_starts<T>(term: &alacritty_terminal::Term<T>) -> Vec<i32> {
+    use alacritty_terminal::index::{Column, Line};
+    let grid = term.grid();
+    let cols = term.columns().min(16);
+    let marked = |l: i32| (0..cols).any(|c| grid[Line(l)][Column(c)].hyperlink().is_some_and(|h| h.uri().starts_with(PROMPT_MARK)));
+    let top = term.topmost_line().0;
+    let bottom = term.bottommost_line().0;
+    let mut out = Vec::new();
+    let mut prev = false;
+    for l in top..=bottom {
+        let m = marked(l);
+        if m && !prev {
+            out.push(l);
+        }
+        prev = m;
+    }
+    out
+}
+
 /// Resolve a path-looking token against the tab's folder: `~/`, absolute, relative, and git's
 /// `a/` / `b/` diff prefixes. Only existing paths become links.
 fn resolve_path(text: &str, cwd: &std::path::Path) -> Option<PathBuf> {
@@ -931,6 +983,8 @@ impl Render for TerminalView {
             .on_action(cx.listener(Self::clear_scrollback))
             .on_action(cx.listener(Self::show_link_hints))
             .on_action(cx.listener(Self::find))
+            .on_action(cx.listener(Self::previous_prompt))
+            .on_action(cx.listener(Self::next_prompt))
             .on_action(cx.listener(Self::find_next))
             .on_action(cx.listener(Self::find_previous))
             .on_action(cx.listener(Self::page_up))

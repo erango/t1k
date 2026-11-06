@@ -12,12 +12,13 @@ mod platform;
 mod groups;
 mod session;
 mod settings;
+mod shell;
 mod sidebar;
 mod title;
 mod workspace;
 
 use gpui::{prelude::*, px, size, App, Application, Bounds, KeyBinding, WindowBounds, WindowOptions};
-use t1k_terminal::view::{ClearScrollback, Copy, Find, FindNext, FindPrevious, Paste, ScrollPageDown, ScrollPageUp, ShowLinkHints};
+use t1k_terminal::view::{ClearScrollback, Copy, Find, FindNext, FindPrevious, NextPrompt, Paste, PreviousPrompt, ScrollPageDown, ScrollPageUp, ShowLinkHints};
 
 use actions::*;
 use workspace::Workspace;
@@ -64,6 +65,8 @@ fn main() {
             KeyBinding::new("cmd-k", ClearScrollback, Some("Terminal")),
             KeyBinding::new("cmd-shift-u", ShowLinkHints, Some("Terminal")),
             KeyBinding::new("cmd-f", Find, Some("Terminal")),
+            KeyBinding::new("cmd-up", PreviousPrompt, Some("Terminal")),
+            KeyBinding::new("cmd-down", NextPrompt, Some("Terminal")),
             KeyBinding::new("cmd-g", FindNext, Some("Terminal")),
             KeyBinding::new("cmd-shift-g", FindPrevious, Some("Terminal")),
             KeyBinding::new("shift-pageup", ScrollPageUp, Some("Terminal")),

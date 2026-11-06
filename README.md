@@ -27,6 +27,7 @@ T1K is a terminal for working with many Claude Code agents at once. It's built i
 - **Terminal.**
   - Full color: truecolor and 256 colors.
   - Links: URLs and OSC 8 hyperlinks are always underlined. Holding ⌘ also lights up file paths (with `:line:col`), `#123` PR references and ticket keys like `ENG-42`. ⌘-click opens a link: files in your editor at the line, PRs in the tab's GitHub repo, tickets in your tracker. ⌘⇧U labels every link with a letter, so you can open one from the keyboard.
+  - Find (⌘F) searches the scrollback as you type. In zsh, T1K marks each prompt, so ⌘↑ / ⌘↓ jump between commands. It loads your own zsh config as usual; turn it off with `terminal.shell_integration = false`.
   - Block and box-drawing characters are drawn by T1K, so bars are solid and borders join at any line height.
   - macOS line editing: ⌘⌫ deletes the line, ⌘← / ⌘→ jump to its start or end, ⌥← / ⌥→ move by word.
   - Fonts: Powerline and Nerd Font icons come through fallback fonts.
@@ -69,6 +70,9 @@ This adds hooks to `~/.claude/settings.json` and backs the file up to `settings.
 | ⌘-click | Open a link |
 | ⌘⇧U | Label every link; type its letter to open it |
 | ⌘⌫ | Delete the line |
+| ⌘F, ⌘G / ⌘⇧G | Find in scrollback, next / previous match |
+| ⌘↑ / ⌘↓ | Jump to the previous / next prompt (zsh) |
+| ⌘+ / ⌘− / ⌘0 | Bigger / smaller / default text |
 
 ## Configure
 

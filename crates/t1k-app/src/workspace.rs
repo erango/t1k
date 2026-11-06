@@ -289,6 +289,14 @@ impl Workspace {
         if let Ok(exe) = std::env::current_exe() {
             env.insert("T1K_BIN".into(), exe.display().to_string());
         }
+        if self.config.terminal.shell_integration {
+            if let Some(dir) = crate::shell::zsh_dir() {
+                if let Ok(orig) = std::env::var("ZDOTDIR") {
+                    env.insert("T1K_ORIG_ZDOTDIR".into(), orig);
+                }
+                env.insert("ZDOTDIR".into(), dir.display().to_string());
+            }
+        }
         let opts = SpawnOptions { working_directory: cwd.clone(), env, tab_id: id.clone() };
         let palette = self.theme.palette();
         let style = self.terminal_style();
