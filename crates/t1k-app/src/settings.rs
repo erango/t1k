@@ -236,7 +236,7 @@ fn section_body(ws: &Workspace, section: Section, window: &mut Window, cx: &mut 
         Section::Sidebar => {
             body = body
                 .child(row(ui, "Width", "sidebar.width", stepper(ui, "sw", c.sidebar.width as f64, 20., (220., 460.), &["sidebar", "width"], |v| format!("{v:.0} px"), cx)))
-                .child(row(ui, "Expand rows after resting", "sidebar.hover_intent_ms", stepper(ui, "hover", c.sidebar.hover_intent_ms as f64, 50., (0., 1000.), &["sidebar", "hover_intent_ms"], |v| format!("{v:.0} ms"), cx)))
+                .child(row(ui, "Show details after resting", "sidebar.hover_intent_ms", stepper(ui, "hover", c.sidebar.hover_intent_ms as f64, 50., (0., 1000.), &["sidebar", "hover_intent_ms"], |v| format!("{v:.0} ms"), cx)))
                 .child(div().pt(px(10.)).text_size(px(12.)).text_color(ui.text_tertiary).child("Hold ⌥ to expand rows at any time. ⌘\\ hides the sidebar."));
         }
         Section::Notifications => {

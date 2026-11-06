@@ -30,8 +30,8 @@ fallbacks = ["Symbols Nerd Font Mono", "MesloLGS NF", "Meslo LG L DZ for Powerli
 
 [sidebar]
 width = 300
-# How long the pointer rests on the sidebar before rows expand to two lines.
-hover_intent_ms = 150
+# How long the pointer rests on a tab before its detail card appears.
+hover_intent_ms = 300
 
 [notify]
 # Banners when a tab needs you while you're elsewhere.
@@ -135,7 +135,7 @@ impl Default for FontCfg {
 }
 impl Default for SidebarCfg {
     fn default() -> Self {
-        Self { width: 300., hover_intent_ms: 150 }
+        Self { width: 300., hover_intent_ms: 300 }
     }
 }
 

@@ -129,12 +129,10 @@ Amber and red are used only for states where a person needs to act.
 - **Calm** (the default): rows are 32px high and show only the status glyph and the title. Only NeedsInput rows show elapsed time.
   - The attention queue collapses into a single bar ("Needs you N · ⌘J").
   - Idle and seen-done tabs fold into a "+N quiet" row.
-- **Detail**: rows are 52px high and add a second line, the identity chip and elapsed time. Detail mode turns on when any of these is true:
-  - the pointer has rested over the sidebar for 150 ms while moving slower than 0.3 px/ms
-  - ⌥ is held down
-  - the sidebar has keyboard focus
-- **Transition**: rows grow over 120 ms. The second line fades in during the last 60 ms. The width never changes, and the row under the pointer stays in place.
-  - The sidebar returns to calm 400 ms after the pointer leaves, or on the first key sent to the terminal.
+- **Detail never moves rows** (revision 2026-11-06: growing rows on hover made the list jump and was impossible to follow). Rows are always 32px.
+  - **Detail card**: resting the pointer on a row for 300 ms (`sidebar.hover_intent_ms`) shows a floating card beside it, over the terminal: full title, status and elapsed time, current step or recap, branch, PRs, reminder, folder. Once a card is open, moving to another row switches it at once. It hides 120 ms after the pointer leaves, on click, and on right-click.
+  - **⌥ held**: each row swaps its title for its status line in place, at the same height.
+  - Quiet folding doesn't change on hover.
 
 ### Selected tab
 
@@ -161,9 +159,9 @@ The selected row fills with `bg.terminal` and runs flush to the sidebar's right 
 
 | Element | Size |
 |---|---|
-| Row height (calm / detail) | 32 / 52 |
-| Row height, compact density | 28 / 44 |
-| Row height, spacious density | 36 / 60 |
+| Row height | 32 |
+| Row height, compact density | 28 |
+| Row height, spacious density | 36 |
 | Gap between rows | 2 |
 | Gap between groups | 20 (8 + hairline + 12) |
 | Row padding | 0 12 |

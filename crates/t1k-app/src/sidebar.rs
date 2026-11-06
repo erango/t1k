@@ -1,9 +1,10 @@
-//! Calm sidebar: project groups with one-line tab rows; two-line rows on hover intent or ⌥.
+//! Calm sidebar: project groups with one-line tab rows. Rows never change size: resting on a
+//! row shows a floating detail card beside it, and holding ⌥ swaps titles for status lines.
 //! Sizes and colors follow `docs/design.md` (v2: calm sidebar).
 
 use std::time::Instant;
 
-use gpui::{div, prelude::*, px, AnyElement, Context, Div, FontWeight, MouseButton, SharedString};
+use gpui::{anchored, deferred, div, prelude::*, px, AnyElement, Context, Div, FontWeight, MouseButton, SharedString};
 use t1k_agent::Status;
 use t1k_themes::UiColors;
 
@@ -11,15 +12,14 @@ use crate::workspace::Tab;
 
 use crate::workspace::Workspace;
 
-const ROW_CALM: f32 = 32.;
-const ROW_DETAIL: f32 = 52.;
+const ROW: f32 = 32.;
+const CARD_W: f32 = 320.;
 const ROW_GAP: f32 = 2.;
 const HEADER: f32 = 28.;
 const INSET: f32 = 6.;
 
 pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
     let ui = ws.ui;
-    let detail = ws.show_detail();
     let groups = ws.grouped();
 
     let mut list = div().id("sidebar-list").flex_1().min_h_0().overflow_y_scroll().pb(px(12.)).flex().flex_col();
@@ -89,15 +89,15 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         if collapsed {
             continue;
         }
-        // Calm mode folds quiet tabs (nothing new, not selected) into one "+N quiet" row.
-        let fold = !detail && !ws.show_quiet.contains(&key);
+        // Quiet tabs (nothing new, not selected) fold into one "+N quiet" row.
+        let fold = !ws.show_quiet.contains(&key);
         let quiet: Vec<usize> = tabs.iter().copied().filter(|&i| ws.is_quiet(i)).collect();
         let fold = fold && quiet.len() >= 2;
         for ix in tabs {
             if fold && quiet.contains(&ix) {
                 continue;
             }
-            list = list.child(row(ws, ix, detail, cx));
+            list = list.child(row(ws, ix, cx));
         }
         if fold {
             let k = key.clone();
@@ -123,7 +123,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                     .child(div().w(px(12.)))
                     .child(format!("+{} quiet", quiet.len())),
             );
-        } else if ws.show_quiet.contains(&key) && !detail && quiet.len() >= 2 {
+        } else if ws.show_quiet.contains(&key) && quiet.len() >= 2 {
             let k = key.clone();
             list = list.child(
                 div()
@@ -158,7 +158,6 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         .flex()
         .flex_col()
         .bg(ui.bg_sidebar)
-        .on_hover(cx.listener(|this, hovered: &bool, _, cx| this.sidebar_hovered(*hovered, cx)))
         // Title-bar strip: room for the traffic lights, drags the window.
         .child(
             div()
@@ -201,7 +200,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         .into_any_element()
 }
 
-fn row(ws: &Workspace, ix: usize, detail: bool, cx: &mut Context<Workspace>) -> AnyElement {
+fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
     let ui = ws.ui;
     let tab = &ws.tabs[ix];
     let selected = ix == ws.active;
@@ -218,43 +217,48 @@ fn row(ws: &Workspace, ix: usize, detail: bool, cx: &mut Context<Workspace>) -> 
         div().flex_none().text_size(px(11.)).text_color(ui.text_tertiary).child("◷")
     });
 
+    // ⌥ swaps the title for the status line in place, so nothing moves.
+    let alt = ws.alt_held;
     let title = div()
         .flex_1()
         .min_w_0()
         .truncate()
-        .text_size(px(13.))
-        .when(selected || unseen, |d| d.font_weight(FontWeight::SEMIBOLD))
-        .text_color(if selected { ui.text_primary } else { ui.text_secondary })
-        .child(tab.title());
+        .text_size(px(if alt { 12. } else { 13. }))
+        .when(!alt && (selected || unseen), |d| d.font_weight(FontWeight::SEMIBOLD))
+        .text_color(if alt { ui.text_quiet } else if selected { ui.text_primary } else { ui.text_secondary })
+        .child(if alt { tab.subtitle() } else { tab.title() });
+    let carded = ws.card.as_deref() == Some(tab.id.as_str()) && !alt;
+    let hover_id = tab.id.clone();
 
     let mut el = div()
         .id(SharedString::from(tab.id.clone()))
         .relative()
         .flex_none()
-        .h(px(if detail { ROW_DETAIL } else { ROW_CALM }))
+        .h(px(ROW))
         .mt(px(ROW_GAP))
         .ml(px(INSET))
         .px(px(12.))
         .flex()
-        .flex_col()
-        .justify_center()
-        .gap(px(2.))
-        .child(
-            div().flex().items_center().gap(px(9.)).child(glyph).child(title).children(pending).children(waiting.map(|w| {
-                div().flex_none().text_size(px(11.)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(w)
-            })),
-        )
-        .when(detail, |d| {
+        .items_center()
+        .gap(px(9.))
+        .child(glyph)
+        .child(title)
+        .children(pending)
+        .children(waiting.map(|w| {
+            div().flex_none().text_size(px(11.)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(w)
+        }))
+        .on_hover(cx.listener(move |this, hovered: &bool, _, cx| this.row_hovered(hover_id.clone(), *hovered, cx)))
+        .when(carded, |d| {
+            // Card floats over the terminal, level with the row; drawn last so nothing clips it.
+            let left = ws.config.sidebar.width.clamp(200., 480.) - INSET + 6.;
             d.child(
-                div()
-                    .pl(px(21.))
-                    .truncate()
-                    .text_size(px(12.))
-                    .text_color(ui.text_quiet)
-                    .child(tab.subtitle()),
+                div().absolute().top(px(-4.)).left(px(left)).child(
+                    deferred(anchored().snap_to_window_with_margin(px(8.)).child(card(tab, ui))).with_priority(1),
+                ),
             )
         })
         .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
+            this.hide_card(cx);
             if ev.click_count() == 2 {
                 this.start_rename(ix, window, cx);
             } else {
@@ -262,6 +266,7 @@ fn row(ws: &Workspace, ix: usize, detail: bool, cx: &mut Context<Workspace>) -> 
             }
         }))
         .on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &gpui::MouseDownEvent, window, cx| {
+            this.hide_card(cx);
             this.open_overlay(crate::overlay::Overlay::Menu { tab: ix, at: ev.position }, window, cx);
         }))
         .on_mouse_down(MouseButton::Middle, cx.listener(move |this, _, window, cx| this.close_tab_at(ix, window, cx)));
@@ -277,6 +282,65 @@ fn row(ws: &Workspace, ix: usize, detail: bool, cx: &mut Context<Workspace>) -> 
         el = el.mr(px(INSET)).rounded(px(6.)).hover(move |d| d.bg(ui.bg_hover));
     }
     el.into_any_element()
+}
+
+/// Floating detail card for a hovered row: full title, status, what it's doing or its recap,
+/// and where it lives.
+fn card(tab: &Tab, ui: UiColors) -> impl IntoElement {
+    let (status, color) = match tab.status() {
+        Some(Status::NeedsInput { .. }) => ("Needs you", ui.status_needs),
+        Some(Status::Error { .. }) => ("Error", ui.status_error),
+        Some(Status::Working) => ("Working", ui.text_secondary),
+        Some(Status::Done) if tab.unread => ("Done · unread", ui.accent),
+        Some(Status::Done) => ("Done", ui.text_tertiary),
+        Some(Status::Idle) => ("Idle", ui.text_tertiary),
+        Some(Status::Ended) => ("Session ended", ui.text_tertiary),
+        None if tab.program.is_some() => ("Running", ui.text_secondary),
+        None => ("Shell", ui.text_tertiary),
+    };
+    let since = tab.agent.as_ref().filter(|a| a.status != Status::Idle).map(|a| elapsed(a.since));
+    let status_line = match since {
+        Some(s) => format!("{status} · {s}"),
+        None => status.to_string(),
+    };
+    let body = tab.subtitle();
+    let place = tab.cwd.as_deref().map(crate::groups::tilde).unwrap_or_default();
+    let mut meta: Vec<String> = Vec::new();
+    if let Some(a) = &tab.agent {
+        if let Some(b) = &a.branch {
+            meta.push(format!("⎇ {b}"));
+        }
+        if !a.prs.is_empty() {
+            meta.push(a.prs.iter().map(|(n, _)| format!("#{n}")).collect::<Vec<_>>().join(" "));
+        }
+    }
+    if tab.reminder_due {
+        meta.push("◷ reminder due".into());
+    } else if tab.reminder_at.is_some() {
+        meta.push("◷ reminder set".into());
+    }
+    div()
+        .w(px(CARD_W))
+        .p(px(12.))
+        .rounded(px(8.))
+        .bg(ui.bg_raised)
+        .border_1()
+        .border_color(ui.border)
+        .shadow_lg()
+        .flex()
+        .flex_col()
+        .gap(px(6.))
+        .child(div().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).line_clamp(2).child(tab.title()))
+        .child(div().text_size(px(11.)).text_color(color).child(status_line))
+        .when(!body.is_empty() && body != place, |d| {
+            d.child(div().text_size(px(12.)).text_color(ui.text_secondary).line_clamp(4).child(body))
+        })
+        .when(!meta.is_empty(), |d| {
+            d.child(div().text_size(px(11.)).font_family("JetBrains Mono").text_color(ui.text_tertiary).truncate().child(meta.join("  ")))
+        })
+        .when(!place.is_empty(), |d| {
+            d.child(div().text_size(px(11.)).font_family("JetBrains Mono").text_color(ui.text_disabled).truncate().child(place))
+        })
 }
 
 /// Status glyph in a 12×12 slot. Shape differs per state so it reads without color.

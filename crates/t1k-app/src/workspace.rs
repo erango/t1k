@@ -79,7 +79,7 @@ impl Tab {
         self.cwd.as_deref().map(groups::label).unwrap_or_else(|| "shell".into())
     }
 
-    /// Second line in detail mode: what's running and where.
+    /// Status line for the detail card and the ⌥ view: what it is doing, else where it is.
     pub fn subtitle(&self) -> String {
         if let Some(a) = &self.agent {
             let line = match &a.status {
@@ -112,7 +112,8 @@ pub struct Workspace {
     pub group_names: HashMap<PathBuf, String>,
     pub sidebar_open: bool,
     /// Sidebar shows two-line rows (hover intent or ⌥ held).
-    pub detail: bool,
+    /// Tab id whose detail card is showing (hover intent on a sidebar row).
+    pub card: Option<String>,
     pub alt_held: bool,
     hover_task: Option<Task<()>>,
     mode: AppearanceMode,
@@ -194,7 +195,7 @@ impl Workspace {
             show_quiet: HashSet::new(),
             group_names: saved.group_names.iter().cloned().collect(),
             sidebar_open: saved.sidebar_open.unwrap_or(true),
-            detail: false,
+            card: None,
             alt_held: false,
             hover_task: None,
             mode,
@@ -583,24 +584,41 @@ impl Workspace {
         session::save(&self.session());
     }
 
-    // ---- sidebar detail mode ----------------------------------------------------------------
+    // ---- sidebar detail card ----------------------------------------------------------------
 
-    /// Hover intent: expand after the pointer rests 150 ms, collapse 400 ms after it leaves.
-    pub fn sidebar_hovered(&mut self, hovered: bool, cx: &mut Context<Self>) {
-        let delay = if hovered { self.config.sidebar.hover_intent_ms } else { 400 };
+    /// Hover intent for the sidebar detail card. The first card waits for the pointer to rest;
+    /// once one is showing, moving to another row switches at once. Leaving hides it shortly
+    /// after, unless another row picks it up first. Rows never change size.
+    pub fn row_hovered(&mut self, id: String, hovered: bool, cx: &mut Context<Self>) {
+        if hovered && self.card.is_some() {
+            self.hover_task = None;
+            if self.card.as_ref() != Some(&id) {
+                self.card = Some(id);
+                cx.notify();
+            }
+            return;
+        }
+        let delay = if hovered { self.config.sidebar.hover_intent_ms } else { 120 };
         self.hover_task = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(Duration::from_millis(delay)).await;
             let _ = this.update(cx, |ws, cx| {
-                if ws.detail != hovered {
-                    ws.detail = hovered;
+                let next = hovered.then(|| id.clone());
+                if !hovered && ws.card.as_ref() != Some(&id) {
+                    return;
+                }
+                if ws.card != next {
+                    ws.card = next;
                     cx.notify();
                 }
             });
         }));
     }
 
-    pub fn show_detail(&self) -> bool {
-        self.detail || self.alt_held
+    pub fn hide_card(&mut self, cx: &mut Context<Self>) {
+        self.hover_task = None;
+        if self.card.take().is_some() {
+            cx.notify();
+        }
     }
 
     // ---- theme ------------------------------------------------------------------------------

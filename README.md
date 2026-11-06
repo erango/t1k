@@ -2,7 +2,7 @@
 
 T1K is a terminal for working with many Claude Code agents at once. It's built in Rust on [GPUI](https://www.gpui.rs) (Zed's UI framework) and [`alacritty_terminal`](https://crates.io/crates/alacritty_terminal). It runs on macOS only.
 
-- **Calm sidebar.** Tabs are grouped by git repo. Rows stay quiet until a tab needs you, and expand to two lines on hover or while ⌥ is held.
+- **Calm sidebar.** Tabs are grouped by git repo. Rows stay quiet until a tab needs you, rest the pointer on one for a detail card, or hold ⌥ to see every tab's status line. Rows never move.
 - **Claude-aware tabs.**
   - Titles come from Claude's own session title.
   - The second line shows what the agent is doing now ("Editing src/auth.rs") or its latest recap.
