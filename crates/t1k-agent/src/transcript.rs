@@ -25,6 +25,8 @@ pub enum Entry {
     TurnDone { duration_ms: u64 },
     /// A link worth listing as a session output (PR, artifact, doc, ticket, deploy).
     Url(String),
+    /// Tokens in the context window as of an assistant reply (input + cache), and the model.
+    Usage { context_tokens: u64, model: Option<String> },
 }
 
 pub struct Tail {
@@ -75,7 +77,7 @@ impl Tail {
 }
 
 const INTERESTING: &[&str] =
-    &["\"ai-title\"", "\"custom-title\"", "away_summary", "api_error", "pr-link", "turn_duration", "\"gitBranch\""];
+    &["\"ai-title\"", "\"custom-title\"", "away_summary", "api_error", "pr-link", "turn_duration", "\"gitBranch\"", "\"usage\""];
 
 /// Text that can mention session outputs: Claude's replies, the user's prompts, and tool
 /// results from tools like artifact publishing, but not file contents or shell output.
@@ -136,6 +138,17 @@ pub fn parse_line(line: &[u8]) -> Option<Vec<Entry>> {
                 out.push(Entry::PrLink { url, number });
             }
         }
+        // The main thread's replies carry usage; subagent (sidechain) turns don't count.
+        Some("assistant") if v.get("isSidechain").and_then(Value::as_bool) != Some(true) => {
+            let msg = &v["message"];
+            if let Some(u) = msg.get("usage") {
+                let n = |k: &str| u.get(k).and_then(Value::as_u64).unwrap_or(0);
+                let context_tokens = n("input_tokens") + n("cache_read_input_tokens") + n("cache_creation_input_tokens");
+                if context_tokens > 0 {
+                    out.push(Entry::Usage { context_tokens, model: msg.get("model").and_then(Value::as_str).map(str::to_string) });
+                }
+            }
+        }
         Some("system") => match v.get("subtype").and_then(Value::as_str) {
             Some("away_summary") => out.extend(str_of("content").map(Entry::AwaySummary)),
             Some("api_error") => {
@@ -179,6 +192,10 @@ mod tests {
             Some(vec![Entry::PrLink { url: "https://github.com/a/b/pull/23".into(), number: 23 }])
         );
         assert_eq!(parse_line(br#"{"type":"assistant","message":{}}"#), None);
+        let l = br#"{"type":"assistant","message":{"model":"claude-opus-5-5","usage":{"input_tokens":2,"cache_read_input_tokens":27483,"cache_creation_input_tokens":43695,"output_tokens":485}}}"#;
+        assert_eq!(parse_line(l).unwrap(), vec![Entry::Usage { context_tokens: 71180, model: Some("claude-opus-5-5".into()) }]);
+        let side = br#"{"type":"assistant","isSidechain":true,"message":{"usage":{"input_tokens":5}}}"#;
+        assert_eq!(parse_line(side), None);
         assert_eq!(parse_line(b"not json \"ai-title\""), None);
     }
 

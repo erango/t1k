@@ -96,3 +96,20 @@ pub fn sliders(color: Hsla) -> impl IntoElement {
         }
     })
 }
+
+/// Magnifier (find).
+pub fn search(color: Hsla) -> impl IntoElement {
+    icon(move |b, window| {
+        let o = b.origin;
+        stroke(window, color, |p| {
+            let c = (6., 6.);
+            let pts: Vec<_> = (0..=24).map(|i| {
+                let a = i as f32 / 24. * std::f32::consts::TAU;
+                point(o.x + px(c.0 + 4. * a.cos()), o.y + px(c.1 + 4. * a.sin()))
+            }).collect();
+            p.add_polygon(&pts, true);
+            p.move_to(point(o.x + px(9.), o.y + px(9.)));
+            p.line_to(point(o.x + px(12.5), o.y + px(12.5)));
+        })
+    })
+}

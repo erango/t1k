@@ -14,7 +14,6 @@ use crate::workspace::Workspace;
 
 const CARD_W: f32 = 320.;
 const ROW_GAP: f32 = 2.;
-const HEADER: f32 = 28.;
 const INSET: f32 = 8.;
 
 pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
@@ -22,30 +21,33 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
     let ui = ws.ui;
     let groups = ws.grouped();
 
-    let mut list = div().id("sidebar-list").flex_1().min_h_0().overflow_y_scroll().pb(px(12.)).flex().flex_col();
+    // Groups are separated by space alone (v3: no hairlines).
+    let mut list = div().id("sidebar-list").flex_1().min_h_0().overflow_y_scroll().pb(px(12.)).flex().flex_col().gap(px(14.));
 
-    for (gi, (key, tabs)) in groups.into_iter().enumerate() {
-        let collapsed = ws.collapsed.contains(&key);
-        if gi > 0 {
-            // Group gap: 8 + hairline + 12.
-            list = list.child(div().mt(px(8.)).mb(px(12.)).mx(px(12.)).h(px(1.)).bg(ui.border));
-        }
+    for (key, tabs) in groups {
+        let tally = Tally::of(ws, &tabs);
+        let has_active = tabs.contains(&ws.active);
+        // v3: a group with nothing going on (all quiet, none selected) is one line until opened.
+        let all_quiet = !has_active && tabs.iter().all(|&i| ws.is_quiet(i));
+        let auto_folded = all_quiet && !ws.show_quiet.contains(&key);
+        let folded = ws.collapsed.contains(&key) || auto_folded;
         let label = ws.group_label(&key);
         let renamed = ws.group_names.contains_key(&key);
         let folder = crate::groups::label(&key);
-        let has_active = tabs.contains(&ws.active);
-        let toggle_key = key.clone();
-        list = list.child(
+        let click_key = key.clone();
+        let mut group = div().flex().flex_col();
+        group = group.child(
             div()
                 .id(SharedString::from(format!("group-{}", key.display())))
-                .h(px(HEADER))
+                .h(px(26.))
                 .flex_none()
                 .mx(px(INSET))
-                .px(px(6.))
+                .pl(px(12.))
+                .pr(px(10.))
                 .rounded(px(6.))
                 .flex()
                 .items_center()
-                .gap(px(7.))
+                .gap(px(8.))
                 .hover(move |d| d.bg(ui.bg_hover))
                 .on_mouse_down(MouseButton::Right, cx.listener({
                     let key = key.clone();
@@ -54,47 +56,51 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                     }
                 }))
                 .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
-                    this.toggle_group(toggle_key.clone(), cx);
                     if ev.click_count() == 2 {
-                        // Second click undid the collapse; open rename instead.
-                        let text = this.group_label(&toggle_key);
-                        this.open_overlay(crate::overlay::Overlay::RenameGroup { key: toggle_key.clone(), text }, window, cx);
+                        let text = this.group_label(&click_key);
+                        this.open_overlay(crate::overlay::Overlay::RenameGroup { key: click_key.clone(), text }, window, cx);
+                        return;
+                    }
+                    // A quiet group opens by showing its quiet tabs; otherwise click collapses.
+                    if all_quiet && !this.collapsed.contains(&click_key) {
+                        if !this.show_quiet.remove(&click_key) {
+                            this.show_quiet.insert(click_key.clone());
+                        }
+                        cx.notify();
+                    } else {
+                        this.toggle_group(click_key.clone(), cx);
                     }
                 }))
-                .child(chevron(!collapsed, ui.text_disabled))
-                .child(folder_icon(ws.group_color(&key).unwrap_or(ui.text_tertiary), ws.group_color(&key)))
+                .child(group_dot(ws.group_color(&key), ui))
                 .child(
                     div()
-                        .flex_1()
                         .min_w_0()
                         .truncate()
-                        .text_size(px(13. * k))
+                        .text_size(px(12. * k))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(ui.text_primary)
+                        .text_color(if folded { ui.text_secondary } else { ui.text_primary })
                         .child(label),
                 )
                 .when(renamed, |d| {
                     // Renamed groups keep the real folder name visible.
                     d.child(div().flex_none().text_size(px(10. * k)).font_family("JetBrains Mono").text_color(ui.text_disabled).child(folder.clone()))
                 })
+                .child(div().flex_1())
                 .map(|d| {
-                    let tally = Tally::of(ws, &tabs);
-                    if collapsed {
-                        // Collapsed: a summary, loud part in amber first.
+                    if folded {
+                        // One line: loud part first in amber, then "N quiet ›".
                         let (loud, quiet) = tally.summary();
                         d.child(
                             div()
                                 .flex_none()
                                 .flex()
-                                .text_size(px(12. * k))
+                                .gap(px(4.))
+                                .text_size(px(11.5 * k))
                                 .when(!loud.is_empty(), |d| d.child(div().text_color(ui.status_needs).child(loud.clone())))
-                                .when(!quiet.is_empty(), |d| {
-                                    let sep = if loud.is_empty() { "" } else { " · " };
-                                    d.child(div().text_color(if has_active { ui.accent } else { ui.text_tertiary }).child(format!("{sep}{quiet}")))
-                                }),
+                                .when(!quiet.is_empty(), |d| d.child(div().text_color(ui.text_tertiary).child(quiet.clone())))
+                                .child(div().text_color(ui.text_disabled).child("›")),
                         )
                     } else {
-                        // Open: counts of loud states only, glyph + number.
                         let mut agg = div().flex_none().flex().items_center().gap(px(9.));
                         for (glyph, n) in tally.loud_glyphs(ui) {
                             agg = agg.child(
@@ -107,130 +113,80 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                     }
                 }),
         );
-        if collapsed {
-            continue;
-        }
-        // Quiet tabs (nothing new, not selected) fold into one "+N quiet" row.
-        let fold = !ws.show_quiet.contains(&key);
-        let quiet: Vec<usize> = tabs.iter().copied().filter(|&i| ws.is_quiet(i)).collect();
-        let fold = fold && quiet.len() >= 2;
-        for ix in tabs {
-            if fold && quiet.contains(&ix) {
-                continue;
+        if !folded {
+            // Mixed groups fold their quiet tabs into one "+N quiet" row.
+            let quiet: Vec<usize> = tabs.iter().copied().filter(|&i| ws.is_quiet(i)).collect();
+            let fold = !all_quiet && !ws.show_quiet.contains(&key) && quiet.len() >= 2;
+            for &ix in &tabs {
+                if fold && quiet.contains(&ix) {
+                    continue;
+                }
+                group = group.child(row(ws, ix, cx));
             }
-            list = list.child(row(ws, ix, cx));
-        }
-        if fold {
-            let gk = key.clone();
-            list = list.child(
-                div()
-                    .id(SharedString::from(format!("quiet-{}", key.display())))
-                    .h(px(26.))
-                    .flex_none()
-                    .mt(px(ROW_GAP))
-                    .mx(px(INSET))
-                    .px(px(12.))
-                    .rounded(px(6.))
-                    .flex()
-                    .items_center()
-                    .gap(px(9.))
-                    .text_size(px(12. * k))
-                    .text_color(ui.text_tertiary)
-                    .hover(move |d| d.bg(ui.bg_hover).text_color(ui.text_secondary))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.show_quiet.insert(gk.clone());
-                        cx.notify();
-                    }))
-                    .child(div().w(px(12.)))
-                    .child(div().flex_none().child(format!("+{} quiet", quiet.len())))
-                    .child(div().flex_none().text_color(ui.text_disabled).child("·"))
-                    .child(
-                        div().flex_1().min_w_0().truncate().text_color(ui.text_disabled).child(
-                            quiet.iter().map(|&i| ws.tabs[i].title()).collect::<Vec<_>>().join(", "),
+            if fold {
+                let gk = key.clone();
+                group = group.child(
+                    quiet_row(ui, k, format!("quiet-{}", key.display()))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.show_quiet.insert(gk.clone());
+                            cx.notify();
+                        }))
+                        .child(div().flex_none().child(format!("+{} quiet", quiet.len())))
+                        .child(div().flex_none().text_color(ui.text_disabled).child("·"))
+                        .child(
+                            div().flex_1().min_w_0().truncate().text_color(ui.text_disabled).child(
+                                quiet.iter().map(|&i| ws.tabs[i].title()).collect::<Vec<_>>().join(", "),
+                            ),
                         ),
-                    ),
-            );
-        } else if ws.show_quiet.contains(&key) && quiet.len() >= 2 {
-            let gk = key.clone();
-            list = list.child(
-                div()
-                    .id(SharedString::from(format!("unquiet-{}", key.display())))
-                    .h(px(26.))
-                    .flex_none()
-                    .mt(px(ROW_GAP))
-                    .mx(px(INSET))
-                    .px(px(12.))
-                    .rounded(px(6.))
-                    .flex()
-                    .items_center()
-                    .gap(px(9.))
-                    .text_size(px(12. * k))
-                    .text_color(ui.text_tertiary)
-                    .hover(move |d| d.bg(ui.bg_hover))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.show_quiet.remove(&gk);
-                        cx.notify();
-                    }))
-                    .child(div().w(px(12.)))
-                    .child("Fold quiet tabs"),
-            );
-        }
-        // Recent: Claude sessions from closed tabs, folded into one quiet row.
-        let recent = ws.recent_for(&key);
-        if !recent.is_empty() {
-            let open = ws.recent_open.contains(&key);
-            let rk = key.clone();
-            list = list.child(
-                div()
-                    .id(SharedString::from(format!("recent-{}", key.display())))
-                    .h(px(26.))
-                    .flex_none()
-                    .mt(px(ROW_GAP))
-                    .mx(px(INSET))
-                    .px(px(12.))
-                    .rounded(px(6.))
-                    .flex()
-                    .items_center()
-                    .gap(px(9.))
-                    .text_size(px(12. * k))
-                    .text_color(ui.text_tertiary)
-                    .hover(move |d| d.bg(ui.bg_hover).text_color(ui.text_secondary))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if !this.recent_open.remove(&rk) {
-                            this.recent_open.insert(rk.clone());
-                        }
-                        cx.notify();
-                    }))
-                    .child(div().w(px(12.)).text_size(px(9. * k)).child(if open { "▼" } else { "▶" }))
-                    .child(format!("Recent {}", recent.len())),
-            );
-            if open {
-                for r in recent {
-                    let sid = r.session_id.clone();
-                    list = list.child(
-                        div()
-                            .id(SharedString::from(format!("recent-{sid}")))
-                            .h(px(28.))
-                            .flex_none()
-                            .mt(px(ROW_GAP))
-                            .mx(px(INSET))
-                            .pl(px(33.))
-                            .pr(px(12.))
-                            .rounded(px(6.))
-                            .flex()
-                            .items_center()
-                            .gap(px(8.))
-                            .text_size(px(12. * k))
-                            .text_color(ui.text_tertiary)
-                            .hover(move |d| d.bg(ui.bg_hover).text_color(ui.text_primary))
-                            .on_click(cx.listener(move |this, _, window, cx| this.reopen_recent(&sid, window, cx)))
-                            .child(div().flex_1().min_w_0().truncate().child(r.title.clone()))
-                            .child(div().flex_none().text_size(px(11. * k)).child(format!("↺ {}", ago(r.ended_at)))),
-                    );
+                );
+            }
+            // Recent: Claude sessions from closed tabs, folded into one quiet row.
+            let recent = ws.recent_for(&key);
+            if !recent.is_empty() {
+                let open = ws.recent_open.contains(&key);
+                let rk = key.clone();
+                group = group.child(
+                    quiet_row(ui, k, format!("recent-{}", key.display()))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if !this.recent_open.remove(&rk) {
+                                this.recent_open.insert(rk.clone());
+                            }
+                            cx.notify();
+                        }))
+                        .child(format!("Recent {}", recent.len()))
+                        .child(div().text_color(ui.text_disabled).child(if open { "⌄" } else { "›" })),
+                );
+                if open {
+                    for r in recent {
+                        let sid = r.session_id.clone();
+                        group = group.child(
+                            quiet_row(ui, k, format!("recent-{sid}"))
+                                .h(px(28.))
+                                .hover(move |d| d.bg(ui.bg_hover).text_color(ui.text_primary))
+                                .on_click(cx.listener(move |this, _, window, cx| this.reopen_recent(&sid, window, cx)))
+                                .child(div().flex_1().min_w_0().truncate().child(r.title.clone()))
+                                .child(div().flex_none().text_size(px(11. * k)).child(format!("↺ {}", ago(r.ended_at)))),
+                        );
+                    }
                 }
             }
         }
+        list = list.child(group);
     }
+
+    let field = |id: &'static str| {
+        div()
+            .id(id)
+            .h(px(30.))
+            .rounded(px(7.))
+            .bg(ui.bg_raised)
+            .border_1()
+            .border_color(ui.border)
+            .flex()
+            .items_center()
+            .hover(move |d| d.bg(ui.bg_hover))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+    };
 
     div()
         .id("sidebar")
@@ -240,7 +196,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         .flex()
         .flex_col()
         .bg(ui.bg_sidebar)
-        // Title-bar strip: room for the traffic lights, drags the window.
+        // Title-bar strip: traffic lights, then back / forward; drags the window.
         .child(
             div()
                 .h(px(38.))
@@ -257,63 +213,87 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                         window.start_window_move();
                     }
                 })
-                .child(
-                    // Wordmark (design: mercury gradient; GPUI text is flat, so its light stop).
-                    div()
-                        .mr(px(6.))
-                        .text_size(px(11.))
-                        .font_family("JetBrains Mono")
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(ui.text_tertiary)
-                        .child("T1K"),
-                )
                 .child(nav_button(ws, true, cx))
-                .child(nav_button(ws, false, cx))
+                .child(nav_button(ws, false, cx)),
+        )
+        // Find, new tab and view options, together where you navigate.
+        .child(
+            div()
+                .flex_none()
+                .flex()
+                .gap(px(6.))
+                .px(px(10.))
+                .pt(px(2.))
+                .pb(px(10.))
                 .child(
-                    div()
-                        .id("sidebar-view")
-                        .size(px(24.))
-                        .rounded(px(5.))
-                        .flex()
-                        .items_center()
+                    field("find")
+                        .flex_1()
+                        .px(px(10.))
+                        .gap(px(8.))
+                        .text_size(px(12.5 * k))
+                        .text_color(ui.text_tertiary)
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.open_overlay(crate::overlay::Overlay::Switcher { query: String::new(), selected: 0 }, window, cx)
+                        }))
+                        .child(crate::icons::search(ui.text_tertiary))
+                        .child(div().flex_1().child("Find tab"))
+                        .child(div().text_size(px(11.)).font_family("JetBrains Mono").text_color(ui.text_disabled).child("⌘P")),
+                )
+                .child(
+                    field("new-tab")
+                        .w(px(30.))
                         .justify_center()
-                        .hover(move |d| d.bg(ui.bg_hover))
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .text_size(px(16.))
+                        .text_color(ui.text_secondary)
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            let cwd = this.tabs.get(this.active).and_then(|t| t.cwd.clone());
+                            this.open_tab(cwd, None, window, cx);
+                        }))
+                        .child("+"),
+                )
+                .child(
+                    field("sidebar-view")
+                        .w(px(30.))
+                        .justify_center()
                         .on_click(cx.listener(|this, ev: &gpui::ClickEvent, window, cx| {
                             let p = ev.position();
-                            let at = gpui::point(p.x - px(200.), p.y + px(14.));
+                            let at = gpui::point(p.x - px(200.), p.y + px(18.));
                             this.open_overlay(crate::overlay::Overlay::SidebarView { at }, window, cx);
                         }))
                         .child(crate::icons::sliders(ui.text_secondary)),
                 ),
         )
-        .children(needs_bar(ws, cx))
+        .children(attention(ws, cx))
         .child(list)
-        .child(
-            div()
-                .id("new-tab")
-                .h(px(32.))
-                .flex_none()
-                .mx(px(INSET))
-                .mb(px(8.))
-                .px(px(10.))
-                .rounded(px(6.))
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .text_size(px(12. * k))
-                .text_color(ui.text_tertiary)
-                .hover(move |d| d.bg(ui.bg_hover).text_color(ui.text_secondary))
-                .on_click(cx.listener(|this, _, window, cx| {
-                    let cwd = this.tabs.get(this.active).and_then(|t| t.cwd.clone());
-                    this.open_tab(cwd, None, window, cx);
-                }))
-                .child("+")
-                .child("New tab")
-                .child(div().flex_1())
-                .child(div().text_size(px(11. * k)).child("⌘T")),
-        )
         .into_any_element()
+}
+
+/// A low row inside a group (quiet fold, Recent).
+fn quiet_row(ui: UiColors, k: f32, id: String) -> gpui::Stateful<Div> {
+    div()
+        .id(SharedString::from(id))
+        .h(px(26.))
+        .flex_none()
+        .mt(px(ROW_GAP))
+        .mx(px(INSET))
+        .pl(px(40.))
+        .pr(px(12.))
+        .rounded(px(6.))
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .text_size(px(12. * k))
+        .text_color(ui.text_tertiary)
+        .hover(move |d| d.bg(ui.bg_hover).text_color(ui.text_secondary))
+}
+
+/// Group marker: filled with the group's color, else an outline ring.
+fn group_dot(color: Option<gpui::Hsla>, ui: UiColors) -> Div {
+    let d = div().size(px(7.)).flex_none().rounded_full();
+    match color {
+        Some(c) => d.bg(c),
+        None => d.border_1().border_color(ui.text_disabled),
+    }
 }
 
 fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
@@ -372,8 +352,8 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
                 .flex()
                 .items_center()
                 .gap(px(9.))
-                .child(glyph)
-                .when(icons, |d| d.child(crate::app_icon::badge(tab, ui)))
+                // v3: the program icon carries status in its corner; without icons, the glyph slot.
+                .map(|d| if icons { d.child(status_icon(tab, ui, ws.started, ws.ui.bg_sidebar, selected)) } else { d.child(glyph) })
                 .child(title)
                 .children(pending)
                 .children(waiting.map(|w| {
@@ -381,10 +361,10 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
                 })),
         )
         .when(two_lines, |d| {
-            // Indented to the title: glyph slot 12 + gap 9, plus the badge 16 + gap 9.
+            // Indented to the title: the 18 px icon (or 12 px glyph slot) + gap 9.
             d.child(
                 div()
-                    .pl(px(if icons { 46. } else { 21. }))
+                    .pl(px(if icons { 27. } else { 21. }))
                     .truncate()
                     .text_size(px(12. * k))
                     .text_color(if selected { ui.text_secondary } else { ui.text_quiet })
@@ -547,6 +527,28 @@ fn title_color(tab: &Tab, selected: bool, alt: bool, ui: UiColors) -> gpui::Hsla
     }
 }
 
+/// Program icon (18 px) with a status badge on its corner: turning ring while working,
+/// amber when it needs you, red on error, mercury when unread or a reminder is due. Ended and
+/// idle sessions fade the icon instead.
+fn status_icon(tab: &Tab, ui: UiColors, started: Instant, sidebar_bg: gpui::Hsla, selected: bool) -> Div {
+    let ring = if selected { ui.bg_terminal } else { sidebar_bg };
+    let dot = |c: gpui::Hsla| Some(div().size(px(9.)).rounded_full().bg(c).border_2().border_color(ring));
+    let corner = match tab.status() {
+        Some(Status::NeedsInput { .. }) => dot(ui.status_needs),
+        Some(Status::Error { .. }) => dot(ui.status_error),
+        _ if tab.reminder_due || tab.unread => dot(ui.accent),
+        Some(Status::Working) => Some(div().size(px(10.)).rounded_full().bg(ring).flex().items_center().justify_center().child(spinner_sized(ui.status_working, started, 3.2))),
+        _ => None,
+    };
+    let quiet = matches!(tab.status(), Some(Status::Ended) | Some(Status::Idle)) && !tab.unread;
+    div()
+        .relative()
+        .size(px(18.))
+        .flex_none()
+        .child(crate::app_icon::badge(tab, ui).when(quiet, |d| d.opacity(0.45)))
+        .children(corner.map(|c| div().absolute().right(px(-3.)).bottom(px(-3.)).child(c)))
+}
+
 /// Per-group state counts for the header.
 struct Tally {
     needs: usize,
@@ -613,65 +615,20 @@ impl Tally {
     }
 }
 
-/// Disclosure chevron: points right when closed, down when open.
-fn chevron(open: bool, color: gpui::Hsla) -> impl IntoElement {
-    gpui::canvas(
-        |_, _, _| {},
-        move |b, _, window, _| {
-            let (x, y) = (b.origin.x + px(4.5), b.origin.y + px(4.5));
-            let mut p = gpui::PathBuilder::stroke(px(1.5));
-            if open {
-                p.move_to(gpui::point(x - px(3.), y - px(1.5)));
-                p.line_to(gpui::point(x, y + px(1.5)));
-                p.line_to(gpui::point(x + px(3.), y - px(1.5)));
-            } else {
-                p.move_to(gpui::point(x - px(1.5), y - px(3.)));
-                p.line_to(gpui::point(x + px(1.5), y));
-                p.line_to(gpui::point(x - px(1.5), y + px(3.)));
-            }
-            if let Ok(path) = p.build() {
-                window.paint_path(path, color);
-            }
-        },
-    )
-    .size(px(9.))
-    .flex_none()
-}
 
-/// Folder outline (14px). A group color fills it at 35%.
-fn folder_icon(stroke: gpui::Hsla, fill: Option<gpui::Hsla>) -> impl IntoElement {
-    gpui::canvas(
-        |_, _, _| {},
-        move |b, _, window, _| {
-            let o = b.origin;
-            let pt = |x: f32, y: f32| gpui::point(o.x + px(x), o.y + px(y));
-            let outline = [pt(1.5, 3.), pt(5.5, 3.), pt(6.7, 4.4), pt(12.5, 4.4), pt(12.5, 11.5), pt(1.5, 11.5)];
-            if let Some(f) = fill {
-                let mut p = gpui::PathBuilder::fill();
-                p.add_polygon(&outline, true);
-                if let Ok(path) = p.build() {
-                    window.paint_path(path, f.opacity(0.35));
-                }
-            }
-            let mut p = gpui::PathBuilder::stroke(px(1.2));
-            p.add_polygon(&outline, true);
-            if let Ok(path) = p.build() {
-                window.paint_path(path, stroke);
-            }
-        },
-    )
-    .size(px(14.))
-    .flex_none()
-}
 
 /// Working: a gray ¾ ring turning once every 900 ms (design: quiet, motion says busy).
 pub fn spinner(color: gpui::Hsla, started: Instant) -> impl IntoElement {
+    spinner_sized(color, started, 4.25).size(px(10.))
+}
+
+/// The working ring at radius `r` (it fills its parent).
+pub fn spinner_sized(color: gpui::Hsla, started: Instant, r: f32) -> gpui::Canvas<()> {
     let turn = (started.elapsed().as_millis() % 900) as f32 / 900. * std::f32::consts::TAU;
     gpui::canvas(
         |_, _, _| {},
         move |bounds, _, window, _| {
             let c = bounds.center();
-            let r = 4.25_f32;
             let mut b = gpui::PathBuilder::stroke(px(1.5));
             let steps = 24;
             for i in 0..=steps {
@@ -684,7 +641,7 @@ pub fn spinner(color: gpui::Hsla, started: Instant) -> impl IntoElement {
             }
         },
     )
-    .size(px(10.))
+    .size_full()
 }
 
 /// "5m", "3h", "2d" since a unix time.
@@ -707,30 +664,104 @@ fn elapsed(since: Instant) -> String {
     }
 }
 
-/// "Needs you N · ⌘J" bar: the collapsed attention queue.
-fn needs_bar(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement> {
-    let k = ws.config.interface.text_scale();
-    let n = ws.needs_queue().len();
-    if n == 0 {
-        return None;
+/// Why a tab is in the Needs-you list, in a few words.
+pub fn needs_reason(tab: &Tab) -> String {
+    match tab.status() {
+        Some(Status::NeedsInput { reason }) => {
+            if let Some(tool) = reason.split("permission to use ").nth(1) {
+                format!("Approve {}", tool.trim().trim_end_matches('.'))
+            } else if reason.contains("waiting for your input") {
+                "Waiting for you".into()
+            } else {
+                reason.chars().take(32).collect()
+            }
+        }
+        Some(Status::Error { .. }) => "Error".into(),
+        _ if tab.reminder_due => "Reminder".into(),
+        _ => String::new(),
     }
+}
+
+/// Top-of-sidebar attention area (v3):
+/// - hooks not installed: a one-line "Connect Claude Code" banner;
+/// - something needs you: "Needs you N · ⌘J" with one row per tab (what it wants, how long);
+/// - otherwise, if any agents exist: a quiet "All caught up · N working" line, so the layout
+///   doesn't jump when the last one is handled.
+fn attention(ws: &Workspace, cx: &mut Context<Workspace>) -> Vec<AnyElement> {
+    let mut out = Vec::new();
+    out.extend(connect_banner(ws, cx));
+    out.extend(needs_area(ws, cx));
+    out
+}
+
+fn connect_banner(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement> {
+    let k = ws.config.interface.text_scale();
     let ui = ws.ui;
-    Some(
+    let base = || div().flex_none().mx(px(10.)).mb(px(10.)).rounded(px(8.)).overflow_hidden();
+    if !ws.hooks_installed {
+        return Some(
+            base()
+                .id("connect")
+                .h(px(30.))
+                .px(px(12.))
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .bg(ui.accent.opacity(0.08))
+                .border_1()
+                .border_color(ui.accent.opacity(0.25))
+                .text_size(px(12. * k))
+                .text_color(ui.text_secondary)
+                .hover(move |d| d.bg(ui.accent.opacity(0.14)))
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.open_overlay(crate::overlay::Overlay::Settings { section: crate::settings::Section::Agents }, window, cx)
+                }))
+                .child(div().flex_1().truncate().child("Connect Claude Code for live status"))
+                .child(div().text_color(ui.accent).child("Set up"))
+                .into_any_element(),
+        );
+    }
+    None
+}
+
+fn needs_area(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement> {
+    let k = ws.config.interface.text_scale();
+    let ui = ws.ui;
+    let base = || div().flex_none().mx(px(10.)).mb(px(10.)).rounded(px(8.)).overflow_hidden();
+    let queue = ws.needs_queue();
+    if queue.is_empty() {
+        let agents = ws.tabs.iter().filter(|t| t.agent.is_some()).count();
+        if agents == 0 {
+            return None;
+        }
+        let working = ws.tabs.iter().filter(|t| t.status() == Some(&Status::Working)).count();
+        let tail = if working > 0 { format!(" · {working} working") } else { String::new() };
+        return Some(
+            base()
+                .h(px(30.))
+                .px(px(12.))
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .bg(ui.bg_terminal)
+                .text_size(px(12. * k))
+                .text_color(ui.text_tertiary)
+                .child(div().text_color(ui.status_done).child("✓"))
+                .child(format!("All caught up{tail}"))
+                .into_any_element(),
+        );
+    }
+    let n = queue.len();
+    let mut bar = base().bg(ui.bg_raised).border_1().border_color(ui.status_needs.opacity(0.18)).flex().flex_col();
+    bar = bar.child(
         div()
             .id("needs-you")
             .h(px(30.))
-            .flex_none()
-            .mx(px(INSET))
-            .mb(px(6.))
             .pl(px(12.))
             .pr(px(10.))
-            .rounded(px(7.))
             .flex()
             .items_center()
             .gap(px(9.))
-            .bg(ui.bg_raised)
-            .border_1()
-            .border_color(ui.border)
             .hover(move |d| d.bg(ui.bg_hover))
             .on_click(cx.listener(|this, _, window, cx| this.jump_next_needs(window, cx)))
             .child(
@@ -740,7 +771,36 @@ fn needs_bar(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement> 
             .child(div().text_size(px(12.5 * k)).font_weight(FontWeight::MEDIUM).text_color(ui.text_primary).child("Needs you"))
             .child(div().text_size(px(11. * k)).font_family("JetBrains Mono").font_weight(FontWeight::SEMIBOLD).text_color(ui.status_needs).child(format!("{n}")))
             .child(div().flex_1())
-            .child(div().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child("⌘J"))
-            .into_any_element(),
-    )
+            .child(div().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child("⌘J")),
+    );
+    for &i in queue.iter().take(4) {
+        let t = &ws.tabs[i];
+        let age = match t.status() {
+            Some(Status::NeedsInput { .. }) | Some(Status::Error { .. }) => t.agent.as_ref().map(|a| elapsed(a.since)).unwrap_or_default(),
+            _ => "due".into(),
+        };
+        let error = matches!(t.status(), Some(Status::Error { .. }));
+        let tone = if error { ui.status_error } else { ui.status_needs };
+        bar = bar.child(
+            div()
+                .id(SharedString::from(format!("needs-{}", t.id)))
+                .h(px(28.))
+                .pl(px(34.))
+                .pr(px(10.))
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .border_t_1()
+                .border_color(ui.border)
+                .hover(move |d| d.bg(ui.bg_hover))
+                .on_click(cx.listener(move |this, _, window, cx| this.activate(i, window, cx)))
+                .child(div().flex_1().min_w_0().truncate().text_size(px(12. * k)).text_color(ui.text_secondary).child(t.title()))
+                .child(div().flex_none().text_size(px(11. * k)).text_color(tone.opacity(0.85)).child(needs_reason(t)))
+                .child(div().w(px(28.)).flex_none().flex().justify_end().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(tone).child(age)),
+        );
+    }
+    if n > 4 {
+        bar = bar.child(div().h(px(24.)).pl(px(34.)).flex().items_center().text_size(px(11.5 * k)).text_color(ui.text_tertiary).border_t_1().border_color(ui.border).child(format!("+{} more · ⌘J walks them", n - 4)));
+    }
+    Some(bar.into_any_element())
 }

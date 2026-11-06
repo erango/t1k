@@ -89,12 +89,20 @@ impl Workspace {
     }
 
     /// Fetch PR state for PRs in view that we don't know yet (or that went stale).
+    /// Fetch PR state for PRs in view (the panel's scope, or the active tab for the session
+    /// strip) that we don't know yet or that went stale.
     pub fn refresh_prs(&mut self, cx: &mut Context<Self>) {
-        if !self.panel.open {
-            return;
-        }
-        let stale: Vec<String> = self
-            .outputs_in_scope()
+        let candidates: Vec<(usize, Output)> = if self.panel.open {
+            self.outputs_in_scope()
+        } else {
+            let active = self.active;
+            self.tabs
+                .get(active)
+                .and_then(|t| t.agent.as_ref())
+                .map(|a| a.outputs.iter().filter(|o| o.kind == Kind::Pr).map(|o| (active, o.clone())).collect())
+                .unwrap_or_default()
+        };
+        let stale: Vec<String> = candidates
             .into_iter()
             .filter(|(_, o)| o.kind == Kind::Pr)
             .map(|(_, o)| o.target)

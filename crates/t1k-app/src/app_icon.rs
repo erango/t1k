@@ -135,7 +135,7 @@ fn write_icon_png(_: &Path, _: &Path) -> bool {
 /// A 16 px rounded badge for the tab's program: Claude's spark when a session is attached,
 /// a prompt mark at the shell, a known tool's mark, else the program's first letter.
 pub fn badge(tab: &Tab, ui: UiColors) -> Div {
-    let base = div().size(px(16.)).flex_none().rounded(px(4.)).flex().items_center().justify_center();
+    let base = div().size(px(18.)).flex_none().rounded(px(5.)).flex().items_center().justify_center();
     // An attached Claude session counts until it ends (its process may show as node).
     let live_agent = tab.agent.as_ref().is_some_and(|a| a.status != t1k_agent::Status::Ended);
     let program = if live_agent { Some("claude") } else { tab.program.as_deref() };
@@ -154,7 +154,7 @@ pub fn badge(tab: &Tab, ui: UiColors) -> Div {
     };
     // The real Mac app's icon when one matches (Claude, Docker, Cursor...).
     if let Some(png) = app_icon(program) {
-        return div().size(px(16.)).flex_none().child(img(png).size(px(16.)));
+        return div().size(px(18.)).flex_none().child(img(png).size(px(18.)));
     }
     let (glyph, color): (String, Hsla) = match known(program) {
         Some((g, c)) => (g.to_string(), rgb(c).into()),

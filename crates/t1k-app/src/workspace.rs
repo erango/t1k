@@ -174,6 +174,8 @@ pub struct Workspace {
     pub ui: UiColors,
     pub overlay: Overlay,
     /// Tabs visited before / after the current one (ids), for ⌘[ / ⌘].
+    /// Whether T1K's Claude Code hooks are in ~/.claude/settings.json (refreshed while polling).
+    pub hooks_installed: bool,
     pub back: Vec<String>,
     pub forward: Vec<String>,
     navigating: bool,
@@ -281,6 +283,7 @@ impl Workspace {
             theme: dark,
             ui: dark.ui(),
             overlay: Overlay::None,
+            hooks_installed: crate::settings::claude_hooks_installed(),
             back: Vec::new(),
             forward: Vec::new(),
             navigating: false,
@@ -679,6 +682,11 @@ impl Workspace {
                 t.cwd = cwd;
                 changed = true;
             }
+        }
+        let hooks = crate::settings::claude_hooks_installed();
+        if hooks != self.hooks_installed {
+            self.hooks_installed = hooks;
+            changed = true;
         }
         self.update_link_rules(cx);
         if changed {

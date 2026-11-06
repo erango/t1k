@@ -320,7 +320,7 @@ fn monospace_fonts(window: &Window) -> Vec<String> {
     names
 }
 
-fn claude_hooks_installed() -> bool {
+pub fn claude_hooks_installed() -> bool {
     let Some(home) = std::env::var_os("HOME") else { return false };
     std::fs::read_to_string(std::path::Path::new(&home).join(".claude/settings.json")).is_ok_and(|s| s.contains("T1K_BIN"))
 }

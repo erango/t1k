@@ -54,6 +54,9 @@ pub struct AgentState {
     pub prs: Vec<(u64, String)>,
     /// Everything the session produced, newest last (deduped by target).
     pub outputs: Vec<Output>,
+    /// Tokens in context as of the latest reply, and the model that answered.
+    pub context_tokens: Option<u64>,
+    pub model: Option<String>,
     custom_title: bool,
     tail: Option<Tail>,
 }
@@ -71,6 +74,8 @@ impl AgentState {
             branch: None,
             prs: Vec::new(),
             outputs: Vec::new(),
+            context_tokens: None,
+            model: None,
             custom_title: false,
             tail: None,
         }
@@ -101,6 +106,20 @@ impl AgentState {
             self.status = s;
             self.since = Instant::now();
         }
+    }
+
+    /// Share of the context window in use, 0-100. The window is 200k tokens unless the model
+    /// says 1M or usage has already passed 200k (then the session must be on a 1M window).
+    pub fn context_percent(&self) -> Option<u32> {
+        let used = self.context_tokens?;
+        let big = self.model.as_deref().is_some_and(|m| m.contains("1m")) || used > 200_000;
+        let window = if big { 1_000_000 } else { 200_000 };
+        Some(((used * 100) / window).min(100) as u32)
+    }
+
+    /// Number of distinct files the session edited.
+    pub fn files_edited(&self) -> usize {
+        self.outputs.iter().filter(|o| o.kind == Kind::File).count()
     }
 
     /// Best title: Claude's or the user's session title, else the first prompt.
@@ -201,6 +220,12 @@ impl AgentState {
                     self.add_url(&u);
                 }
                 Entry::Branch(b) => self.branch = Some(b),
+                Entry::Usage { context_tokens, model } => {
+                    self.context_tokens = Some(context_tokens);
+                    if model.is_some() {
+                        self.model = model;
+                    }
+                }
                 Entry::TurnDone { .. } => {}
             }
         }
