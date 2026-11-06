@@ -138,9 +138,11 @@ fn write_icon_png(_: &Path, _: &Path) -> bool {
 
 /// A 16 px rounded badge for the tab's program: Claude's spark when a session is attached,
 /// a prompt mark at the shell, a known tool's mark, else the program's first letter.
-pub fn badge(tab: &Tab, ui: UiColors) -> Div {
-    let base = div().size(px(18.)).flex_none().rounded(px(5.)).flex().items_center().justify_center();
-    // An attached Claude session counts until it ends (its process may show as node).
+pub fn badge(tab: &Tab, ui: UiColors, size: f32) -> Div {
+    // Small icons fill their tile edge to edge with a tighter corner, so they read at 16-22 px.
+    let radius = (size * 0.24).round();
+    let base = div().size(px(size)).flex_none().rounded(px(radius)).overflow_hidden().flex().items_center().justify_center();
+    // A live agent session names the program (its process may show as node or python).
     let live_agent = tab.agent.as_ref().filter(|a| a.status != t1k_agent::Status::Ended);
     let program = match live_agent {
         Some(a) => Some(a.kind.program()),
@@ -153,15 +155,18 @@ pub fn badge(tab: &Tab, ui: UiColors) -> Div {
         // Shell prompt.
         return base
             .bg(ui.bg_control)
-            .text_size(px(9.))
+            .text_size(px((size * 0.5).round()))
             .font_family("JetBrains Mono")
-            .font_weight(gpui::FontWeight::SEMIBOLD)
+            .font_weight(gpui::FontWeight::BOLD)
             .text_color(ui.text_secondary)
             .child(">_");
     };
-    // The real Mac app's icon when one matches (Claude, Docker, Cursor...).
+    // The real Mac app's icon when one matches (Claude, Docker, Cursor...). macOS icons carry
+    // ~10% transparent margin; drawing them 1.22× and clipping to the tile removes it.
     if let Some(png) = app_icon(program) {
-        return div().size(px(18.)).flex_none().child(img(png).size(px(18.)));
+        let over = (size * 1.22).round();
+        let shift = -((over - size) / 2.);
+        return base.relative().child(div().absolute().left(px(shift)).top(px(shift)).child(img(png).size(px(over))));
     }
     let (glyph, color): (String, Hsla) = match known(program) {
         Some((g, c)) => (g.to_string(), rgb(c).into()),
@@ -170,9 +175,9 @@ pub fn badge(tab: &Tab, ui: UiColors) -> Div {
             (first.to_string(), ui.text_secondary)
         }
     };
-    let small = glyph.chars().count() > 1;
-    base.bg(color.opacity(0.18))
-        .text_size(px(if small { 8. } else { 11. }))
+    let two = glyph.chars().count() > 1;
+    base.bg(color.opacity(0.22))
+        .text_size(px((size * if two { 0.48 } else { 0.66 }).round()))
         .font_weight(gpui::FontWeight::BOLD)
         .text_color(color)
         .child(glyph)

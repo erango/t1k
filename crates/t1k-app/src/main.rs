@@ -21,6 +21,7 @@ mod split;
 mod strip;
 mod sidebar;
 mod title;
+mod tooltip;
 mod workspace;
 
 use gpui::{prelude::*, px, size, App, Application, Bounds, KeyBinding, WindowBounds, WindowOptions};

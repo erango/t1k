@@ -34,7 +34,8 @@ line_height = 1.45
 fallbacks = ["Symbols Nerd Font Mono", "MesloLGS NF", "Meslo LG L DZ for Powerline", "Menlo", "Apple Color Emoji"]
 
 [interface]
-# Row spacing in the sidebar: "compact", "comfortable" or "spacious".
+# Sidebar rows and program icons: "compact" (28 px rows, 16 px icons), "comfortable"
+# (34 / 22) or "spacious" (40 / 28). With a second line, icons span both lines.
 density = "comfortable"
 # Text size of the sidebar and panels (the terminal font has its own size).
 text_size = 13
@@ -97,12 +98,24 @@ impl Default for InterfaceCfg {
 }
 
 impl InterfaceCfg {
-    /// Sidebar row height for the density.
+    /// Sidebar row height for the density (one line).
     pub fn row_height(&self) -> f32 {
         match self.density.as_str() {
             "compact" => 28.,
-            "spacious" => 36.,
-            _ => 32.,
+            "spacious" => 40.,
+            _ => 34.,
+        }
+    }
+
+    /// Program icon size: follows the row, and spans both lines when there's a second line.
+    pub fn icon_size(&self, two_lines: bool) -> f32 {
+        match (self.density.as_str(), two_lines) {
+            ("compact", false) => 16.,
+            ("spacious", false) => 28.,
+            (_, false) => 22.,
+            ("compact", true) => 28.,
+            ("spacious", true) => 36.,
+            (_, true) => 32.,
         }
     }
 

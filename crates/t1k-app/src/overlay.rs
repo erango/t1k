@@ -352,7 +352,7 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                             this.close_overlay(window, cx);
                             this.activate(i, window, cx);
                         }))
-                        .child(crate::app_icon::badge(t, ui))
+                        .child(crate::app_icon::badge(t, ui, 28.))
                         .child(
                             div()
                                 .flex_1()

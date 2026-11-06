@@ -14,6 +14,8 @@ use crate::workspace::Workspace;
 
 const CARD_W: f32 = 380.;
 const ROW_GAP: f32 = 2.;
+/// What "quiet" means, shown on hover of the quiet labels.
+const QUIET_HELP: &str = "Quiet tabs have nothing running and nothing new: idle shells and finished sessions you've already seen. Click to show them.";
 const INSET: f32 = 8.;
 
 pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
@@ -49,6 +51,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 .items_center()
                 .gap(px(8.))
                 .hover(move |d| d.bg(ui.bg_hover))
+                .when(auto_folded, |d| d.tooltip(crate::tooltip::text(ui, QUIET_HELP)))
                 .on_mouse_down(MouseButton::Right, cx.listener({
                     let key = key.clone();
                     move |this, ev: &gpui::MouseDownEvent, window, cx| {
@@ -127,6 +130,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 let gk = key.clone();
                 group = group.child(
                     quiet_row(ui, k, format!("quiet-{}", key.display()))
+                        .tooltip(crate::tooltip::text(ui, QUIET_HELP))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.show_quiet.insert(gk.clone());
                             cx.notify();
@@ -276,7 +280,7 @@ fn quiet_row(ui: UiColors, k: f32, id: String) -> gpui::Stateful<Div> {
         .flex_none()
         .mt(px(ROW_GAP))
         .mx(px(INSET))
-        .pl(px(40.))
+        .pl(px(43.))
         .pr(px(12.))
         .rounded(px(6.))
         .flex()
@@ -333,6 +337,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
     let second = tab.second_line(&ws.config.sidebar.second_line);
     let two_lines = ws.config.sidebar.second_line != "none";
     let height = if two_lines { ws.config.interface.two_line_height() } else { ws.config.interface.row_height() } * k.max(1.);
+    let icon_size = ws.config.interface.icon_size(two_lines);
     let hover_id = tab.id.clone();
 
     let mut el = div()
@@ -344,33 +349,42 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         .ml(px(INSET))
         .px(px(12.))
         .flex()
-        .flex_col()
-        .justify_center()
-        .gap(px(3.))
+        .items_center()
+        .gap(px(if two_lines { 11. } else { 9. }))
+        // v3: the program icon carries status in its corner (and spans both lines when there's
+        // a second one); without icons, the glyph slot sits on the title line.
+        .when(icons, |d| d.child(status_icon(tab, ui, ws.started, ws.ui.bg_sidebar, selected, icon_size)))
         .child(
             div()
+                .flex_1()
+                .min_w_0()
                 .flex()
-                .items_center()
-                .gap(px(9.))
-                // v3: the program icon carries status in its corner; without icons, the glyph slot.
-                .map(|d| if icons { d.child(status_icon(tab, ui, ws.started, ws.ui.bg_sidebar, selected)) } else { d.child(glyph) })
-                .child(title)
-                .children(pending)
-                .children(waiting.map(|w| {
-                    div().flex_none().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(w)
-                })),
+                .flex_col()
+                .justify_center()
+                .gap(px(2.))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(9.))
+                        .when(!icons, |d| d.child(glyph))
+                        .child(title)
+                        .children(pending)
+                        .children(waiting.map(|w| {
+                            div().flex_none().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(w)
+                        })),
+                )
+                .when(two_lines, |d| {
+                    d.child(
+                        div()
+                            .when(!icons, |d| d.pl(px(21.)))
+                            .truncate()
+                            .text_size(px(12. * k))
+                            .text_color(if selected { ui.text_secondary } else { ui.text_quiet })
+                            .child(second.unwrap_or_default()),
+                    )
+                }),
         )
-        .when(two_lines, |d| {
-            // Indented to the title: the 18 px icon (or 12 px glyph slot) + gap 9.
-            d.child(
-                div()
-                    .pl(px(if icons { 27. } else { 21. }))
-                    .truncate()
-                    .text_size(px(12. * k))
-                    .text_color(if selected { ui.text_secondary } else { ui.text_quiet })
-                    .child(second.unwrap_or_default()),
-            )
-        })
         .on_hover(cx.listener(move |this, hovered: &bool, _, cx| this.row_hovered(hover_id.clone(), *hovered, cx)))
         .when(carded, |d| {
             // Card floats over the terminal, level with the row; drawn last so nothing clips it.
@@ -630,23 +644,26 @@ fn title_color(tab: &Tab, selected: bool, alt: bool, ui: UiColors) -> gpui::Hsla
 /// Program icon (18 px) with a status badge on its corner: turning ring while working,
 /// amber when it needs you, red on error, mercury when unread or a reminder is due. Ended and
 /// idle sessions fade the icon instead.
-fn status_icon(tab: &Tab, ui: UiColors, started: Instant, sidebar_bg: gpui::Hsla, selected: bool) -> Div {
+fn status_icon(tab: &Tab, ui: UiColors, started: Instant, sidebar_bg: gpui::Hsla, selected: bool, size: f32) -> Div {
     let ring = if selected { ui.bg_terminal } else { sidebar_bg };
-    let dot = |c: gpui::Hsla| Some(div().size(px(9.)).rounded_full().bg(c).border_2().border_color(ring));
+    // The status dot scales with the icon (never below 9 px, so small icons still show it).
+    let d = (size * 0.42).round().max(9.);
+    let dot = |c: gpui::Hsla| Some(div().size(px(d)).rounded_full().bg(c).border_2().border_color(ring));
     let corner = match tab.status() {
         Some(Status::NeedsInput { .. }) => dot(ui.status_needs),
         Some(Status::Error { .. }) => dot(ui.status_error),
         _ if tab.reminder_due || tab.unread => dot(ui.accent),
-        Some(Status::Working) => Some(div().size(px(10.)).rounded_full().bg(ring).flex().items_center().justify_center().child(spinner_sized(ui.status_working, started, 3.2))),
+        Some(Status::Working) => Some(div().size(px(d + 1.)).rounded_full().bg(ring).flex().items_center().justify_center().child(spinner_sized(ui.status_working, started, (d - 2.) / 2.6))),
         _ => None,
     };
     let quiet = matches!(tab.status(), Some(Status::Ended) | Some(Status::Idle)) && !tab.unread;
+    let off = -(d / 3.).round();
     div()
         .relative()
-        .size(px(18.))
+        .size(px(size))
         .flex_none()
-        .child(crate::app_icon::badge(tab, ui).when(quiet, |d| d.opacity(0.45)))
-        .children(corner.map(|c| div().absolute().right(px(-3.)).bottom(px(-3.)).child(c)))
+        .child(crate::app_icon::badge(tab, ui, size).when(quiet, |d| d.opacity(0.45)))
+        .children(corner.map(|c| div().absolute().right(px(off)).bottom(px(off)).child(c)))
 }
 
 /// Per-group state counts for the header.
