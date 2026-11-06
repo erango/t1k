@@ -26,6 +26,8 @@ pub struct Tab {
     pub id: String,
     pub view: Entity<TerminalView>,
     pub osc_title: Option<String>,
+    /// Git branch of the tab's folder (refreshed while polling).
+    pub branch: Option<String>,
     /// Status read from the glyph a program puts before its title (Claude Code's ✳ / spinner).
     pub title_state: Option<crate::title::TitleState>,
     pub manual_title: Option<String>,
@@ -88,6 +90,38 @@ impl Tab {
             return p.clone();
         }
         self.cwd.as_deref().map(groups::label).unwrap_or_else(|| "shell".into())
+    }
+
+    /// Title for the sidebar's "Title as" setting. A manual rename always wins.
+    pub fn title_as(&self, mode: &str) -> String {
+        if let Some(t) = &self.manual_title {
+            return t.clone();
+        }
+        let folder = || self.cwd.as_deref().map(groups::label).unwrap_or_else(|| "shell".into());
+        match mode {
+            "command" => match &self.program {
+                Some(p) => self.osc_title.clone().filter(|t| !t.trim().is_empty()).unwrap_or_else(|| p.clone()),
+                None => folder(),
+            },
+            "folder" => folder(),
+            "branch" => self.branch().unwrap_or_else(folder),
+            _ => self.title(),
+        }
+    }
+
+    /// The agent's branch, else the folder's.
+    pub fn branch(&self) -> Option<String> {
+        self.agent.as_ref().and_then(|a| a.branch.clone()).or_else(|| self.branch.clone())
+    }
+
+    /// The always-on second line for the sidebar's "Second line" setting.
+    pub fn second_line(&self, mode: &str) -> Option<String> {
+        match mode {
+            "status" => Some(self.subtitle()),
+            "branch" => self.branch().map(|b| format!("⎇ {b}")),
+            "folder" => self.cwd.as_deref().map(groups::tilde),
+            _ => None,
+        }
     }
 
     /// Status line for the detail card and the ⌥ view: what it is doing, else where it is.
@@ -303,6 +337,7 @@ impl Workspace {
             let at = gpui::point(px(120.), px(140.));
             let o = match which.as_str() {
                 "palette" => Some(Overlay::Palette { query: String::new(), selected: 0 }),
+                "sidebarview" => Some(Overlay::SidebarView { at: gpui::point(px(90.), px(44.)) }),
                 "switcher" => Some(Overlay::Switcher { query: String::new(), selected: 0 }),
                 "overview" => Some(Overlay::Overview { selected: 0 }),
                 "settings" => Some(Overlay::Settings { section: crate::settings::Section::Appearance }),
@@ -370,6 +405,7 @@ impl Workspace {
             view,
             osc_title: None,
             title_state: None,
+            branch: None,
             manual_title,
             cwd,
             program: None,
@@ -622,6 +658,11 @@ impl Workspace {
                     }
                 }
                 t.program = program;
+                changed = true;
+            }
+            let branch = t.cwd.as_deref().and_then(groups::git_branch);
+            if branch != t.branch {
+                t.branch = branch;
                 changed = true;
             }
             if let Some(sp) = t.split.as_mut() {

@@ -16,6 +16,8 @@ use crate::workspace::Workspace;
 
 pub enum Overlay {
     None,
+    /// Sidebar view options (button in the sidebar's top strip).
+    SidebarView { at: Point<Pixels> },
     /// Command palette (⌘⇧P).
     Palette { query: String, selected: usize },
     Switcher { query: String, selected: usize },
@@ -203,6 +205,7 @@ impl Workspace {
             Overlay::Menu { tab, at } => (ev.keystroke.key != "escape").then_some(Overlay::Menu { tab, at }),
             Overlay::GroupMenu { key, at } => (ev.keystroke.key != "escape").then_some(Overlay::GroupMenu { key, at }),
             o @ Overlay::TerminalMenu { .. } => (ev.keystroke.key != "escape").then_some(o),
+            o @ Overlay::SidebarView { .. } => (ev.keystroke.key != "escape").then_some(o),
             Overlay::Settings { section } => (ev.keystroke.key != "escape").then_some(Overlay::Settings { section }),
         };
         match next {
@@ -366,6 +369,10 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                         .child("matches title · recap · project · branch · PR · files"),
                 );
             Some(scrim(ws, true, cx).bg(gpui::black().opacity(0.25)).flex().justify_center().items_start().child(panel).into_any_element())
+        }
+        Overlay::SidebarView { at } => {
+            let m = sidebar_view_menu(ws, *at, cx);
+            Some(scrim(ws, true, cx).child(m).into_any_element())
         }
         Overlay::Palette { query, selected } => {
             let panel = crate::palette::render(ws, query, *selected, cx);
@@ -1043,4 +1050,91 @@ fn terminal_menu(
     let top = f32::from(at.y).min(vh - 330.).max(8.);
     let left = f32::from(at.x).min(vw - 240.).max(8.);
     m.top(px(top)).left(px(left)).into_any_element()
+}
+
+/// Sidebar view options: what titles show, an optional second line, density, icons, hover card.
+/// Each pick writes config.toml and applies live; the menu stays open to try options.
+fn sidebar_view_menu(ws: &Workspace, at: Point<Pixels>, cx: &mut Context<Workspace>) -> AnyElement {
+    let ui = ws.ui;
+    let c = &ws.config;
+    let heading = |t: &'static str| div().px(px(10.)).pt(px(6.)).pb(px(4.)).text_size(px(11.)).text_color(ui.text_tertiary).child(t);
+    let sep = || div().h(px(1.)).my(px(4.)).mx(px(6.)).bg(ui.border);
+    let check = |id: String, label: &'static str, on: bool| {
+        div()
+            .id(SharedString::from(id))
+            .h(px(26.))
+            .px(px(10.))
+            .rounded(px(5.))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .text_size(px(13.))
+            .text_color(ui.text_primary)
+            .hover(move |d| d.bg(ui.accent.opacity(0.25)))
+            .child(div().w(px(12.)).text_color(ui.accent).child(if on { "✓" } else { "" }))
+            .child(label)
+    };
+    let pick = |keys: &'static [&'static str], v: &'static str| {
+        cx.listener(move |_: &mut Workspace, _: &gpui::ClickEvent, _: &mut Window, _: &mut Context<Workspace>| crate::config::set(keys, v))
+    };
+    let flip = |keys: &'static [&'static str], on: bool| {
+        cx.listener(move |_: &mut Workspace, _: &gpui::ClickEvent, _: &mut Window, _: &mut Context<Workspace>| {
+            crate::config::set_value(keys, toml_edit::Value::from(!on))
+        })
+    };
+    let mut m = div()
+        .absolute()
+        .left(at.x)
+        .top(at.y)
+        .w(px(236.))
+        .p(px(5.))
+        .rounded(px(8.))
+        .bg(ui.bg_raised)
+        .border_1()
+        .border_color(ui.border)
+        .shadow_lg()
+        .flex()
+        .flex_col()
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
+
+    m = m.child(heading("Title as"));
+    for (v, label) in [("auto", "Claude title, else command"), ("command", "Command"), ("folder", "Folder"), ("branch", "Branch")] {
+        m = m.child(check(format!("sv-title-{v}"), label, c.sidebar.title == v).on_click(pick(&["sidebar", "title"], v)));
+    }
+    m = m.child(sep()).child(heading("Second line"));
+    for (v, label) in [("none", "None"), ("status", "Status / recap"), ("branch", "Branch"), ("folder", "Folder")] {
+        m = m.child(check(format!("sv-second-{v}"), label, c.sidebar.second_line == v).on_click(pick(&["sidebar", "second_line"], v)));
+    }
+    m = m.child(sep()).child(heading("Density"));
+    let mut seg = div().flex().gap(px(4.)).px(px(8.)).pb(px(4.));
+    for (v, label) in [("compact", "Compact"), ("comfortable", "Comfortable"), ("spacious", "Spacious")] {
+        let on = c.interface.density == v;
+        seg = seg.child(
+            div()
+                .id(SharedString::from(format!("sv-density-{v}")))
+                .flex_1()
+                .h(px(24.))
+                .rounded(px(5.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_size(px(11.5))
+                .text_color(if on { ui.text_primary } else { ui.text_tertiary })
+                .when(on, |d| d.bg(ui.bg_control))
+                .hover(move |d| d.text_color(ui.text_primary))
+                .on_click(pick(&["interface", "density"], v))
+                .child(label),
+        );
+    }
+    m = m.child(seg);
+    m = m.child(sep());
+    m = m.child(check("sv-icons".into(), "Program icons", c.sidebar.app_icons).on_click(flip(&["sidebar", "app_icons"], c.sidebar.app_icons)));
+    m = m.child(check("sv-card".into(), "Show details on hover", c.sidebar.hover_card).on_click(flip(&["sidebar", "hover_card"], c.sidebar.hover_card)));
+    m = m.child(sep());
+    m = m.child(
+        check("sv-more".into(), "More in Settings…", false).on_click(cx.listener(|this, _, window, cx| {
+            this.open_overlay(Overlay::Settings { section: crate::settings::Section::Sidebar }, window, cx)
+        })),
+    );
+    m.into_any_element()
 }

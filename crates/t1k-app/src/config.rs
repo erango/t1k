@@ -45,6 +45,13 @@ width = 300
 hover_intent_ms = 300
 # A small badge for what's running in each tab (Claude, shell, vim, ssh...).
 app_icons = true
+# What a tab's title shows (a manual rename always wins):
+# "auto" (Claude's title, else the running command, else the folder), "command", "folder", "branch".
+title = "auto"
+# An always-on second line: "none", "status" (what it's doing / recap), "branch", "folder".
+second_line = "none"
+# Show a detail card when the pointer rests on a tab.
+hover_card = true
 
 [links]
 # ⌘-click a file path to open it. Empty picks the first of Zed, Cursor, VS Code, else the
@@ -96,6 +103,15 @@ impl InterfaceCfg {
             "compact" => 28.,
             "spacious" => 36.,
             _ => 32.,
+        }
+    }
+
+    /// Row height with an always-on second line (design DETAIL heights).
+    pub fn two_line_height(&self) -> f32 {
+        match self.density.as_str() {
+            "compact" => 44.,
+            "spacious" => 60.,
+            _ => 52.,
         }
     }
 
@@ -160,6 +176,9 @@ pub struct SidebarCfg {
     pub width: f32,
     pub hover_intent_ms: u64,
     pub app_icons: bool,
+    pub title: String,
+    pub second_line: String,
+    pub hover_card: bool,
 }
 
 impl Default for Config {
@@ -199,7 +218,14 @@ impl Default for FontCfg {
 }
 impl Default for SidebarCfg {
     fn default() -> Self {
-        Self { width: 300., hover_intent_ms: 300, app_icons: true }
+        Self {
+            width: 300.,
+            hover_intent_ms: 300,
+            app_icons: true,
+            title: "auto".into(),
+            second_line: "none".into(),
+            hover_card: true,
+        }
     }
 }
 

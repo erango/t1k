@@ -26,6 +26,27 @@ fn main_repo_of_worktree(dot_git_file: &Path) -> Option<PathBuf> {
     Some(PathBuf::from(repo))
 }
 
+/// Current git branch for a directory (reads HEAD directly, worktrees included). None when
+/// not in a repo or HEAD is detached.
+pub fn git_branch(cwd: &Path) -> Option<String> {
+    for dir in cwd.ancestors() {
+        let dot_git = dir.join(".git");
+        let head = if dot_git.is_dir() {
+            dot_git.join("HEAD")
+        } else if dot_git.is_file() {
+            let text = std::fs::read_to_string(&dot_git).ok()?;
+            let gitdir = text.lines().find_map(|l| l.strip_prefix("gitdir:"))?.trim();
+            let gitdir = if Path::new(gitdir).is_absolute() { PathBuf::from(gitdir) } else { dir.join(gitdir) };
+            gitdir.join("HEAD")
+        } else {
+            continue;
+        };
+        let text = std::fs::read_to_string(head).ok()?;
+        return text.trim().strip_prefix("ref: refs/heads/").map(str::to_string);
+    }
+    None
+}
+
 /// Short label for a directory: its basename, or "~" for the home directory.
 pub fn label(path: &Path) -> String {
     if std::env::var_os("HOME").is_some_and(|h| Path::new(&h) == path) {
@@ -47,6 +68,18 @@ pub fn tilde(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_branch_from_head() {
+        let dir = std::env::temp_dir().join(format!("t1k-branch-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join(".git/HEAD"), "ref: refs/heads/feat/sidebar\n").unwrap();
+        assert_eq!(git_branch(&dir.join("src")).as_deref(), Some("feat/sidebar"));
+        std::fs::write(dir.join(".git/HEAD"), "0123abcd\n").unwrap();
+        assert_eq!(git_branch(&dir), None);
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     fn tmp(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("t1k-groups-{}-{name}", std::process::id()));

@@ -268,7 +268,24 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                         .child("T1K"),
                 )
                 .child(nav_button(ws, true, cx))
-                .child(nav_button(ws, false, cx)),
+                .child(nav_button(ws, false, cx))
+                .child(
+                    div()
+                        .id("sidebar-view")
+                        .size(px(24.))
+                        .rounded(px(5.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .hover(move |d| d.bg(ui.bg_hover))
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_click(cx.listener(|this, ev: &gpui::ClickEvent, window, cx| {
+                            let p = ev.position();
+                            let at = gpui::point(p.x - px(200.), p.y + px(14.));
+                            this.open_overlay(crate::overlay::Overlay::SidebarView { at }, window, cx);
+                        }))
+                        .child(crate::icons::sliders(ui.text_secondary)),
+                ),
         )
         .children(needs_bar(ws, cx))
         .child(list)
@@ -326,28 +343,54 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         .text_size(px(if alt { 12. } else { 13. } * k))
         .when(!alt && (selected || unseen), |d| d.font_weight(FontWeight::SEMIBOLD))
         .text_color(title_color(tab, selected, alt, ui))
-        .child(if alt { tab.subtitle() } else { tab.title() });
-    let carded = ws.card.as_deref() == Some(tab.id.as_str()) && !alt && matches!(ws.overlay, crate::overlay::Overlay::None);
+        .child(if alt { tab.subtitle() } else { tab.title_as(&ws.config.sidebar.title) });
+    let carded = ws.config.sidebar.hover_card
+        && ws.card.as_deref() == Some(tab.id.as_str())
+        && !alt
+        && matches!(ws.overlay, crate::overlay::Overlay::None);
+    // Optional always-on second line: every row gets it, so heights stay equal and nothing moves.
+    let icons = ws.config.sidebar.app_icons;
+    let second = tab.second_line(&ws.config.sidebar.second_line);
+    let two_lines = ws.config.sidebar.second_line != "none";
+    let height = if two_lines { ws.config.interface.two_line_height() } else { ws.config.interface.row_height() } * k.max(1.);
     let hover_id = tab.id.clone();
 
     let mut el = div()
         .id(SharedString::from(tab.id.clone()))
         .relative()
         .flex_none()
-        .h(px(ws.config.interface.row_height() * k.max(1.)))
+        .h(px(height))
         .mt(px(ROW_GAP))
         .ml(px(INSET))
         .px(px(12.))
         .flex()
-        .items_center()
-        .gap(px(9.))
-        .child(glyph)
-        .when(ws.config.sidebar.app_icons, |d| d.child(crate::app_icon::badge(tab, ui)))
-        .child(title)
-        .children(pending)
-        .children(waiting.map(|w| {
-            div().flex_none().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(w)
-        }))
+        .flex_col()
+        .justify_center()
+        .gap(px(3.))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(9.))
+                .child(glyph)
+                .when(icons, |d| d.child(crate::app_icon::badge(tab, ui)))
+                .child(title)
+                .children(pending)
+                .children(waiting.map(|w| {
+                    div().flex_none().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(w)
+                })),
+        )
+        .when(two_lines, |d| {
+            // Indented to the title: glyph slot 12 + gap 9, plus the badge 16 + gap 9.
+            d.child(
+                div()
+                    .pl(px(if icons { 46. } else { 21. }))
+                    .truncate()
+                    .text_size(px(12. * k))
+                    .text_color(if selected { ui.text_secondary } else { ui.text_quiet })
+                    .child(second.unwrap_or_default()),
+            )
+        })
         .on_hover(cx.listener(move |this, hovered: &bool, _, cx| this.row_hovered(hover_id.clone(), *hovered, cx)))
         .when(carded, |d| {
             // Card floats over the terminal, level with the row; drawn last so nothing clips it.

@@ -69,3 +69,30 @@ pub fn half_circle(color: Hsla) -> impl IntoElement {
         })
     })
 }
+
+/// Two sliders (view options).
+pub fn sliders(color: Hsla) -> impl IntoElement {
+    icon(move |b, window| {
+        let o = b.origin;
+        let pt = |x: f32, y: f32| point(o.x + px(x), o.y + px(y));
+        stroke(window, color, |p| {
+            p.move_to(pt(2., 4.5));
+            p.line_to(pt(12., 4.5));
+            p.move_to(pt(2., 9.5));
+            p.line_to(pt(12., 9.5));
+        });
+        let mut f = PathBuilder::fill();
+        let knob = |f: &mut PathBuilder, cx: f32, cy: f32| {
+            let pts: Vec<_> = (0..12).map(|i| {
+                let a = i as f32 / 12. * std::f32::consts::TAU;
+                pt(cx + 1.8 * a.cos(), cy + 1.8 * a.sin())
+            }).collect();
+            f.add_polygon(&pts, true);
+        };
+        knob(&mut f, 5., 4.5);
+        knob(&mut f, 9.5, 9.5);
+        if let Ok(path) = f.build() {
+            window.paint_path(path, color);
+        }
+    })
+}
