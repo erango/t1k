@@ -43,27 +43,34 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
         let marker = match a.status {
             Status::Working => div().size(px(10.)).child(crate::sidebar::spinner_sized(ui.status_working, ws.started, 3.6)),
             Status::Idle | Status::Ended => div().size(px(8.)).rounded_full().border_1().border_color(tone),
+            // Loud states get a soft halo.
+            _ if loud => div().size(px(14.)).rounded_full().bg(tone.opacity(0.22)).flex().items_center().justify_center()
+                .child(div().size(px(8.)).rounded_full().bg(tone)),
             _ => div().size(px(8.)).rounded_full().bg(tone),
-        };
+        }
+        .flex_none();
+        // A: plain dot and words, no box (a pill read as a search field); a hairline before
+        // the title.
         div()
             .flex_shrink()
-            .min_w(px(110.))
-            .max_w(px(420.))
-            .h(px(24.))
-            .px(px(9.))
+            .min_w(px(90.))
+            .max_w(px(440.))
             .flex()
             .items_center()
             .gap(px(7.))
-            .rounded(px(12.))
-            .bg(if loud { tone.opacity(0.12) } else { ui.bg_hover })
-            .border_1()
-            .border_color(if loud { tone.opacity(0.35) } else { ui.border })
             .child(marker)
-            .child(div().flex_none().text_size(px(12.)).text_color(if loud { tone } else { ui.text_secondary }).child(state))
+            .child(div().flex_none().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(if loud { tone } else { ui.text_secondary }).child(state))
             .children(detail.filter(|d| !d.is_empty()).map(|d| {
-                div().min_w_0().truncate().text_size(px(12.)).text_color(ui.text_tertiary).child(format!("· {d}"))
+                div().min_w_0().truncate().text_size(px(12.5)).text_color(ui.text_tertiary).child(format!("· {d}"))
             }))
             .child(mono(ago(a.since), if loud { tone } else { ui.text_tertiary }))
+            .child(div().flex_none().ml(px(5.)).w(px(1.)).h(px(16.)).bg(ui.border))
+    });
+    // E: loud states tint the whole strip, with a 2 px top edge in their color.
+    let alarm = agent.and_then(|a| match a.status {
+        Status::NeedsInput { .. } => Some(ui.status_needs),
+        Status::Error { .. } => Some(ui.status_error),
+        _ => None,
     });
 
     // PR chip with CI, from the last PR the session opened.
@@ -134,7 +141,12 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
         .gap(px(12.))
         .pr(px(12.))
         .pl(px(if ws.sidebar_open { 18. } else { 84. }))
+        .relative()
         .bg(ui.bg_terminal)
+        .when_some(alarm, |d, c| {
+            d.bg(gpui::Hsla::blend(ui.bg_terminal, c.opacity(0.06)))
+                .child(div().absolute().top_0().left_0().right_0().h(px(2.)).bg(c))
+        })
         .border_b_1()
         .border_color(ui.border)
         .on_mouse_down(MouseButton::Left, |ev, window, _| {
