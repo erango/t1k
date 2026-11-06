@@ -15,6 +15,9 @@ pub struct SavedTab {
     /// Last Claude session in this tab, for "Resume Claude session" after a restart.
     #[serde(default)]
     pub last_session: Option<String>,
+    /// Group the user moved this tab to (it stays there whatever its folder).
+    #[serde(default)]
+    pub pinned_group: Option<PathBuf>,
 }
 
 /// A Claude session that no tab holds any more (tab closed, or replaced by a newer session).
@@ -64,6 +67,24 @@ pub struct Session {
     pub theme_light: Option<String>,
     #[serde(default)]
     pub recent: Vec<Recent>,
+    /// Group color: index 1-6 into the theme's ANSI colors.
+    #[serde(default)]
+    pub group_colors: Vec<(PathBuf, u8)>,
+    #[serde(default)]
+    pub group_sort: Vec<(PathBuf, GroupSort)>,
+}
+
+/// How tabs are ordered within a group.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum GroupSort {
+    /// Needs-you first, then unread, working, the rest.
+    #[default]
+    Attention,
+    /// Most recently used first.
+    Activity,
+    /// In the order they were opened.
+    Opened,
 }
 
 pub fn support_dir() -> Option<PathBuf> {

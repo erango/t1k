@@ -21,6 +21,7 @@ pub enum Overlay {
     Rename { tab: usize, text: String },
     RenameGroup { key: std::path::PathBuf, text: String },
     Menu { tab: usize, at: Point<Pixels> },
+    GroupMenu { key: std::path::PathBuf, at: Point<Pixels> },
     Settings { section: crate::settings::Section },
 }
 
@@ -173,6 +174,7 @@ impl Workspace {
                 _ => Some(Overlay::RenameGroup { key, text }),
             },
             Overlay::Menu { tab, at } => (ev.keystroke.key != "escape").then_some(Overlay::Menu { tab, at }),
+            Overlay::GroupMenu { key, at } => (ev.keystroke.key != "escape").then_some(Overlay::GroupMenu { key, at }),
             Overlay::Settings { section } => (ev.keystroke.key != "escape").then_some(Overlay::Settings { section }),
         };
         match next {
@@ -379,6 +381,10 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
         }
         Overlay::Menu { tab, at } => {
             let m = menu(ws, *tab, *at, window, cx);
+            Some(scrim(ws, true, cx).child(m).into_any_element())
+        }
+        Overlay::GroupMenu { key, at } => {
+            let m = group_menu(ws, key.clone(), *at, window, cx);
             Some(scrim(ws, true, cx).child(m).into_any_element())
         }
     }
@@ -605,6 +611,33 @@ fn menu(ws: &Workspace, tab: usize, at: Point<Pixels>, window: &Window, cx: &mut
             this.close_overlay(window, cx);
         })));
     }
+    // Move to another group (pins the tab there), or back to its folder's group.
+    let others: Vec<(std::path::PathBuf, String)> = ws
+        .grouped()
+        .into_iter()
+        .map(|(g, _)| g)
+        .filter(|g| *g != t.group)
+        .map(|g| {
+            let label = ws.group_label(&g);
+            (g, label)
+        })
+        .collect();
+    if !others.is_empty() || t.pinned_group.is_some() {
+        m = m.child(sep());
+        m = m.child(div().px(px(10.)).pt(px(2.)).pb(px(4.)).text_size(px(11.)).text_color(ui.text_tertiary).child("Move to group"));
+        for (n, (g, label)) in others.into_iter().enumerate() {
+            m = m.child(item(&format!("move-{n}"), label).on_click(cx.listener(move |this, _, window, cx| {
+                this.move_tab(tab, Some(g.clone()), cx);
+                this.close_overlay(window, cx);
+            })));
+        }
+        if t.pinned_group.is_some() {
+            m = m.child(item("move-auto", "Back to its folder's group".into()).on_click(cx.listener(move |this, _, window, cx| {
+                this.move_tab(tab, None, cx);
+                this.close_overlay(window, cx);
+            })));
+        }
+    }
     m = m.child(sep());
     m = m.child(item("close", "Close tab".into()).on_click(cx.listener(move |this, _, window, cx| {
         this.close_overlay(window, cx);
@@ -613,7 +646,132 @@ fn menu(ws: &Workspace, tab: usize, at: Point<Pixels>, window: &Window, cx: &mut
 
     // Keep the menu inside the window.
     let vh = f32::from(window.viewport_size().height);
-    let top = f32::from(at.y).min(vh - 340.).max(8.);
+    let top = f32::from(at.y).min(vh - 420.).max(8.);
+    m.top(px(top)).into_any_element()
+}
+
+/// Right-click menu on a group header: new tab, rename, color, sort, collapse.
+fn group_menu(ws: &Workspace, key: std::path::PathBuf, at: Point<Pixels>, window: &Window, cx: &mut Context<Workspace>) -> AnyElement {
+    use crate::session::GroupSort;
+    let ui = ws.ui;
+    let item = |id: &str, label: String| {
+        div()
+            .id(SharedString::from(format!("gmenu-{id}")))
+            .h(px(26.))
+            .px(px(10.))
+            .rounded(px(5.))
+            .flex()
+            .items_center()
+            .text_size(px(13.))
+            .text_color(ui.text_primary)
+            .hover(move |d| d.bg(ui.accent.opacity(0.25)))
+            .child(label)
+    };
+    let sep = || div().h(px(1.)).my(px(4.)).mx(px(6.)).bg(ui.border);
+    let heading = |t: &'static str| div().px(px(10.)).pt(px(2.)).pb(px(4.)).text_size(px(11.)).text_color(ui.text_tertiary).child(t);
+    let mut m = div()
+        .absolute()
+        .left(at.x)
+        .w(px(240.))
+        .p(px(5.))
+        .rounded(px(8.))
+        .bg(ui.bg_raised)
+        .border_1()
+        .border_color(ui.border)
+        .shadow_lg()
+        .flex()
+        .flex_col()
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
+
+    let k = key.clone();
+    m = m.child(item("new", "New tab here".into()).on_click(cx.listener(move |this, _, window, cx| {
+        this.close_overlay(window, cx);
+        let cwd = k.is_dir().then(|| k.clone());
+        this.open_tab(cwd, None, window, cx);
+    })));
+    let k = key.clone();
+    m = m.child(item("rename", "Rename…".into()).on_click(cx.listener(move |this, _, window, cx| {
+        let text = this.group_label(&k);
+        this.open_overlay(Overlay::RenameGroup { key: k.clone(), text }, window, cx);
+    })));
+    if ws.group_names.contains_key(&key) {
+        let k = key.clone();
+        m = m.child(item("reset", "Use folder name".into()).on_click(cx.listener(move |this, _, window, cx| {
+            this.group_names.remove(&k);
+            this.save();
+            this.close_overlay(window, cx);
+        })));
+    }
+    let collapsed = ws.collapsed.contains(&key);
+    let k = key.clone();
+    m = m.child(item("collapse", if collapsed { "Expand".into() } else { "Collapse".into() }).on_click(cx.listener(move |this, _, window, cx| {
+        this.toggle_group(k.clone(), cx);
+        this.close_overlay(window, cx);
+    })));
+
+    // Color: none plus the theme's six ANSI hues.
+    m = m.child(sep()).child(heading("Color"));
+    let current = ws.group_colors.get(&key).copied();
+    let mut swatches = div().flex().gap(px(6.)).px(px(10.)).pb(px(6.));
+    for i in 0u8..=6 {
+        let color: Option<gpui::Hsla> = (i > 0).then(|| gpui::rgb(ws.theme.ansi[i as usize]).into());
+        let on = current.unwrap_or(0) == i;
+        let k = key.clone();
+        swatches = swatches.child(
+            div()
+                .id(SharedString::from(format!("gcolor-{i}")))
+                .size(px(20.))
+                .rounded_full()
+                .border_2()
+                .border_color(if on { ui.text_primary } else { gpui::transparent_black() })
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(match color {
+                    Some(c) => div().size(px(14.)).rounded_full().bg(c),
+                    None => div().size(px(14.)).rounded_full().border_1().border_color(ui.text_tertiary),
+                })
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    if i == 0 {
+                        this.group_colors.remove(&k);
+                    } else {
+                        this.group_colors.insert(k.clone(), i);
+                    }
+                    this.save();
+                    this.close_overlay(window, cx);
+                })),
+        );
+    }
+    m = m.child(swatches);
+
+    m = m.child(sep()).child(heading("Sort tabs by"));
+    let sort = ws.group_sort.get(&key).copied().unwrap_or_default();
+    for (id, label, mode) in [
+        ("attention", "Needs attention", GroupSort::Attention),
+        ("activity", "Recently used", GroupSort::Activity),
+        ("opened", "Order opened", GroupSort::Opened),
+    ] {
+        let k = key.clone();
+        let mark = if sort == mode { "✓ " } else { "   " };
+        m = m.child(item(id, format!("{mark}{label}")).on_click(cx.listener(move |this, _, window, cx| {
+            if mode == GroupSort::Attention {
+                this.group_sort.remove(&k);
+            } else {
+                this.group_sort.insert(k.clone(), mode);
+            }
+            this.save();
+            this.close_overlay(window, cx);
+        })));
+    }
+    if key.is_dir() {
+        let k = key.clone();
+        m = m.child(sep()).child(item("reveal", "Reveal in Finder".into()).on_click(cx.listener(move |this, _, window, cx| {
+            cx.reveal_path(&k);
+            this.close_overlay(window, cx);
+        })));
+    }
+    let vh = f32::from(window.viewport_size().height);
+    let top = f32::from(at.y).min(vh - 400.).max(8.);
     m.top(px(top)).into_any_element()
 }
 

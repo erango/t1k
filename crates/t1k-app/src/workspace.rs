@@ -45,6 +45,8 @@ pub struct Tab {
     pub reminder_due: bool,
     /// Claude session id restored from the last run (for resume).
     pub last_session: Option<String>,
+    /// Set when the user moved the tab to a group by hand; folder changes don't regroup it.
+    pub pinned_group: Option<PathBuf>,
     _sub: Subscription,
 }
 
@@ -121,6 +123,8 @@ pub struct Workspace {
     /// Groups whose Recent list is expanded.
     pub recent_open: HashSet<PathBuf>,
     pub group_names: HashMap<PathBuf, String>,
+    pub group_colors: HashMap<PathBuf, u8>,
+    pub group_sort: HashMap<PathBuf, session::GroupSort>,
     pub sidebar_open: bool,
     /// Sidebar shows two-line rows (hover intent or ⌥ held).
     /// Tab id whose detail card is showing (hover intent on a sidebar row).
@@ -212,6 +216,8 @@ impl Workspace {
             recent: Vec::new(),
             recent_open: HashSet::new(),
             group_names: saved.group_names.iter().cloned().collect(),
+            group_colors: saved.group_colors.iter().cloned().collect(),
+            group_sort: saved.group_sort.iter().cloned().collect(),
             sidebar_open: saved.sidebar_open.unwrap_or(true),
             card: None,
             alt_held: false,
@@ -254,6 +260,10 @@ impl Workspace {
                     }
                 }
                 tab.last_session = t.last_session;
+                if let Some(g) = t.pinned_group {
+                    tab.group = g.clone();
+                    tab.pinned_group = Some(g);
+                }
             }
             let active = saved.active.min(this.tabs.len() - 1);
             this.activate(active, window, cx);
@@ -331,6 +341,7 @@ impl Workspace {
             reminder_at: None,
             reminder_due: false,
             last_session: None,
+            pinned_group: None,
             _sub: sub,
         });
         self.activate(self.tabs.len() - 1, window, cx);
@@ -434,9 +445,14 @@ impl Workspace {
                 None => out.push((t.group.clone(), vec![i])),
             }
         }
-        // Within a group: needs-you first, then unread, working, the rest (design: ordering).
-        for (_, v) in &mut out {
-            v.sort_by_key(|&i| (self.tabs[i].urgency(), self.tabs[i].created));
+        // Within a group: by the group's sort mode; attention by default (needs-you first, then
+        // unread, working, the rest).
+        for (g, v) in &mut out {
+            match self.group_sort.get(g).copied().unwrap_or_default() {
+                session::GroupSort::Attention => v.sort_by_key(|&i| (self.tabs[i].urgency(), self.tabs[i].created)),
+                session::GroupSort::Activity => v.sort_by_key(|&i| std::cmp::Reverse(self.tabs[i].last_active)),
+                session::GroupSort::Opened => v.sort_by_key(|&i| self.tabs[i].created),
+            }
         }
         out
     }
@@ -444,6 +460,32 @@ impl Workspace {
     /// Tab indices in the order the sidebar shows them (collapsed groups included).
     pub fn visual_order(&self) -> Vec<usize> {
         self.grouped().into_iter().flat_map(|(_, v)| v).collect()
+    }
+
+    /// The group's color, if the user picked one: one of the theme's six ANSI hues.
+    pub fn group_color(&self, key: &PathBuf) -> Option<gpui::Hsla> {
+        let i = *self.group_colors.get(key)? as usize;
+        let c = self.theme.ansi.get(i.clamp(1, 6))?;
+        Some(gpui::rgb(*c).into())
+    }
+
+    /// Move a tab into a group by hand, or back to its folder's group with `None`.
+    pub fn move_tab(&mut self, ix: usize, group: Option<PathBuf>, cx: &mut Context<Self>) {
+        let Some(t) = self.tabs.get_mut(ix) else { return };
+        match group {
+            Some(g) => {
+                t.group = g.clone();
+                t.pinned_group = Some(g);
+            }
+            None => {
+                t.pinned_group = None;
+                if let Some(c) = &t.cwd {
+                    t.group = groups::project_root(c);
+                }
+            }
+        }
+        self.save();
+        cx.notify();
     }
 
     pub fn group_label(&self, key: &PathBuf) -> String {
@@ -473,7 +515,7 @@ impl Workspace {
             }
             if cwd.is_some() && cwd != t.cwd {
                 let group = groups::project_root(cwd.as_deref().unwrap());
-                if group != t.group {
+                if t.pinned_group.is_none() && group != t.group {
                     t.group = group;
                     regrouped = true;
                 }
@@ -694,6 +736,7 @@ impl Workspace {
                     reminder_at: t.reminder_at.and_then(|r| r.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_secs()),
                     last_session: t.agent.as_ref().map(|a| a.session_id.clone()).filter(|s| !s.is_empty())
                         .or_else(|| t.last_session.clone()),
+                    pinned_group: t.pinned_group.clone(),
                 }
             }).collect(),
             active: self.visual_order().iter().position(|&i| i == self.active).unwrap_or(0),
@@ -702,6 +745,8 @@ impl Workspace {
             sidebar_open: Some(self.sidebar_open),
             outputs_open: self.panel.open,
             recent: self.recent.clone(),
+            group_colors: self.group_colors.iter().map(|(k, v)| (k.clone(), *v)).collect(),
+            group_sort: self.group_sort.iter().map(|(k, v)| (k.clone(), *v)).collect(),
             ..Default::default()
         }
     }

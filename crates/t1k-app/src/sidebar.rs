@@ -48,6 +48,12 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 .items_center()
                 .gap(px(6.))
                 .hover(move |d| d.bg(ui.bg_hover))
+                .on_mouse_down(MouseButton::Right, cx.listener({
+                    let key = key.clone();
+                    move |this, ev: &gpui::MouseDownEvent, window, cx| {
+                        this.open_overlay(crate::overlay::Overlay::GroupMenu { key: key.clone(), at: ev.position }, window, cx);
+                    }
+                }))
                 .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
                     this.toggle_group(toggle_key.clone(), cx);
                     if ev.click_count() == 2 {
@@ -63,6 +69,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                         .text_color(ui.text_tertiary)
                         .child(if collapsed { "▶" } else { "▼" }),
                 )
+                .children(ws.group_color(&key).map(|c| div().size(px(8.)).flex_none().rounded_full().bg(c)))
                 .child(
                     div()
                         .flex_1()
@@ -333,7 +340,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         el = el
             .bg(ui.bg_terminal)
             .rounded_l(px(6.))
-            .child(div().absolute().left_0().top(px(7.)).bottom(px(7.)).w(px(3.)).rounded(px(2.)).bg(ui.accent));
+            .child(div().absolute().left_0().top(px(7.)).bottom(px(7.)).w(px(3.)).rounded(px(2.)).bg(ws.group_color(&tab.group).unwrap_or(ui.accent)));
     } else {
         el = el.mr(px(INSET)).rounded(px(6.)).hover(move |d| d.bg(ui.bg_hover));
     }
