@@ -7,6 +7,7 @@ mod input;
 mod menus;
 mod outputs_panel;
 mod overlay;
+mod platform;
 mod groups;
 mod session;
 mod sidebar;

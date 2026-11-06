@@ -127,6 +127,8 @@ pub struct Workspace {
     agent_rx: Receiver<Envelope>,
     next_created: usize,
     pub started: Instant,
+    /// Last Dock badge value we set (None = never).
+    badge: Option<usize>,
     _poll: Task<()>,
     _fast: Task<()>,
 }
@@ -206,6 +208,7 @@ impl Workspace {
             agent_rx,
             next_created: 0,
             started: Instant::now(),
+            badge: None,
             _poll: poll,
             _fast: fast,
         };
@@ -418,6 +421,9 @@ impl Workspace {
             if !t.reminder_due && t.reminder_at.is_some_and(|r| r <= now) {
                 t.reminder_due = true;
                 changed = true;
+                if self.config.notify.reminder {
+                    crate::platform::notify("T1K", "Reminder", &t.title());
+                }
             }
         }
         while let Ok(env) = self.agent_rx.try_recv() {
@@ -425,6 +431,11 @@ impl Workspace {
         }
         if changed {
             self.debug_dump();
+        }
+        let needs = self.needs_queue().len();
+        if self.badge != Some(needs) {
+            self.badge = Some(needs);
+            crate::platform::set_dock_badge(if self.config.notify.dock_badge { needs } else { 0 });
         }
         let working = self.tabs.iter().any(|t| t.status() == Some(&Status::Working));
         if changed || working {
@@ -442,9 +453,26 @@ impl Workspace {
         if new_session {
             tab.agent = Some(AgentState::new(sid));
         }
+        let before = tab.agent.as_ref().map(|a| a.status.clone());
         let finished = tab.agent.as_mut().unwrap().apply_hook(hook);
         if finished && !visible {
             tab.unread = true;
+        }
+        // Banner on entering a loud state while you're not looking at this tab.
+        let after = tab.agent.as_ref().map(|a| a.status.clone());
+        if !visible && after != before {
+            let n = &self.config.notify;
+            let msg = match &after {
+                Some(Status::NeedsInput { reason }) if n.needs_input => Some(("Needs you", reason.clone())),
+                Some(Status::Error { message }) if n.error => Some(("Error", message.clone())),
+                Some(Status::Done) if n.done && finished => {
+                    Some(("Done", tab.agent.as_ref().and_then(|a| a.recap.clone()).unwrap_or_default()))
+                }
+                _ => None,
+            };
+            if let Some((what, body)) = msg {
+                crate::platform::notify(&format!("T1K · {what}"), &tab.title(), &body);
+            }
         }
         true
     }

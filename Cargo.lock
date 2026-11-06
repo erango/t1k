@@ -5579,11 +5579,13 @@ name = "t1k-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cocoa 0.26.0",
  "env_logger",
  "gpui",
  "libc",
  "log",
  "nucleo-matcher",
+ "objc",
  "serde",
  "serde_json",
  "t1k-agent",

@@ -32,6 +32,15 @@ fallbacks = ["Symbols Nerd Font Mono", "MesloLGS NF", "Meslo LG L DZ for Powerli
 width = 300
 # How long the pointer rests on the sidebar before rows expand to two lines.
 hover_intent_ms = 150
+
+[notify]
+# Banners when a tab needs you while you're elsewhere.
+needs_input = true
+error = true
+reminder = true
+done = false
+# Number on the Dock icon: tabs that need you (input, errors, due reminders).
+dock_badge = true
 "#;
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
@@ -41,6 +50,23 @@ pub struct Config {
     pub theme: ThemeCfg,
     pub terminal: TerminalCfg,
     pub sidebar: SidebarCfg,
+    pub notify: NotifyCfg,
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[serde(default)]
+pub struct NotifyCfg {
+    pub needs_input: bool,
+    pub error: bool,
+    pub reminder: bool,
+    pub done: bool,
+    pub dock_badge: bool,
+}
+
+impl Default for NotifyCfg {
+    fn default() -> Self {
+        Self { needs_input: true, error: true, reminder: true, done: false, dock_badge: true }
+    }
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
@@ -81,6 +107,7 @@ impl Default for Config {
             theme: ThemeCfg::default(),
             terminal: TerminalCfg::default(),
             sidebar: SidebarCfg::default(),
+            notify: NotifyCfg::default(),
         }
     }
 }

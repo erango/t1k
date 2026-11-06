@@ -23,3 +23,9 @@ toml = "0.8"
 toml_edit = "0.22"
 nucleo-matcher = "0.3"
 libc = "0.2"
+objc = "0.2"
+cocoa = "0.26"
+
+[lints.rust]
+# objc 0.2 macros test cfg(feature = "cargo-clippy").
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }

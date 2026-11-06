@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <!-- Liquid-metal chrome (design: #F2F5F9 → #9AA4B2 → #D9DEE5) -->
+    <linearGradient id="metal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F2F5F9"/>
+      <stop offset="0.55" stop-color="#9AA4B2"/>
+      <stop offset="1" stop-color="#D9DEE5"/>
+    </linearGradient>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1A1C20"/>
+      <stop offset="1" stop-color="#0B0C0E"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.9"/>
+      <stop offset="0.5" stop-color="#C9D1DB" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#7A818B" stop-opacity="0.9"/>
+    </linearGradient>
+  </defs>
+  <!-- macOS icon grid: 824 body inset 100 -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#metal)"/>
+  <rect x="132" y="132" width="760" height="760" rx="160" fill="url(#face)"/>
+  <!-- prompt chevron -->
+  <path d="M262 372 L402 512 L262 652" fill="none" stroke="url(#sheen)" stroke-width="62" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- T1K wordmark as cursor block -->
+  <text x="452" y="590" font-family="SF Mono, Menlo, monospace" font-weight="700" font-size="230" fill="url(#sheen)" letter-spacing="-8">T1K</text>
+  <rect x="460" y="640" width="300" height="34" rx="10" fill="#A9C1DE"/>
+</svg>

@@ -41,6 +41,7 @@ const PR_TTL: Duration = Duration::from_secs(300);
 /// `gh pr view` → state, draft, CI summary. None if gh is missing or the PR isn't reachable.
 fn fetch_pr(url: &str) -> Option<PrInfo> {
     let out = Command::new("gh")
+        .env("PATH", crate::platform::tool_path())
         .args(["pr", "view", url, "--json", "state,isDraft,statusCheckRollup"])
         .output()
         .ok()
