@@ -12,7 +12,7 @@ use crate::workspace::Tab;
 
 use crate::workspace::Workspace;
 
-const CARD_W: f32 = 320.;
+const CARD_W: f32 = 380.;
 const ROW_GAP: f32 = 2.;
 const INSET: f32 = 8.;
 
@@ -377,7 +377,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
             let left = ws.config.sidebar.width.clamp(200., 480.) - INSET + 6.;
             d.child(
                 div().absolute().top(px(-4.)).left(px(left)).child(
-                    deferred(anchored().snap_to_window_with_margin(px(8.)).child(card(tab, ui, k))).with_priority(1),
+                    deferred(anchored().snap_to_window_with_margin(px(8.)).child(card(ws, ix, cx))).with_priority(1),
                 ),
             )
         })
@@ -410,61 +410,161 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
 
 /// Floating detail card for a hovered row: full title, status, what it's doing or its recap,
 /// and where it lives.
-fn card(tab: &Tab, ui: UiColors, k: f32) -> impl IntoElement {
+/// Hover card (v3): what this tab is doing and whether to go there, without switching.
+/// Needs you quotes Claude's question from the screen; Working shows the last output lines;
+/// Done shows the recap. Chips only when true. Actions: the one that fits, then split, remind.
+fn card(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> impl IntoElement {
+    let ui = ws.ui;
+    let k = ws.config.interface.text_scale();
+    let tab = &ws.tabs[ix];
+    let agent = tab.agent.as_ref();
     let (status, color) = match tab.status() {
         Some(Status::NeedsInput { .. }) => ("Needs you", ui.status_needs),
         Some(Status::Error { .. }) => ("Error", ui.status_error),
         Some(Status::Working) => ("Working", ui.text_secondary),
         Some(Status::Done) if tab.unread => ("Done · unread", ui.accent),
-        Some(Status::Done) => ("Done", ui.text_tertiary),
+        Some(Status::Done) => ("Done", ui.status_done),
         Some(Status::Idle) => ("Idle", ui.text_tertiary),
         Some(Status::Ended) => ("Session ended", ui.text_tertiary),
         None if tab.program.is_some() => ("Running", ui.text_secondary),
         None => ("Shell", ui.text_tertiary),
     };
-    let since = tab.agent.as_ref().filter(|a| a.status != Status::Idle).map(|a| elapsed(a.since));
-    let status_line = match since {
-        Some(s) => format!("{status} · {s}"),
-        None => status.to_string(),
+    let since = agent.filter(|a| a.status != Status::Idle).map(|a| elapsed(a.since));
+    let why = match tab.status() {
+        Some(Status::NeedsInput { .. }) => Some(needs_reason(tab)),
+        Some(Status::Working) => agent.and_then(|a| a.now.clone()),
+        Some(Status::Error { message }) => Some(message.chars().take(60).collect()),
+        _ => None,
     };
-    let body = tab.subtitle();
-    let place = tab.cwd.as_deref().map(crate::groups::tilde).unwrap_or_default();
-    let mut meta: Vec<String> = Vec::new();
-    if let Some(a) = &tab.agent {
-        if let Some(b) = &a.branch {
-            meta.push(format!("⎇ {b}"));
+    let needs = matches!(tab.status(), Some(Status::NeedsInput { .. }));
+    let working = matches!(tab.status(), Some(Status::Working) | Some(Status::Error { .. }));
+    // Screen excerpt: Claude's question while it waits, the last lines while it works.
+    let screen = (needs || working).then(|| tab.view.read(cx).terminal.last_lines(if needs { 6 } else { 3 }));
+    let recap = agent.and_then(|a| a.recap.clone()).filter(|_| !needs);
+    let mut chips: Vec<(String, gpui::Hsla)> = Vec::new();
+    if let Some(b) = tab.branch() {
+        chips.push((format!("⎇ {b}"), ui.text_secondary));
+    }
+    if let Some(a) = agent {
+        if let Some((n, url)) = a.prs.last() {
+            let ci = ws.panel.prs.get(url).cloned().flatten().map(|i| {
+                let (ok, bad, wait) = i.checks;
+                if bad > 0 { format!(" ✗ {bad}") } else if wait > 0 { format!(" ● {wait}") } else if ok > 0 { format!(" ✓ {ok}") } else { String::new() }
+            });
+            chips.push((format!("#{n}{}", ci.unwrap_or_default()), ui.link));
         }
-        if !a.prs.is_empty() {
-            meta.push(a.prs.iter().map(|(n, _)| format!("#{n}")).collect::<Vec<_>>().join(" "));
+        if let Some(p) = a.context_percent().filter(|_| a.status != Status::Ended) {
+            chips.push((format!("ctx {p}%"), if p >= 90 { ui.status_error } else if p >= 70 { ui.status_needs } else { ui.text_secondary }));
+        }
+        let files = a.files_edited();
+        if files > 0 {
+            chips.push((format!("{files} file{} edited", if files == 1 { "" } else { "s" }), ui.text_secondary));
         }
     }
-    if tab.reminder_due {
-        meta.push("◷ reminder due".into());
-    } else if tab.reminder_at.is_some() {
-        meta.push("◷ reminder set".into());
+    if tab.reminder_at.is_some() && !tab.reminder_due {
+        chips.push(("◷ reminder set".into(), ui.text_tertiary));
     }
+    let button = |id: &'static str, label: &'static str, primary: Option<gpui::Hsla>| {
+        div()
+            .id(id)
+            .h(px(26.))
+            .px(px(10.))
+            .flex()
+            .items_center()
+            .rounded(px(6.))
+            .text_size(px(12. * k))
+            .map(|d| match primary {
+                Some(c) => d.bg(c).text_color(ui.bg_sidebar).font_weight(FontWeight::MEDIUM),
+                None => d.bg(ui.bg_control).text_color(ui.text_primary),
+            })
+            .hover(|d| d.opacity(0.9))
+            .child(label)
+    };
+    let id = tab.id.clone();
     div()
+        .id("tab-card")
         .w(px(CARD_W))
-        .p(px(12.))
-        .rounded(px(8.))
+        .p(px(14.))
+        .rounded(px(10.))
         .bg(ui.bg_raised)
         .border_1()
         .border_color(ui.border)
         .shadow_lg()
         .flex()
         .flex_col()
-        .gap(px(6.))
-        .child(div().text_size(px(13. * k)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).line_clamp(2).child(tab.title()))
-        .child(div().text_size(px(11. * k)).text_color(color).child(status_line))
-        .when(!body.is_empty() && body != place, |d| {
-            d.child(div().text_size(px(12. * k)).text_color(ui.text_secondary).line_clamp(4).child(body))
+        .gap(px(10.))
+        // Moving onto the card keeps it open.
+        .on_hover(cx.listener(move |this, hovered: &bool, _, cx| this.row_hovered(id.clone(), *hovered, cx)))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(div().flex_1().min_w_0().text_size(px(14. * k)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).line_clamp(2).child(tab.title()))
+                .child(div().flex_none().text_size(px(11.5 * k)).text_color(ui.text_tertiary).child(ws.group_label(&tab.group))),
+        )
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(7.))
+                .text_size(px(12. * k))
+                .child(div().size(px(8.)).rounded_full().bg(color))
+                .child(div().flex_none().text_color(color).child(match &since {
+                    Some(s) => format!("{status} · {s}"),
+                    None => status.to_string(),
+                }))
+                .children(why.filter(|w| !w.is_empty()).map(|w| div().min_w_0().truncate().text_color(ui.text_tertiary).child(format!("· {w}")))),
+        )
+        .children(screen.filter(|l| !l.is_empty()).map(|lines| {
+            let n = lines.len();
+            div()
+                .px(px(10.))
+                .py(px(8.))
+                .rounded(px(6.))
+                .bg(ui.bg_sidebar)
+                .border_1()
+                .border_color(ui.border)
+                .flex()
+                .flex_col()
+                .font_family("JetBrains Mono")
+                .text_size(px(11.5))
+                .children(lines.into_iter().enumerate().map(move |(j, l)| {
+                    div().truncate().text_color(if needs && j + 1 == n { ui.status_needs } else { ui.text_secondary }).child(l)
+                }))
+        }))
+        .children(recap.map(|r| div().text_size(px(12.5 * k)).text_color(ui.text_secondary).line_clamp(3).child(format!("Recap: {r}"))))
+        .when(!chips.is_empty(), |d| {
+            d.child(div().flex().flex_wrap().gap(px(6.)).children(chips.into_iter().map(|(t, c)| {
+                div().px(px(6.)).py(px(2.)).rounded(px(4.)).bg(ui.bg_control).text_size(px(11.)).font_family("JetBrains Mono").text_color(c).child(t)
+            })))
         })
-        .when(!meta.is_empty(), |d| {
-            d.child(div().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(ui.text_tertiary).truncate().child(meta.join("  ")))
-        })
-        .when(!place.is_empty(), |d| {
-            d.child(div().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(ui.text_disabled).truncate().child(place))
-        })
+        .child(
+            div()
+                .flex()
+                .gap(px(6.))
+                .child(if needs {
+                    button("card-go", "Go to prompt ↵", Some(ui.status_needs)).on_click(cx.listener(move |this, _, window, cx| {
+                        this.hide_card(cx);
+                        this.activate(ix, window, cx);
+                        this.go_to_prompt(window, cx);
+                    }))
+                } else {
+                    button("card-open", "Open", None).on_click(cx.listener(move |this, _, window, cx| {
+                        this.hide_card(cx);
+                        this.activate(ix, window, cx);
+                    }))
+                })
+                .child(button("card-split", "Open in split", None).on_click(cx.listener(move |this, _, window, cx| {
+                    this.hide_card(cx);
+                    this.activate(ix, window, cx);
+                    this.open_split(ix, false, window, cx);
+                })))
+                .child(button("card-remind", "Remind me…", None).on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
+                    this.hide_card(cx);
+                    this.open_overlay(crate::overlay::Overlay::Menu { tab: ix, at: ev.position() }, window, cx);
+                }))),
+        )
 }
 
 /// Status glyph in a 12×12 slot. Shape differs per state so it reads without color.
