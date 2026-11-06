@@ -25,6 +25,10 @@ pub fn install(cx: &mut App) {
             Menu {
                 name: "View".into(),
                 items: vec![
+                    MenuItem::action("Find…", t1k_terminal::view::Find),
+                    MenuItem::action("Find Next", t1k_terminal::view::FindNext),
+                    MenuItem::action("Find Previous", t1k_terminal::view::FindPrevious),
+                    MenuItem::separator(),
                     MenuItem::action("Find Tab…", ToggleSwitcher),
                     MenuItem::action("Overview", ToggleOverview),
                     MenuItem::action("Jump to Next Needing You", JumpToNeeds),
