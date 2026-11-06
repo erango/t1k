@@ -58,6 +58,25 @@ pub struct Terminal {
     pub exited: bool,
 }
 
+/// The user's shell as a login session, without the "Last login" banner.
+///
+/// Mirrors alacritty's macOS default (`login -flp user zsh -fc 'exec -a -<shell> <shell>'`) but
+/// always passes `-q`, as Ghostty and Terminal.app do. `-q` also hides the `tty??` that `login`
+/// prints when the pty isn't in utmp.
+fn login_shell() -> Option<tty::Shell> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let user = std::env::var("USER").ok()?;
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    let name = shell.rsplit('/').next().unwrap_or("zsh").to_string();
+    let exec = format!("exec -a -{name} {shell}");
+    Some(tty::Shell::new(
+        "/usr/bin/login".into(),
+        vec!["-qflp".into(), user, "/bin/zsh".into(), "-fc".into(), exec],
+    ))
+}
+
 impl Terminal {
     /// Spawn the user's login shell in a new pty. Returns the terminal and the event stream.
     pub fn spawn(opts: SpawnOptions) -> anyhow::Result<(Self, UnboundedReceiver<AlacEvent>)> {
@@ -73,7 +92,7 @@ impl Terminal {
         env.insert("T1K_TAB_ID".into(), opts.tab_id);
 
         let pty_opts = tty::Options {
-            shell: None,
+            shell: login_shell(),
             working_directory: opts.working_directory,
             drain_on_exit: true,
             env,
