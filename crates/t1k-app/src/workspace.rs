@@ -2,11 +2,15 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::time::Duration;
+use std::sync::mpsc::{channel, Receiver};
+use std::time::{Duration, Instant};
 
 use gpui::{
     div, prelude::*, px, App, Context, Entity, FocusHandle, Focusable, MouseButton, Subscription, Task, Window, WindowAppearance,
 };
+use t1k_agent::hooks::Hook;
+use t1k_agent::server::Envelope;
+use t1k_agent::{AgentState, Status};
 use t1k_terminal::{SpawnOptions, TerminalEvent, TerminalView};
 use t1k_themes::{Appearance, AppearanceMode, Theme, UiColors};
 
@@ -26,15 +30,35 @@ pub struct Tab {
     pub program: Option<String>,
     /// Project group key (git root or folder).
     pub group: PathBuf,
+    /// Claude session running in this tab, if any (from hooks).
+    pub agent: Option<AgentState>,
+    /// Finished while you were elsewhere; cleared when the tab is opened.
+    pub unread: bool,
+    pub created: usize,
     _sub: Subscription,
 }
 
 impl Tab {
+    pub fn status(&self) -> Option<&Status> {
+        self.agent.as_ref().map(|a| &a.status)
+    }
+
+    pub fn urgency(&self) -> u8 {
+        self.status().map(|s| s.urgency(self.unread)).unwrap_or(if self.unread { 2 } else { 5 })
+    }
+
+    pub fn needs_you(&self) -> bool {
+        self.status().is_some_and(Status::needs_you)
+    }
+
     /// Display title. Precedence: manual rename, then the program's OSC title while a program
     /// runs, then the folder name while at the shell prompt. (Claude's ai-title slots in at M4.)
     pub fn title(&self) -> String {
         if let Some(t) = &self.manual_title {
             return t.clone();
+        }
+        if let Some(t) = self.agent.as_ref().and_then(|a| a.title()) {
+            return t;
         }
         if let Some(p) = &self.program {
             if let Some(t) = self.osc_title.as_ref().filter(|t| !t.trim().is_empty()) {
@@ -47,6 +71,18 @@ impl Tab {
 
     /// Second line in detail mode: what's running and where.
     pub fn subtitle(&self) -> String {
+        if let Some(a) = &self.agent {
+            let line = match &a.status {
+                Status::Working => Some(a.now.clone().unwrap_or_else(|| "Thinking…".into())),
+                Status::NeedsInput { reason } => Some(reason.clone()),
+                Status::Error { message } => Some(message.clone()),
+                Status::Done | Status::Idle => a.recap.clone(),
+                Status::Ended => Some("Session ended".into()),
+            };
+            if let Some(l) = line {
+                return l;
+            }
+        }
         let place = self.cwd.as_deref().map(groups::tilde).unwrap_or_default();
         match &self.program {
             Some(p) => format!("{p} · {place}"),
@@ -72,7 +108,12 @@ pub struct Workspace {
     light: &'static Theme,
     pub theme: &'static Theme,
     pub ui: UiColors,
+    socket: Option<PathBuf>,
+    agent_rx: Receiver<Envelope>,
+    next_created: usize,
+    pub started: Instant,
     _poll: Task<()>,
+    _fast: Task<()>,
 }
 
 impl Workspace {
@@ -104,6 +145,24 @@ impl Workspace {
             }
         });
 
+        // Agent socket: hooks in this window's tabs report here.
+        let (tx, agent_rx) = channel();
+        let socket = session::support_dir().map(|d| t1k_agent::server::socket_path(&d));
+        let socket = socket.filter(|p| match t1k_agent::server::serve(p, tx, || {}) {
+            Ok(()) => true,
+            Err(e) => {
+                log::error!("agent socket {}: {e}", p.display());
+                false
+            }
+        });
+        // Fast loop: drain agent messages and animate spinners.
+        let fast = cx.spawn_in(window, async move |this, cx| loop {
+            cx.background_executor().timer(Duration::from_millis(100)).await;
+            if this.update_in(cx, |ws, window, cx| ws.tick(window, cx)).is_err() {
+                break;
+            }
+        });
+
         let mut this = Self {
             tabs: Vec::new(),
             active: 0,
@@ -119,7 +178,12 @@ impl Workspace {
             light,
             theme: dark,
             ui: dark.ui(),
+            socket,
+            agent_rx,
+            next_created: 0,
+            started: Instant::now(),
             _poll: poll,
+            _fast: fast,
         };
         cx.observe_window_appearance(window, |this, window, cx| this.apply_theme(window, cx)).detach();
         this.apply_theme(window, cx);
@@ -148,7 +212,14 @@ impl Workspace {
     ) {
         let id = uuid::Uuid::new_v4().to_string();
         let cwd = cwd.or_else(|| std::env::var_os("HOME").map(Into::into));
-        let opts = SpawnOptions { working_directory: cwd.clone(), env: HashMap::new(), tab_id: id.clone() };
+        let mut env = HashMap::new();
+        if let Some(sock) = &self.socket {
+            env.insert("T1K_SOCKET".into(), sock.display().to_string());
+        }
+        if let Ok(exe) = std::env::current_exe() {
+            env.insert("T1K_BIN".into(), exe.display().to_string());
+        }
+        let opts = SpawnOptions { working_directory: cwd.clone(), env, tab_id: id.clone() };
         let palette = self.theme.palette();
         let view = cx.new(|cx| {
             let mut v = TerminalView::new(opts, window, cx).expect("failed to spawn shell in pty");
@@ -167,7 +238,21 @@ impl Workspace {
             }
         });
         let group = cwd.as_deref().map(groups::project_root).unwrap_or_default();
-        self.tabs.push(Tab { id, view, osc_title: None, manual_title, cwd, program: None, group, _sub: sub });
+        let created = self.next_created;
+        self.next_created += 1;
+        self.tabs.push(Tab {
+            id,
+            view,
+            osc_title: None,
+            manual_title,
+            cwd,
+            program: None,
+            group,
+            agent: None,
+            unread: false,
+            created,
+            _sub: sub,
+        });
         self.activate(self.tabs.len() - 1, window, cx);
         self.save();
     }
@@ -177,6 +262,7 @@ impl Workspace {
             return;
         }
         self.active = ix;
+        self.tabs[ix].unread = false;
         let handle = self.tabs[ix].view.read(cx).focus_handle(cx);
         window.focus(&handle);
         cx.notify();
@@ -210,6 +296,10 @@ impl Workspace {
                 None => out.push((t.group.clone(), vec![i])),
             }
         }
+        // Within a group: needs-you first, then unread, working, the rest (design: ordering).
+        for (_, v) in &mut out {
+            v.sort_by_key(|&i| (self.tabs[i].urgency(), self.tabs[i].created));
+        }
         out
     }
 
@@ -227,10 +317,19 @@ impl Workspace {
         let mut changed = false;
         let mut regrouped = false;
         for t in &mut self.tabs {
+            if let Some(a) = t.agent.as_mut() {
+                changed |= a.poll_transcript();
+            }
             let term = &t.view.read(cx).terminal;
             let cwd = term.cwd();
             let program = term.foreground_name().filter(|n| !SHELLS.contains(&n.trim_start_matches('-')));
             if program != t.program {
+                // Claude exited without a SessionEnd (crash, kill): the session is over.
+                if program.is_none() {
+                    if let Some(a) = t.agent.as_mut().filter(|a| a.status != Status::Ended) {
+                        a.apply_hook(Hook::SessionEnd);
+                    }
+                }
                 t.program = program;
                 changed = true;
             }
@@ -249,6 +348,76 @@ impl Workspace {
         }
         if regrouped || changed {
             self.save();
+        }
+    }
+
+    /// Every 100 ms: apply agent messages; keep spinners moving while anything works.
+    fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let mut changed = false;
+        while let Ok(env) = self.agent_rx.try_recv() {
+            changed |= self.apply_envelope(env, window);
+        }
+        if changed {
+            self.debug_dump();
+        }
+        let working = self.tabs.iter().any(|t| t.status() == Some(&Status::Working));
+        if changed || working {
+            cx.notify();
+        }
+    }
+
+    fn apply_envelope(&mut self, env: Envelope, window: &Window) -> bool {
+        let Some(ix) = self.tabs.iter().position(|t| t.id == env.tab_id) else { return false };
+        let Some((hook, session_id)) = Hook::parse(&env.payload) else { return false };
+        let visible = ix == self.active && window.is_window_active();
+        let tab = &mut self.tabs[ix];
+        let sid = session_id.unwrap_or_default();
+        let new_session = tab.agent.as_ref().is_none_or(|a| !sid.is_empty() && a.session_id != sid);
+        if new_session {
+            tab.agent = Some(AgentState::new(sid));
+        }
+        let finished = tab.agent.as_mut().unwrap().apply_hook(hook);
+        if finished && !visible {
+            tab.unread = true;
+        }
+        true
+    }
+
+    /// With T1K_DEBUG_DUMP=<file>, write the sidebar model as text (for tests without a screen).
+    fn debug_dump(&self) {
+        let Some(path) = std::env::var_os("T1K_DEBUG_DUMP") else { return };
+        let mut out = format!("needs_you={}\n", self.needs_queue().len());
+        for (g, tabs) in self.grouped() {
+            out += &format!("[{}]\n", self.group_label(&g));
+            for i in tabs {
+                let t = &self.tabs[i];
+                out += &format!(
+                    "  {} | {:?} | unread={} | {}\n",
+                    t.title(),
+                    t.status(),
+                    t.unread,
+                    t.subtitle()
+                );
+            }
+        }
+        let _ = std::fs::write(path, out);
+    }
+
+    /// Tabs that need you, longest-waiting first.
+    pub fn needs_queue(&self) -> Vec<usize> {
+        let mut v: Vec<usize> = (0..self.tabs.len()).filter(|&i| self.tabs[i].needs_you()).collect();
+        v.sort_by_key(|&i| self.tabs[i].agent.as_ref().map(|a| a.since));
+        v
+    }
+
+    fn jump_to_needs(&mut self, _: &JumpToNeeds, window: &mut Window, cx: &mut Context<Self>) {
+        self.jump_next_needs(window, cx);
+    }
+
+    pub fn jump_next_needs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let q = self.needs_queue();
+        if let Some(&ix) = q.iter().find(|&&i| i != self.active).or(q.first()) {
+            self.activate(ix, window, cx);
         }
     }
 
@@ -439,7 +608,9 @@ impl Focusable for Workspace {
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let title = self.tabs.get(self.active).map(|t| t.title()).unwrap_or_default();
-        window.set_window_title(&format!("{title} — T1K"));
+        let needs = self.needs_queue().len();
+        let badge = if needs > 0 { format!("({needs}) ") } else { String::new() };
+        window.set_window_title(&format!("{badge}{title} — T1K"));
         let active_view = self.tabs.get(self.active).map(|t| t.view.clone());
 
         macro_rules! select {
@@ -460,6 +631,7 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &NextTab, window, cx| this.step(1, window, cx)))
             .on_action(cx.listener(|this, _: &PrevTab, window, cx| this.step(-1, window, cx)))
             .on_action(cx.listener(Self::toggle_sidebar))
+            .on_action(cx.listener(Self::jump_to_needs))
             .on_action(cx.listener(Self::toggle_appearance))
             .on_action(cx.listener(Self::follow_system))
             .on_action(cx.listener(Self::select_theme))

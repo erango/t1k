@@ -1,6 +1,7 @@
 //! T1K: agent-first terminal.
 
 mod actions;
+mod cli;
 mod groups;
 mod session;
 mod sidebar;
@@ -14,6 +15,10 @@ use actions::*;
 use workspace::Workspace;
 
 fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    if cli::run(&args) {
+        return;
+    }
     env_logger::init();
     Application::new().run(|cx: &mut App| {
         cx.bind_keys([
@@ -35,6 +40,7 @@ fn main() {
             KeyBinding::new("cmd-9", SelectTab9, None),
             KeyBinding::new("cmd-shift-l", ToggleAppearance, None),
             KeyBinding::new("cmd-\\", ToggleSidebar, None),
+            KeyBinding::new("cmd-j", JumpToNeeds, None),
             KeyBinding::new("cmd-c", Copy, Some("Terminal")),
             KeyBinding::new("cmd-v", Paste, Some("Terminal")),
             KeyBinding::new("cmd-k", ClearScrollback, Some("Terminal")),

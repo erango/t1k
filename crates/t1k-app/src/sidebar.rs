@@ -1,7 +1,13 @@
 //! Calm sidebar: project groups with one-line tab rows; two-line rows on hover intent or ⌥.
 //! Sizes and colors follow `docs/design.md` (v2: calm sidebar).
 
-use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight, MouseButton, SharedString};
+use std::time::Instant;
+
+use gpui::{div, prelude::*, px, AnyElement, Context, Div, FontWeight, MouseButton, SharedString};
+use t1k_agent::Status;
+use t1k_themes::UiColors;
+
+use crate::workspace::Tab;
 
 use crate::workspace::Workspace;
 
@@ -98,6 +104,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                     }
                 }),
         )
+        .children(needs_bar(ws, cx))
         .child(list)
         .child(
             div()
@@ -132,17 +139,19 @@ fn row(ws: &Workspace, ix: usize, detail: bool, cx: &mut Context<Workspace>) -> 
     let selected = ix == ws.active;
     let running = tab.program.is_some();
 
-    // Glyph slot (12×12). Agent states arrive in M4; for now a quiet dot marks a running program.
-    let glyph = div().w(px(12.)).h(px(12.)).flex_none().flex().items_center().justify_center().when(running, |d| {
-        d.child(div().size(px(6.)).rounded_full().bg(ui.status_working))
-    });
+    let glyph = glyph(tab, ui, ws.started, running);
+    let waiting = match tab.status() {
+        Some(Status::NeedsInput { .. }) | Some(Status::Error { .. }) => tab.agent.as_ref().map(|a| elapsed(a.since)),
+        _ => None,
+    };
+    let unseen = tab.unread;
 
     let title = div()
         .flex_1()
         .min_w_0()
         .truncate()
         .text_size(px(13.))
-        .when(selected, |d| d.font_weight(FontWeight::SEMIBOLD))
+        .when(selected || unseen, |d| d.font_weight(FontWeight::SEMIBOLD))
         .text_color(if selected { ui.text_primary } else { ui.text_secondary })
         .child(tab.title());
 
@@ -158,7 +167,11 @@ fn row(ws: &Workspace, ix: usize, detail: bool, cx: &mut Context<Workspace>) -> 
         .flex_col()
         .justify_center()
         .gap(px(2.))
-        .child(div().flex().items_center().gap(px(9.)).child(glyph).child(title))
+        .child(
+            div().flex().items_center().gap(px(9.)).child(glyph).child(title).children(waiting.map(|w| {
+                div().flex_none().text_size(px(11.)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(w)
+            })),
+        )
         .when(detail, |d| {
             d.child(
                 div()
@@ -183,4 +196,69 @@ fn row(ws: &Workspace, ix: usize, detail: bool, cx: &mut Context<Workspace>) -> 
         el = el.mr(px(INSET)).rounded(px(6.)).hover(move |d| d.bg(ui.bg_hover));
     }
     el.into_any_element()
+}
+
+/// Status glyph in a 12×12 slot. Shape differs per state so it reads without color.
+/// Loud: NeedsInput (amber dot + halo), Error (red diamond), unread (accent dot).
+/// Quiet: Working (gray spinner). Seen Done / Idle: nothing. Ended: dash.
+fn glyph(tab: &Tab, ui: UiColors, started: Instant, running: bool) -> Div {
+    const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    let slot = div().w(px(12.)).h(px(12.)).flex_none().flex().items_center().justify_center();
+    match tab.status() {
+        Some(Status::NeedsInput { .. }) => slot.child(
+            div().size(px(12.)).rounded_full().bg(ui.status_needs.opacity(0.22)).flex().items_center().justify_center()
+                .child(div().size(px(7.)).rounded_full().bg(ui.status_needs)),
+        ),
+        Some(Status::Error { .. }) => slot.child(div().text_size(px(10.)).text_color(ui.status_error).child("◆")),
+        _ if tab.unread => slot.child(div().size(px(7.)).rounded_full().bg(ui.accent)),
+        Some(Status::Working) => {
+            let frame = (started.elapsed().as_millis() / 100) as usize % SPINNER.len();
+            slot.child(div().text_size(px(12.)).text_color(ui.status_working).child(SPINNER[frame]))
+        }
+        Some(Status::Ended) => slot.child(div().w(px(7.)).h(px(1.5)).bg(ui.text_disabled)),
+        Some(Status::Done) | Some(Status::Idle) => slot,
+        None if running => slot.child(div().size(px(5.)).rounded_full().bg(ui.status_working)),
+        None => slot,
+    }
+}
+
+fn elapsed(since: Instant) -> String {
+    let s = since.elapsed().as_secs();
+    match s {
+        0..=59 => format!("{s}s"),
+        60..=3599 => format!("{}m", s / 60),
+        _ => format!("{}h", s / 3600),
+    }
+}
+
+/// "Needs you N · ⌘J" bar: the collapsed attention queue.
+fn needs_bar(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement> {
+    let n = ws.needs_queue().len();
+    if n == 0 {
+        return None;
+    }
+    let ui = ws.ui;
+    Some(
+        div()
+            .id("needs-you")
+            .h(px(30.))
+            .flex_none()
+            .mx(px(INSET))
+            .mb(px(8.))
+            .px(px(10.))
+            .rounded(px(6.))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .bg(ui.status_needs.opacity(0.12))
+            .hover(move |d| d.bg(ui.status_needs.opacity(0.2)))
+            .text_size(px(12.))
+            .on_click(cx.listener(|this, _, window, cx| this.jump_next_needs(window, cx)))
+            .child(div().size(px(7.)).rounded_full().bg(ui.status_needs))
+            .child(div().font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).child("Needs you"))
+            .child(div().text_color(ui.text_secondary).child(format!("{n}")))
+            .child(div().flex_1())
+            .child(div().text_size(px(11.)).text_color(ui.text_tertiary).child("⌘J"))
+            .into_any_element(),
+    )
 }

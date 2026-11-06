@@ -5510,6 +5510,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "t1k-agent"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "t1k-app"
 version = "0.1.0"
 dependencies = [
@@ -5519,6 +5528,7 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
+ "t1k-agent",
  "t1k-terminal",
  "t1k-themes",
  "uuid",
