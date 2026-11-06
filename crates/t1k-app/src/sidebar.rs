@@ -12,13 +12,13 @@ use crate::workspace::Tab;
 
 use crate::workspace::Workspace;
 
-const ROW: f32 = 32.;
 const CARD_W: f32 = 320.;
 const ROW_GAP: f32 = 2.;
 const HEADER: f32 = 28.;
 const INSET: f32 = 6.;
 
 pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
+    let k = ws.config.interface.text_scale();
     let ui = ws.ui;
     let groups = ws.grouped();
 
@@ -59,7 +59,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 .child(
                     div()
                         .w(px(12.))
-                        .text_size(px(9.))
+                        .text_size(px(9. * k))
                         .text_color(ui.text_tertiary)
                         .child(if collapsed { "▶" } else { "▼" }),
                 )
@@ -67,20 +67,20 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                     div()
                         .flex_1()
                         .truncate()
-                        .text_size(px(12.))
+                        .text_size(px(12. * k))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(ui.text_secondary)
                         .child(label),
                 )
                 .when(renamed, |d| {
                     // Renamed groups keep the real folder name visible.
-                    d.child(div().flex_none().text_size(px(10.)).font_family("JetBrains Mono").text_color(ui.text_disabled).child(folder.clone()))
+                    d.child(div().flex_none().text_size(px(10. * k)).font_family("JetBrains Mono").text_color(ui.text_disabled).child(folder.clone()))
                 })
                 .when(collapsed, |d| {
                     // Collapsed summary: tab count, accent if it hides the active tab.
                     d.child(
                         div()
-                            .text_size(px(11.))
+                            .text_size(px(11. * k))
                             .text_color(if has_active { ui.accent } else { ui.text_tertiary })
                             .child(format!("{count}")),
                     )
@@ -100,7 +100,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             list = list.child(row(ws, ix, cx));
         }
         if fold {
-            let k = key.clone();
+            let gk = key.clone();
             list = list.child(
                 div()
                     .id(SharedString::from(format!("quiet-{}", key.display())))
@@ -113,18 +113,18 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                     .flex()
                     .items_center()
                     .gap(px(9.))
-                    .text_size(px(12.))
+                    .text_size(px(12. * k))
                     .text_color(ui.text_tertiary)
                     .hover(move |d| d.bg(ui.bg_hover).text_color(ui.text_secondary))
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.show_quiet.insert(k.clone());
+                        this.show_quiet.insert(gk.clone());
                         cx.notify();
                     }))
                     .child(div().w(px(12.)))
                     .child(format!("+{} quiet", quiet.len())),
             );
         } else if ws.show_quiet.contains(&key) && quiet.len() >= 2 {
-            let k = key.clone();
+            let gk = key.clone();
             list = list.child(
                 div()
                     .id(SharedString::from(format!("unquiet-{}", key.display())))
@@ -137,11 +137,11 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                     .flex()
                     .items_center()
                     .gap(px(9.))
-                    .text_size(px(12.))
+                    .text_size(px(12. * k))
                     .text_color(ui.text_tertiary)
                     .hover(move |d| d.bg(ui.bg_hover))
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.show_quiet.remove(&k);
+                        this.show_quiet.remove(&gk);
                         cx.notify();
                     }))
                     .child(div().w(px(12.)))
@@ -185,7 +185,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 .flex()
                 .items_center()
                 .gap(px(8.))
-                .text_size(px(12.))
+                .text_size(px(12. * k))
                 .text_color(ui.text_tertiary)
                 .hover(move |d| d.bg(ui.bg_hover).text_color(ui.text_secondary))
                 .on_click(cx.listener(|this, _, window, cx| {
@@ -195,18 +195,19 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 .child("+")
                 .child("New tab")
                 .child(div().flex_1())
-                .child(div().text_size(px(11.)).child("⌘T")),
+                .child(div().text_size(px(11. * k)).child("⌘T")),
         )
         .into_any_element()
 }
 
 fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
+    let k = ws.config.interface.text_scale();
     let ui = ws.ui;
     let tab = &ws.tabs[ix];
     let selected = ix == ws.active;
     let running = tab.program.is_some();
 
-    let glyph = glyph(tab, ui, ws.started, running);
+    let glyph = glyph(tab, ui, ws.started, running, k);
     let waiting = match tab.status() {
         Some(Status::NeedsInput { .. }) | Some(Status::Error { .. }) => tab.agent.as_ref().map(|a| elapsed(a.since)),
         _ => None,
@@ -214,7 +215,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
     let unseen = tab.unread || tab.reminder_due;
     // A pending reminder shows a quiet clock after the title.
     let pending = (tab.reminder_at.is_some() && !tab.reminder_due).then(|| {
-        div().flex_none().text_size(px(11.)).text_color(ui.text_tertiary).child("◷")
+        div().flex_none().text_size(px(11. * k)).text_color(ui.text_tertiary).child("◷")
     });
 
     // ⌥ swaps the title for the status line in place, so nothing moves.
@@ -223,7 +224,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         .flex_1()
         .min_w_0()
         .truncate()
-        .text_size(px(if alt { 12. } else { 13. }))
+        .text_size(px(if alt { 12. } else { 13. } * k))
         .when(!alt && (selected || unseen), |d| d.font_weight(FontWeight::SEMIBOLD))
         .text_color(if alt { ui.text_quiet } else if selected { ui.text_primary } else { ui.text_secondary })
         .child(if alt { tab.subtitle() } else { tab.title() });
@@ -234,7 +235,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         .id(SharedString::from(tab.id.clone()))
         .relative()
         .flex_none()
-        .h(px(ROW))
+        .h(px(ws.config.interface.row_height() * k.max(1.)))
         .mt(px(ROW_GAP))
         .ml(px(INSET))
         .px(px(12.))
@@ -245,7 +246,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         .child(title)
         .children(pending)
         .children(waiting.map(|w| {
-            div().flex_none().text_size(px(11.)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(w)
+            div().flex_none().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(w)
         }))
         .on_hover(cx.listener(move |this, hovered: &bool, _, cx| this.row_hovered(hover_id.clone(), *hovered, cx)))
         .when(carded, |d| {
@@ -253,7 +254,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
             let left = ws.config.sidebar.width.clamp(200., 480.) - INSET + 6.;
             d.child(
                 div().absolute().top(px(-4.)).left(px(left)).child(
-                    deferred(anchored().snap_to_window_with_margin(px(8.)).child(card(tab, ui))).with_priority(1),
+                    deferred(anchored().snap_to_window_with_margin(px(8.)).child(card(tab, ui, k))).with_priority(1),
                 ),
             )
         })
@@ -286,7 +287,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
 
 /// Floating detail card for a hovered row: full title, status, what it's doing or its recap,
 /// and where it lives.
-fn card(tab: &Tab, ui: UiColors) -> impl IntoElement {
+fn card(tab: &Tab, ui: UiColors, k: f32) -> impl IntoElement {
     let (status, color) = match tab.status() {
         Some(Status::NeedsInput { .. }) => ("Needs you", ui.status_needs),
         Some(Status::Error { .. }) => ("Error", ui.status_error),
@@ -330,23 +331,23 @@ fn card(tab: &Tab, ui: UiColors) -> impl IntoElement {
         .flex()
         .flex_col()
         .gap(px(6.))
-        .child(div().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).line_clamp(2).child(tab.title()))
-        .child(div().text_size(px(11.)).text_color(color).child(status_line))
+        .child(div().text_size(px(13. * k)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).line_clamp(2).child(tab.title()))
+        .child(div().text_size(px(11. * k)).text_color(color).child(status_line))
         .when(!body.is_empty() && body != place, |d| {
-            d.child(div().text_size(px(12.)).text_color(ui.text_secondary).line_clamp(4).child(body))
+            d.child(div().text_size(px(12. * k)).text_color(ui.text_secondary).line_clamp(4).child(body))
         })
         .when(!meta.is_empty(), |d| {
-            d.child(div().text_size(px(11.)).font_family("JetBrains Mono").text_color(ui.text_tertiary).truncate().child(meta.join("  ")))
+            d.child(div().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(ui.text_tertiary).truncate().child(meta.join("  ")))
         })
         .when(!place.is_empty(), |d| {
-            d.child(div().text_size(px(11.)).font_family("JetBrains Mono").text_color(ui.text_disabled).truncate().child(place))
+            d.child(div().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(ui.text_disabled).truncate().child(place))
         })
 }
 
 /// Status glyph in a 12×12 slot. Shape differs per state so it reads without color.
 /// Loud: NeedsInput (amber dot + halo), Error (red diamond), unread (accent dot).
 /// Quiet: Working (gray spinner). Seen Done / Idle: nothing. Ended: dash.
-fn glyph(tab: &Tab, ui: UiColors, started: Instant, running: bool) -> Div {
+fn glyph(tab: &Tab, ui: UiColors, started: Instant, running: bool, k: f32) -> Div {
     const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
     let slot = div().w(px(12.)).h(px(12.)).flex_none().flex().items_center().justify_center();
     match tab.status() {
@@ -354,12 +355,12 @@ fn glyph(tab: &Tab, ui: UiColors, started: Instant, running: bool) -> Div {
             div().size(px(12.)).rounded_full().bg(ui.status_needs.opacity(0.22)).flex().items_center().justify_center()
                 .child(div().size(px(7.)).rounded_full().bg(ui.status_needs)),
         ),
-        Some(Status::Error { .. }) => slot.child(div().text_size(px(10.)).text_color(ui.status_error).child("◆")),
-        _ if tab.reminder_due => slot.child(div().text_size(px(11.)).text_color(ui.accent).child("◷")),
+        Some(Status::Error { .. }) => slot.child(div().text_size(px(10. * k)).text_color(ui.status_error).child("◆")),
+        _ if tab.reminder_due => slot.child(div().text_size(px(11. * k)).text_color(ui.accent).child("◷")),
         _ if tab.unread => slot.child(div().size(px(7.)).rounded_full().bg(ui.accent)),
         Some(Status::Working) => {
             let frame = (started.elapsed().as_millis() / 100) as usize % SPINNER.len();
-            slot.child(div().text_size(px(12.)).text_color(ui.status_working).child(SPINNER[frame]))
+            slot.child(div().text_size(px(12. * k)).text_color(ui.status_working).child(SPINNER[frame]))
         }
         Some(Status::Ended) => slot.child(div().w(px(7.)).h(px(1.5)).bg(ui.text_disabled)),
         Some(Status::Done) | Some(Status::Idle) => slot,
@@ -379,6 +380,7 @@ fn elapsed(since: Instant) -> String {
 
 /// "Needs you N · ⌘J" bar: the collapsed attention queue.
 fn needs_bar(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement> {
+    let k = ws.config.interface.text_scale();
     let n = ws.needs_queue().len();
     if n == 0 {
         return None;
@@ -398,13 +400,13 @@ fn needs_bar(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement> 
             .gap(px(8.))
             .bg(ui.status_needs.opacity(0.12))
             .hover(move |d| d.bg(ui.status_needs.opacity(0.2)))
-            .text_size(px(12.))
+            .text_size(px(12. * k))
             .on_click(cx.listener(|this, _, window, cx| this.jump_next_needs(window, cx)))
             .child(div().size(px(7.)).rounded_full().bg(ui.status_needs))
             .child(div().font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).child("Needs you"))
             .child(div().text_color(ui.text_secondary).child(format!("{n}")))
             .child(div().flex_1())
-            .child(div().text_size(px(11.)).text_color(ui.text_tertiary).child("⌘J"))
+            .child(div().text_size(px(11. * k)).text_color(ui.text_tertiary).child("⌘J"))
             .into_any_element(),
     )
 }

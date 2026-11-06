@@ -148,6 +148,7 @@ fn icon(kind: Kind) -> &'static str {
 }
 
 pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
+    let k = ws.config.interface.text_scale();
     let ui = ws.ui;
     let all = ws.outputs_in_scope();
     let items: Vec<&(usize, Output)> = all.iter().filter(|(_, o)| ws.panel.filter.is_none_or(|k| o.kind == k)).collect();
@@ -160,7 +161,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             .rounded(px(5.))
             .flex()
             .items_center()
-            .text_size(px(12.))
+            .text_size(px(12. * k))
             .text_color(if on { ui.text_primary } else { ui.text_tertiary })
             .when(on, |d| d.bg(ui.bg_control))
             .hover(move |d| d.text_color(ui.text_primary))
@@ -174,7 +175,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         .flex()
         .items_center()
         .gap(px(4.))
-        .child(div().flex_1().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).child("Outputs"))
+        .child(div().flex_1().text_size(px(13. * k)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).child("Outputs"))
         .child(seg("tab", "Tab", scope == Scope::Tab).on_click(cx.listener(|this, _, _, cx| {
             this.panel.scope = Scope::Tab;
             this.refresh_prs(cx);
@@ -239,7 +240,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 .flex()
                 .gap(px(4.))
                 .items_center()
-                .text_size(px(11.))
+                .text_size(px(11. * k))
                 .children(ci.map(|(g, c)| div().text_color(c).child(g)))
                 .child(div().text_color(color).child(label))
         });
@@ -263,7 +264,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                         cx.open_url(&target);
                     }
                 }))
-                .child(div().w(px(16.)).flex_none().text_size(px(13.)).text_color(ui.text_tertiary).child(icon(o.kind)))
+                .child(div().w(px(16.)).flex_none().text_size(px(13. * k)).text_color(ui.text_tertiary).child(icon(o.kind)))
                 .child(
                     div()
                         .flex_1()
@@ -271,11 +272,11 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                         .flex()
                         .flex_col()
                         .gap(px(1.))
-                        .child(div().truncate().text_size(px(13.)).text_color(ui.text_primary).child(o.label.clone()))
+                        .child(div().truncate().text_size(px(13. * k)).text_color(ui.text_primary).child(o.label.clone()))
                         .child(
                             div()
                                 .truncate()
-                                .text_size(px(11.))
+                                .text_size(px(11. * k))
                                 .text_color(ui.text_tertiary)
                                 .child(format!("{tab_title} · {}", age(o.at))),
                         ),
@@ -291,7 +292,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                         .rounded(px(5.))
                         .flex()
                         .items_center()
-                        .text_size(px(11.))
+                        .text_size(px(11. * k))
                         .text_color(ui.text_tertiary)
                         .hover(move |d| d.bg(ui.bg_control).text_color(ui.text_primary))
                         .on_click(cx.listener(move |_, _, _, cx| {
@@ -308,7 +309,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             Scope::Project => "Nothing from this project's tabs yet.",
             Scope::All => "No session outputs yet.",
         };
-        list = list.child(div().p(px(14.)).text_size(px(12.)).text_color(ui.text_tertiary).child(hint));
+        list = list.child(div().p(px(14.)).text_size(px(12. * k)).text_color(ui.text_tertiary).child(hint));
     }
 
     div()
