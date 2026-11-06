@@ -23,19 +23,19 @@ const fn hex(v: u32) -> Rgb {
 
 impl Default for Palette {
     fn default() -> Self {
-        // Neutral dark default; replaced by imported themes later.
+        // Mercury Dark (docs/design.md).
         Self {
-            foreground: hex(0xd4d7dd),
-            background: hex(0x14161a),
-            cursor: hex(0xc8d3e0),
-            cursor_text: hex(0x14161a),
-            selection_bg: hex(0x34404f),
+            foreground: hex(0xd5d9de),
+            background: hex(0x121316),
+            cursor: hex(0xc9d1db),
+            cursor_text: hex(0x121316),
+            selection_bg: hex(0x2a3442),
             selection_fg: None,
             ansi: [
-                hex(0x1d2026), hex(0xe06c75), hex(0x98c379), hex(0xe5c07b),
-                hex(0x61afef), hex(0xc678dd), hex(0x56b6c2), hex(0xabb2bf),
-                hex(0x5c6370), hex(0xf27c86), hex(0xb5e08f), hex(0xf2d08f),
-                hex(0x7dc1ff), hex(0xd99af0), hex(0x6fd0db), hex(0xe6e9ef),
+                hex(0x1a1c20), hex(0xef6b73), hex(0x5fcb8e), hex(0xe8c468),
+                hex(0x6ca6f5), hex(0xc99af0), hex(0x5fc6d0), hex(0xd5d9de),
+                hex(0x4a4f57), hex(0xf58a90), hex(0x7fdca6), hex(0xf0d486),
+                hex(0x8dbaf8), hex(0xd8b3f5), hex(0x80d6de), hex(0xf4f6f8),
             ],
         }
     }
