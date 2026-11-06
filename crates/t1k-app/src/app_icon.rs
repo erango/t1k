@@ -16,6 +16,8 @@ fn known(program: &str) -> Option<(&'static str, u32)> {
         "claude" => ("✳", 0xD97757),
         "codex" => ("◎", 0x10A37F),
         "gemini" => ("✦", 0x4C8BF5),
+        "agy" | "antigravity" => ("◭", 0x4C8BF5),
+        "grok" => ("X", 0xE6E8EB),
         "aider" => ("◆", 0x14B014),
         "vim" | "nvim" | "vi" => ("v", 0x57A143),
         "emacs" => ("e", 0x7F5AB6),
@@ -54,6 +56,8 @@ fn app_names(program: &str) -> Vec<String> {
         "nvim" => &["Neovide"],
         "emacs" => &["Emacs"],
         "ollama" => &["Ollama"],
+        "agy" | "antigravity" => &["Antigravity"],
+        "grok" => &["Grok"],
         "podman" => &["Podman Desktop"],
         _ => &[],
     };
@@ -137,8 +141,11 @@ fn write_icon_png(_: &Path, _: &Path) -> bool {
 pub fn badge(tab: &Tab, ui: UiColors) -> Div {
     let base = div().size(px(18.)).flex_none().rounded(px(5.)).flex().items_center().justify_center();
     // An attached Claude session counts until it ends (its process may show as node).
-    let live_agent = tab.agent.as_ref().is_some_and(|a| a.status != t1k_agent::Status::Ended);
-    let program = if live_agent { Some("claude") } else { tab.program.as_deref() };
+    let live_agent = tab.agent.as_ref().filter(|a| a.status != t1k_agent::Status::Ended);
+    let program = match live_agent {
+        Some(a) => Some(a.kind.program()),
+        None => tab.program.as_deref(),
+    };
     // Debug aid for screenshots: T1K_DEBUG_PROGRAM=<name> shows that program's badge everywhere.
     let debug = std::env::var("T1K_DEBUG_PROGRAM").ok();
     let program = debug.as_deref().or(program);

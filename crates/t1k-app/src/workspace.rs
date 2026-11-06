@@ -795,7 +795,9 @@ impl Workspace {
                 self.remember_session(ix);
             }
             let tab = &mut self.tabs[ix];
-            tab.agent = Some(AgentState::new(sid));
+            let mut a = AgentState::new(sid);
+            a.kind = env.payload.get("t1k_agent").and_then(|v| v.as_str()).and_then(t1k_agent::agents::AgentKind::from_id).unwrap_or_default();
+            tab.agent = Some(a);
         }
         let tab = &mut self.tabs[ix];
         let before = tab.agent.as_ref().map(|a| a.status.clone());

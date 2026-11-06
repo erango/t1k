@@ -1,4 +1,4 @@
-//! Non-GUI subcommands: `t1k hook <Event>` and `t1k setup-claude`.
+//! Non-GUI subcommands: `t1k hook [--agent X] <Event>`, `t1k setup-claude`, `t1k setup-agents`.
 
 use std::io::Read;
 use std::path::PathBuf;
@@ -9,7 +9,7 @@ use t1k_agent::server::{send, Envelope};
 pub fn run(args: &[String]) -> bool {
     match args.get(1).map(String::as_str) {
         Some("hook") => {
-            hook();
+            hook(&args[2..]);
             true
         }
         Some("theme") => {
@@ -23,13 +23,35 @@ pub fn run(args: &[String]) -> bool {
             }
             true
         }
+        // Hooks for every agent found: Claude Code, Codex, Gemini CLI, Antigravity CLI, Grok.
+        Some("setup-agents") => {
+            for line in crate::agent_setup::install_all() {
+                println!("{line}");
+            }
+            println!("The hooks do nothing outside T1K.");
+            true
+        }
         _ => false,
     }
 }
 
-/// Forward a Claude Code hook payload (stdin) to the T1K window that owns this tab.
-/// Never fails loudly: a hook must not disturb Claude, and it no-ops outside T1K.
-fn hook() {
+/// Forward an agent's hook payload (stdin) to the T1K window that owns this tab:
+/// `t1k hook [--agent claude|codex|gemini|antigravity|grok] <Event>`. Never fails loudly: a hook
+/// must not disturb the agent, and it no-ops outside T1K (still printing what the agent expects).
+fn hook(args: &[String]) {
+    use t1k_agent::agents::{normalize, AgentKind};
+    let mut kind = AgentKind::Claude;
+    let mut event = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if a == "--agent" {
+            kind = it.next().and_then(|k| AgentKind::from_id(k)).unwrap_or(AgentKind::Claude);
+        } else if event.is_none() {
+            event = Some(a.clone());
+        }
+    }
+    let event = event.unwrap_or_default();
+    print!("{}", kind.hook_reply(&event));
     let (Some(tab_id), Some(socket)) = (std::env::var("T1K_TAB_ID").ok(), std::env::var_os("T1K_SOCKET")) else {
         return;
     };
@@ -37,7 +59,10 @@ fn hook() {
     if std::io::stdin().take(8 << 20).read_to_end(&mut buf).is_err() {
         return;
     }
-    let Ok(mut payload) = serde_json::from_slice::<serde_json::Value>(&buf) else { return };
+    let raw = serde_json::from_slice::<serde_json::Value>(&buf).unwrap_or(serde_json::json!({}));
+    // Claude's own hooks carry the event in the payload; other agents' come from argv.
+    let payload = if kind == AgentKind::Claude { Some(raw) } else { normalize(kind, &event, raw) };
+    let Some(mut payload) = payload else { return };
     // Tool output can be huge and isn't needed for status.
     if let Some(o) = payload.as_object_mut() {
         o.remove("tool_response");

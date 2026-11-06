@@ -39,6 +39,8 @@ impl Status {
 
 pub struct AgentState {
     pub session_id: String,
+    /// Which coding agent this session is (Claude Code, Codex, Antigravity...).
+    pub kind: crate::agents::AgentKind,
     pub status: Status,
     /// When the current status began.
     pub since: Instant,
@@ -65,6 +67,7 @@ impl AgentState {
     pub fn new(session_id: String) -> Self {
         Self {
             session_id,
+            kind: crate::agents::AgentKind::Claude,
             status: Status::Idle,
             since: Instant::now(),
             goal: None,

@@ -254,16 +254,42 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
     let c = &ws.config;
     let n = &c.notify;
     let e = |section, group, label, desc, key, synonyms, control: AnyElement| Entry { section, group, label, desc, key, synonyms, control };
-    let installed = claude_hooks_installed();
-    let hooks = pill(ui, "hooks".into(), if installed { "Reinstall".into() } else { "Install hooks".into() }, !installed)
-        .on_click(cx.listener(|this, _, _, cx| {
-            if let Ok(exe) = std::env::current_exe() {
-                let _ = std::process::Command::new(exe).arg("setup-claude").status();
-            }
-            this.hooks_installed = claude_hooks_installed();
-            cx.notify();
-        }))
-        .into_any_element();
+    // One row per agent: installed, or an Install button (backs up the agent's config first).
+    let agent_rows: Vec<Entry> = t1k_agent::agents::AgentKind::ALL
+        .into_iter()
+        .map(|kind| {
+            let found = crate::agent_setup::detected(kind);
+            let done = crate::agent_setup::installed(kind);
+            let control = if done {
+                div().text_size(px(12.)).text_color(ui.status_done).child("✓ Connected").into_any_element()
+            } else if found {
+                pill(ui, format!("hooks-{}", kind.id()), "Install hooks".into(), true)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if let Err(e) = crate::agent_setup::install(kind) {
+                            log::error!("install {} hooks: {e}", kind.label());
+                        }
+                        this.hooks_installed = claude_hooks_installed();
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            } else {
+                div().text_size(px(12.)).text_color(ui.text_disabled).child("Not found").into_any_element()
+            };
+            let desc: &'static str = match (kind, done) {
+                (_, true) => "Live status, titles and needs-you",
+                (t1k_agent::agents::AgentKind::Gemini, false) => "Retired by Google (June 2026); Antigravity CLI replaces it",
+                _ => "Hooks report status to T1K; they do nothing in other terminals",
+            };
+            let key: &'static str = match kind {
+                t1k_agent::agents::AgentKind::Claude => "~/.claude/settings.json",
+                t1k_agent::agents::AgentKind::Codex => "~/.codex/hooks.json",
+                t1k_agent::agents::AgentKind::Gemini => "~/.gemini/settings.json",
+                t1k_agent::agents::AgentKind::Antigravity => "~/.gemini/config/hooks.json",
+                t1k_agent::agents::AgentKind::Grok => "~/.grok/hooks/t1k.json",
+            };
+            Entry { section: Section::Agents, group: "Coding agents", label: kind.label(), desc, key, synonyms: "hooks setup install connect claude codex gemini antigravity agy grok", control }
+        })
+        .collect();
     let open_cfg = pill(ui, "open-cfg".into(), "Open config.toml".into(), false)
         .on_click(cx.listener(|_, _, _, cx| {
             if let Some(p) = config::path() {
@@ -291,7 +317,7 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
     }
     let text = |v: &str| div().max_w(px(260.)).truncate().text_size(px(12.)).font_family("JetBrains Mono").text_color(ui.text_secondary).child(if v.is_empty() { "auto".to_string() } else { v.to_string() }).into_any_element();
     use Section::*;
-    vec![
+    let mut out = vec![
         e(Appearance, "Theme", "Mode", "System follows macOS; ⌘⇧L flips dark and light", "appearance", "dark light system theme",
             seg(ui, "mode", &c.appearance, &[("system", "System"), ("dark", "Dark"), ("light", "Light")], &["appearance"], cx)),
         e(Interface, "Sidebar", "Density", "Row height: 28 / 32 / 36", "interface.density", "compact spacious rows",
@@ -327,8 +353,6 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
             toggle(ui, "cos", c.terminal.copy_on_select, &["terminal", "copy_on_select"], cx).into_any_element()),
         e(Terminal, "Behavior", "Shell integration", "zsh prompt marks for ⌘↑ / ⌘↓ (new tabs)", "terminal.shell_integration", "zsh prompt",
             toggle(ui, "shellint", c.terminal.shell_integration, &["terminal", "shell_integration"], cx).into_any_element()),
-        e(Agents, "Claude Code", "Hooks", if installed { "Installed in ~/.claude/settings.json" } else { "Not installed: no live status yet" }, "agents.claude.hooks", "setup install connect",
-            hooks),
         e(Agents, "Notifications", "When a tab needs you", "", "notify.needs_input", "banner alert",
             toggle(ui, "n-needs", n.needs_input, &["notify", "needs_input"], cx).into_any_element()),
         e(Agents, "Notifications", "When a session errors", "", "notify.error", "banner alert",
@@ -341,7 +365,13 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
             toggle(ui, "n-badge", n.dock_badge, &["notify", "dock_badge"], cx).into_any_element()),
         e(Advanced, "Files", "Settings file", "~/.config/t1k/config.toml; edits apply live", "config.toml", "config", open_cfg),
         e(Advanced, "Files", "Imported themes", "~/.config/t1k/themes/", "themes_dir", "import", themes_dir),
-    ]
+    ];
+    // Agents first on their page.
+    let at = out.iter().position(|e| e.section == Agents).unwrap_or(out.len());
+    for (i, r) in agent_rows.into_iter().enumerate() {
+        out.insert(at + i, r);
+    }
+    out
 }
 
 /// Cards for a list of entries, grouped by their `group`, in order.

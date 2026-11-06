@@ -1,0 +1,81 @@
+//! Where each coding agent keeps its hook config, whether it's installed, and installing
+//! T1K's hooks there (with a backup).
+
+use std::path::PathBuf;
+
+use t1k_agent::agents::{self, AgentKind};
+
+fn home() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(PathBuf::from)
+}
+
+/// The file T1K's hooks go in.
+pub fn config_path(kind: AgentKind) -> Option<PathBuf> {
+    let h = home()?;
+    Some(match kind {
+        AgentKind::Claude => h.join(".claude/settings.json"),
+        AgentKind::Codex => h.join(".codex/hooks.json"),
+        AgentKind::Gemini => h.join(".gemini/settings.json"),
+        AgentKind::Antigravity => h.join(".gemini/config/hooks.json"),
+        AgentKind::Grok => h.join(".grok/hooks/t1k.json"),
+    })
+}
+
+fn on_path(bin: &str) -> bool {
+    crate::platform::tool_path().split(':').any(|d| std::path::Path::new(d).join(bin).is_file())
+}
+
+/// Whether this agent seems to be installed (its binary on PATH, or its config folder).
+pub fn detected(kind: AgentKind) -> bool {
+    let h = home().unwrap_or_default();
+    match kind {
+        AgentKind::Claude => true,
+        AgentKind::Codex => on_path("codex") || h.join(".codex").is_dir(),
+        AgentKind::Gemini => on_path("gemini"),
+        AgentKind::Antigravity => on_path("agy") || h.join(".gemini/antigravity-cli").is_dir(),
+        AgentKind::Grok => on_path("grok") || h.join(".grok").is_dir(),
+    }
+}
+
+fn read(kind: AgentKind) -> Option<serde_json::Value> {
+    let b = std::fs::read(config_path(kind)?).ok()?;
+    serde_json::from_slice(&b).ok()
+}
+
+pub fn installed(kind: AgentKind) -> bool {
+    read(kind).is_some_and(|v| agents::installed(kind, &v))
+}
+
+/// Install T1K's hooks for one agent. Ok(true) if the file changed.
+pub fn install(kind: AgentKind) -> anyhow::Result<bool> {
+    let path = config_path(kind).ok_or_else(|| anyhow::anyhow!("HOME not set"))?;
+    let mut config: serde_json::Value = match std::fs::read(&path) {
+        Ok(b) => serde_json::from_slice(&b)?,
+        Err(_) => serde_json::json!({}),
+    };
+    if !agents::install(kind, &mut config) {
+        return Ok(false);
+    }
+    if path.exists() {
+        std::fs::copy(&path, path.with_extension("json.t1k-backup"))?;
+    }
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    std::fs::write(&path, serde_json::to_vec_pretty(&config)?)?;
+    Ok(true)
+}
+
+/// Install for every detected agent; returns a line per agent for the CLI.
+pub fn install_all() -> Vec<String> {
+    AgentKind::ALL
+        .into_iter()
+        .filter(|k| detected(*k))
+        .map(|k| {
+            let where_ = config_path(k).map(|p| p.display().to_string()).unwrap_or_default();
+            match install(k) {
+                Ok(true) => format!("{}: installed in {where_} (backup next to it)", k.label()),
+                Ok(false) => format!("{}: already installed in {where_}", k.label()),
+                Err(e) => format!("{}: {e}", k.label()),
+            }
+        })
+        .collect()
+}

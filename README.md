@@ -45,13 +45,23 @@ scripts/bundle.sh --install   # also copies it to /Applications and links the `t
 
 For development, run `cargo run -p t1k-app`.
 
-## Connect Claude Code
+## Connect your agents
+
+T1K reads live status from hooks. Install them for every agent it finds:
 
 ```sh
-t1k setup-claude
+t1k setup-agents
 ```
 
-This adds hooks to `~/.claude/settings.json` and backs the file up to `settings.json.t1k-backup` first. Each hook is `[ -n "$T1K_BIN" ] && "$T1K_BIN" hook <Event> || true`, so it exits immediately in any other terminal. Inside T1K, hooks report to the window that owns the tab over a per-process unix socket.
+| Agent | Hook config | Notes |
+|---|---|---|
+| Claude Code | `~/.claude/settings.json` | Also gives titles, recaps, PRs and context use from the session log. `t1k setup-claude` installs only this one. |
+| Codex | `~/.codex/hooks.json` | "Needs you" when Codex asks a question (`request_user_input`). |
+| Antigravity CLI (`agy`) | `~/.gemini/config/hooks.json` (set `t1k-status`) | Gemini CLI's successor. Tool permissions are left untouched. |
+| Gemini CLI | `~/.gemini/settings.json` | Retired by Google in June 2026; supported while it lasts. |
+| Grok CLI | `~/.grok/hooks/t1k.json` | Its own file; replayed Claude hooks are ignored. |
+
+Each config is backed up next to itself first (`*.json.t1k-backup`). The hooks only act inside T1K: elsewhere they exit at once. Settings › Agents shows each agent's state and has an Install button per agent.
 
 ## Keys
 
