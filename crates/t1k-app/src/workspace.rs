@@ -197,6 +197,13 @@ pub struct Workspace {
     pub notice: Option<(String, Instant)>,
     /// The sidebar row under the pointer (tab id), for its × button.
     pub hover_row: Option<String>,
+    /// The tab being dragged in the sidebar (cleared on drop; ignored once no drag is active).
+    pub dragging_tab: Option<String>,
+    /// When the last tab needing you was handled: "All caught up" shows for a few seconds,
+    /// then fades out (it's noise when nothing is going on).
+    pub caught_up_at: Option<Instant>,
+    had_needs: bool,
+    caught_up_task: Option<Task<()>>,
     /// The notice offers Undo (it's about a move).
     pub notice_undo: bool,
     /// Tab moves between groups, newest last: (tab id, group, pinned group) before the move.
@@ -320,6 +327,10 @@ pub struct Workspace {
     _fast: Task<()>,
 }
 
+/// How long "All caught up" stays before fading out (the fade takes `CAUGHT_UP_FADE`).
+pub const CAUGHT_UP_SHOW: Duration = Duration::from_millis(3500);
+pub const CAUGHT_UP_FADE: f32 = 0.25;
+
 impl Workspace {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let saved = session::load();
@@ -410,6 +421,10 @@ impl Workspace {
             notice: None,
             notice_undo: false,
             hover_row: None,
+            dragging_tab: None,
+            caught_up_at: None,
+            had_needs: false,
+            caught_up_task: None,
             move_undo: Vec::new(),
             auto_hues: HashMap::new(),
             hues_for: Vec::new(),
@@ -1047,8 +1062,28 @@ impl Workspace {
         cx.notify();
     }
 
+    /// Take a tab out of its group, back into its folder's project group (made if there isn't
+    /// one yet), with Undo.
+    pub fn pop_out_undoable(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.dragging_tab = None;
+        let Some(ix) = self.tabs.iter().position(|t| t.id == id) else { return };
+        let t = &self.tabs[ix];
+        let before = vec![(t.id.clone(), t.group.clone(), t.pinned_group.clone())];
+        self.move_tab(ix, None, cx);
+        let t = &self.tabs[ix];
+        if before[0].1 == t.group && before[0].2.is_none() {
+            return;
+        }
+        let (title, to) = (t.title(), t.group.clone());
+        self.move_undo.push(before);
+        self.notice = Some((format!("Moved {title} to {}", self.group_label(&to)), Instant::now()));
+        self.notice_undo = true;
+        cx.notify();
+    }
+
     /// Move tabs (by id) into group `to`, remembering where they were for ⌘Z and the notice's Undo.
     pub fn move_tabs_undoable(&mut self, ids: &[String], to: &PathBuf, cx: &mut Context<Self>) {
+        self.dragging_tab = None;
         let mut before = Vec::new();
         for id in ids {
             let Some(ix) = self.tabs.iter().position(|t| &t.id == id) else { continue };
@@ -1433,6 +1468,28 @@ impl Workspace {
 
     /// Every 100 ms: apply agent messages; keep spinners moving while anything works.
     fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let needs = !self.needs_queue().is_empty();
+        if self.had_needs && !needs {
+            self.caught_up_at = Some(Instant::now());
+            // Repaint through the fade-out, then once more when it's gone.
+            self.caught_up_task = Some(cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(CAUGHT_UP_SHOW).await;
+                for _ in 0..20 {
+                    cx.background_executor().timer(Duration::from_millis(16)).await;
+                    if this.update(cx, |_, cx| cx.notify()).is_err() {
+                        return;
+                    }
+                }
+                let _ = this.update(cx, |ws, cx| {
+                    ws.caught_up_at = None;
+                    cx.notify();
+                });
+            }));
+        } else if needs {
+            self.caught_up_at = None;
+            self.caught_up_task = None;
+        }
+        self.had_needs = needs;
         self.update_group_order();
         self.update_hues();
         // Icon suggestions are ready before anyone opens the picker.

@@ -632,14 +632,18 @@ pub fn offer(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement> 
             .flex()
             .flex_col()
             .gap(px(8.))
-            .child(div().text_size(px(12.5)).text_color(ui.text_secondary).child(format!("{new} tab{} open in {app}", if new == 1 { "" } else { "s" })))
+            .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(ui.text_primary).child(format!("Bring your {app} tabs into T1K?")))
+            .child(div().text_size(px(12.)).line_height(px(17.)).text_color(ui.text_tertiary).child(format!(
+                "{new} {} open in {app}. Pick which to open here; nothing in {app} is closed.",
+                if new == 1 { "tab is" } else { "tabs are" }
+            )))
             .child(
                 div()
                     .flex()
                     .gap(px(6.))
                     .child(div().flex_1())
                     .child(button(ui, "offer-no", "Not now", false, true).on_click(cx.listener(|this, _, _, cx| this.dismiss_import_offer(cx))))
-                    .child(button(ui, "offer-yes", "Choose tabs…", true, true).on_click(cx.listener(|this, _, window, cx| this.open_import(window, cx)))),
+                    .child(button(ui, "offer-yes", "Choose tabs to bring…", true, true).on_click(cx.listener(|this, _, window, cx| this.open_import(window, cx)))),
             )
             .into_any_element(),
     )

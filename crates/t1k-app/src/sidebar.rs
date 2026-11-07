@@ -22,6 +22,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
     let k = ws.config.interface.text_scale();
     let ui = ws.ui;
     let groups = ws.grouped();
+    let dragging = ws.dragging_tab.is_some() && cx.has_active_drag();
 
     // Groups are separated by space alone (v3: no hairlines).
     let mut list = div()
@@ -245,9 +246,36 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                     .child(group_header(ws, &key, &tabs, true, cx))
             })),
         )
-        .children(crate::close::toast(ws, cx))
-        .children(crate::import_ui::notice(ws, cx))
-        .children(crate::import_ui::offer(ws, cx))
+        .when(!dragging, |d| {
+            d.children(crate::close::toast(ws, cx)).children(crate::import_ui::notice(ws, cx)).children(crate::import_ui::offer(ws, cx))
+        })
+        // While a tab is dragged: a place at the bottom to drop it out of its group, back into
+        // its folder's project group (made if there isn't one).
+        .when(dragging, |d| {
+            d.child(
+                div()
+                    .id("pop-out")
+                    .absolute()
+                    .left(px(10.))
+                    .right(px(10.))
+                    .bottom(px(10.))
+                    .h(px(44.))
+                    .rounded(px(8.))
+                    .bg(ui.bg_sidebar)
+                    .border_1()
+                    .border_dashed()
+                    .border_color(ui.text_disabled)
+                    .shadow_lg()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_size(px(12.))
+                    .text_color(ui.text_secondary)
+                    .drag_over::<TabDrag>(move |s, _, _, _| s.bg(ui.accent.opacity(0.18)).border_color(ui.accent))
+                    .on_drop(cx.listener(|this, d: &TabDrag, _, cx| this.pop_out_undoable(&d.0, cx)))
+                    .child("Drop here to move it to its own project"),
+            )
+        })
         .into_any_element()
 }
 
@@ -567,10 +595,19 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
     let confirming = ws.confirm_close.as_deref() == Some(tab.id.as_str());
 
     let (drag_id, drag_label, drop_group) = (tab.id.clone(), tab.title(), tab.group.clone());
+    let ws_handle = cx.entity().downgrade();
     let mut el = div()
         .id(SharedString::from(tab.id.clone()))
         // Drag a tab onto another group (its header or any of its tabs) to move it there.
-        .on_drag(TabDrag(drag_id), move |_, _, _, cx| cx.new(|_| GroupGhost { label: drag_label.clone().into(), ui }))
+        .on_drag(TabDrag(drag_id), move |d: &TabDrag, _, _, cx| {
+            // Remember what's being dragged, so the sidebar can offer the pop-out place.
+            let id = d.0.clone();
+            let _ = ws_handle.update(cx, |ws, cx| {
+                ws.dragging_tab = Some(id);
+                cx.notify();
+            });
+            cx.new(|_| GroupGhost { label: drag_label.clone().into(), ui })
+        })
         .drag_over::<TabDrag>(move |s, _, _, _| s.bg(ui.accent.opacity(0.12)))
         .on_drop(cx.listener(move |this, d: &TabDrag, _, cx| this.move_tabs_undoable(std::slice::from_ref(&d.0), &drop_group, cx)))
         .group(row_group.clone())
@@ -1119,6 +1156,16 @@ fn needs_area(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement>
     if queue.is_empty() && agents == 0 {
         return None;
     }
+    // "All caught up" only right after the last one is handled: shown a few seconds, then it
+    // fades and folds away (when nothing is going on, it's noise).
+    let fade = ws.caught_up_at.map(|at| {
+        let past = at.elapsed().as_secs_f32() - crate::workspace::CAUGHT_UP_SHOW.as_secs_f32();
+        (past / crate::workspace::CAUGHT_UP_FADE).clamp(0., 1.)
+    });
+    if queue.is_empty() && fade.is_none_or(|f| f >= 1.) {
+        return None;
+    }
+    let keep = 1. - fade.unwrap_or(0.);
     let header = || {
         div()
             .id("needs-you")
@@ -1134,6 +1181,9 @@ fn needs_area(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement>
     };
     let mut area = div().flex_none().mb(px(8.)).flex().flex_col().gap(px(2.));
     if queue.is_empty() {
+        // Fading: the row folds its height away as it goes, so the list rises smoothly.
+        let e = keep * keep * (3. - 2. * keep);
+        area = div().flex_none().mb(px(8. * e)).h(px(26. * e)).overflow_hidden().opacity(e).flex().flex_col();
         let working = ws.tabs.iter().filter(|t| t.status() == Some(&Status::Working)).count();
         area = area.child(
             header()
