@@ -51,6 +51,36 @@ pub enum Overlay {
     ThemePicker { query: String, selected: usize, dark: bool },
 }
 
+/// Switcher filter chips.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SwitcherFilter {
+    #[default]
+    All,
+    NeedsYou,
+    Working,
+    Unread,
+    Project,
+}
+
+impl SwitcherFilter {
+    pub const ALL: [SwitcherFilter; 5] =
+        [SwitcherFilter::All, SwitcherFilter::NeedsYou, SwitcherFilter::Working, SwitcherFilter::Unread, SwitcherFilter::Project];
+    pub fn label(self) -> &'static str {
+        match self {
+            SwitcherFilter::All => "All",
+            SwitcherFilter::NeedsYou => "Needs you",
+            SwitcherFilter::Working => "Working",
+            SwitcherFilter::Unread => "Unread",
+            SwitcherFilter::Project => "This project",
+        }
+    }
+    fn step(self, back: bool) -> Self {
+        let i = Self::ALL.iter().position(|f| *f == self).unwrap_or(0);
+        let n = Self::ALL.len();
+        Self::ALL[if back { (i + n - 1) % n } else { (i + 1) % n }]
+    }
+}
+
 const CARD_W: f32 = 264.;
 const CARD_H: f32 = 164.;
 const GAP: f32 = 12.;
@@ -99,9 +129,14 @@ impl Workspace {
 
     /// Switcher ranking: match score, then needs-you first, then most recently used.
     pub fn switcher_results(&self, query: &str) -> Vec<usize> {
-        let mut idx: Vec<usize> = (0..self.tabs.len()).collect();
+        let f = self.switcher_filter;
+        let mut idx: Vec<usize> = (0..self.tabs.len()).filter(|&i| self.switcher_keeps(i, f)).collect();
         if query.trim().is_empty() {
-            idx.sort_by_key(|&i| (!self.tabs[i].needs_you(), self.tabs[i].urgency().min(2), std::cmp::Reverse(self.tabs[i].last_active)));
+            // Needs you, then agent sessions, then plain shells; recent first within each.
+            idx.sort_by_key(|&i| {
+                let t = &self.tabs[i];
+                (!t.needs_you(), t.agent.is_none(), t.urgency().min(2), std::cmp::Reverse(t.last_active))
+            });
             return idx;
         }
         let hays: Vec<String> = idx.iter().map(|&i| self.haystack(i)).collect();
@@ -114,6 +149,18 @@ impl Workspace {
         scored.into_iter().map(|(_, i)| i).collect()
     }
 
+    /// Whether tab `i` passes a switcher filter chip.
+    pub fn switcher_keeps(&self, i: usize, f: SwitcherFilter) -> bool {
+        let t = &self.tabs[i];
+        match f {
+            SwitcherFilter::All => true,
+            SwitcherFilter::NeedsYou => t.needs_you(),
+            SwitcherFilter::Working => t.status() == Some(&Status::Working),
+            SwitcherFilter::Unread => t.unread,
+            SwitcherFilter::Project => self.tabs.get(self.active).is_some_and(|a| a.group == t.group),
+        }
+    }
+
     pub fn open_overlay(&mut self, o: Overlay, window: &mut Window, cx: &mut Context<Self>) {
         self.hide_card(cx);
         self.overlay = o;
@@ -123,6 +170,7 @@ impl Workspace {
 
     pub fn close_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.overlay = Overlay::None;
+        self.switcher_filter = SwitcherFilter::All;
         // Closing the theme picker any way but ↵ goes back to the theme you had.
         self.end_theme_preview(None, window, cx);
         self.key_recording = None;
@@ -145,6 +193,10 @@ impl Workspace {
         let overlay = std::mem::replace(&mut self.overlay, Overlay::None);
         let next = match overlay {
             Overlay::None => None,
+            Overlay::Switcher { query, .. } if ev.keystroke.key == "tab" => {
+                self.switcher_filter = self.switcher_filter.step(ev.keystroke.modifiers.shift);
+                Some(Overlay::Switcher { query, selected: 0 })
+            }
             Overlay::Switcher { mut query, mut selected } => match input::handle(&mut query, ev) {
                 Key::Cancel => None,
                 Key::Submit => {
@@ -325,6 +377,40 @@ fn until_tomorrow_9() -> Duration {
     }
 }
 
+/// The switcher's filter chips, each with how many tabs it keeps.
+fn switcher_chips(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
+    let ui = ws.ui;
+    div().px(px(8.)).pb(px(6.)).flex().gap(px(6.)).children(SwitcherFilter::ALL.into_iter().map(|f| {
+        let on = ws.switcher_filter == f;
+        let n = (0..ws.tabs.len()).filter(|&i| ws.switcher_keeps(i, f)).count();
+        let loud = f == SwitcherFilter::NeedsYou && n > 0;
+        div()
+            .id(f.label())
+            .h(px(24.))
+            .px(px(9.))
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .rounded(px(12.))
+            .border_1()
+            .border_color(if on { ui.accent } else { ui.border })
+            .when(on, |d| d.bg(ui.bg_selected))
+            .text_size(px(12.))
+            .text_color(if on { ui.text_primary } else { ui.text_secondary })
+            .cursor_pointer()
+            .hover(move |d| d.bg(ui.bg_hover))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.switcher_filter = f;
+                if let Overlay::Switcher { selected, .. } = &mut this.overlay {
+                    *selected = 0;
+                }
+                cx.notify();
+            }))
+            .child(f.label())
+            .child(div().text_size(px(11.)).text_color(if loud { ui.status_needs } else { ui.text_quiet }).child(n.to_string()))
+    }))
+}
+
 fn scrim(ws: &Workspace, close_on_click: bool, cx: &mut Context<Workspace>) -> gpui::Stateful<Div> {
     div()
         .id("overlay")
@@ -354,10 +440,17 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                 if n == 0 && needs_count > 0 {
                     rows.push(section("NEEDS YOU", ui.status_needs).into_any_element());
                 }
-                if n == needs_count && (needs_count > 0 || !query.is_empty()) {
-                    rows.push(section(if query.is_empty() { "TABS" } else { "MATCHES" }, ui.text_tertiary).into_any_element());
-                }
                 let t = &ws.tabs[i];
+                if query.is_empty() {
+                    // NEEDS YOU, AGENTS, SHELLS: a heading wherever the kind changes.
+                    let prev = n.checked_sub(1).map(|p| &ws.tabs[results[p]]);
+                    let kind = |t: &crate::workspace::Tab| if t.needs_you() { 0 } else if t.agent.is_some() { 1 } else { 2 };
+                    if n >= needs_count && prev.is_none_or(|p| kind(p) != kind(t)) {
+                        rows.push(section(if kind(t) == 1 { "AGENTS" } else { "SHELLS" }, ui.text_tertiary).into_any_element());
+                    }
+                } else if n == needs_count {
+                    rows.push(section("MATCHES", ui.text_tertiary).into_any_element());
+                }
                 let is_sel = n == selected;
                 let tag = ws.matched_field(i, query);
                 let age = t.agent.as_ref().map(|a| {
@@ -444,10 +537,11 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                         .child(div().text_size(px(11.)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(format!("{} of {}", results.len().min(9), ws.tabs.len())))
                         .child(keycap(ui, "esc")),
                 )
+                .child(switcher_chips(ws, cx))
                 .child(div().h(px(1.)).bg(ui.border).mb(px(4.)))
                 .children(rows)
                 .when(results.is_empty(), |d| {
-                    d.child(div().p(px(14.)).text_size(px(13.)).text_color(ui.text_tertiary).child("No matching tabs"))
+                    d.child(div().p(px(14.)).text_size(px(13.)).text_color(ui.text_tertiary).child(if ws.switcher_filter == SwitcherFilter::All { "No matching tabs" } else { "No tabs here. ⇥ tries the next filter." }))
                 })
                 .child(
                     div()
@@ -467,6 +561,7 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                         .text_color(ui.text_tertiary)
                         .child("↵ open")
                         .child("↑↓ move")
+                        .child("⇥ filter")
                         .child("esc close")
                         .child(div().flex_1())
                         .child("matches title · recap · project · branch · PR · files"),
