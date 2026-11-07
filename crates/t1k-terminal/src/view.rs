@@ -91,6 +91,8 @@ pub struct TerminalView {
     /// Last painted content bounds and grid geometry, used for mouse → cell mapping.
     layout: Option<(Bounds<Pixels>, GridSize)>,
     scroll_accum: f32,
+    /// Cell of the last plain single click, to tell a click from a drag on release.
+    press_cell: Option<(usize, usize)>,
     /// Links found in the last painted frame: viewport (col, row) -> index into `links`.
     link_map: HashMap<(usize, usize), usize>,
     links: Vec<Link>,
@@ -176,6 +178,7 @@ impl TerminalView {
             style: TerminalStyle::default(),
             layout: None,
             scroll_accum: 0.,
+            press_cell: None,
             link_map: HashMap::new(),
             links: Vec::new(),
             link_rules: LinkRules { files: true, prs: false, tickets: false },
@@ -583,6 +586,7 @@ impl TerminalView {
         if ev.click_count == 1 {
             self.terminal.clear_selection();
         }
+        self.press_cell = (ev.click_count == 1 && ev.modifiers.number_of_modifiers() == 0).then_some((col, row));
         self.terminal.start_selection(col, row, side, ty);
         cx.notify();
     }
@@ -630,6 +634,10 @@ impl TerminalView {
             self.report_mouse(0, col, row, false);
             return;
         }
+        // A plain click (no drag) on the line being typed moves the cursor there.
+        if self.press_cell.take() == Some((col, row)) && self.terminal.selection_text().is_none_or(|t| t.is_empty()) {
+            self.click_to_cursor(col, row);
+        }
         match self.terminal.selection_text() {
             None => self.terminal.clear_selection(),
             Some(text) if self.style.copy_on_select && !text.is_empty() => {
@@ -638,6 +646,45 @@ impl TerminalView {
             Some(_) => {}
         }
         cx.notify();
+    }
+
+    /// Send ← or → so the cursor lands on the clicked cell, when the click is on the cursor's
+    /// line or a line soft-wrapped into it (a long command), the view isn't scrolled back,
+    /// and no full-screen program owns the screen. Shells and Claude Code's input both move
+    /// one character per arrow.
+    fn click_to_cursor(&self, col: usize, row: usize) {
+        use alacritty_terminal::grid::Dimensions;
+        use alacritty_terminal::index::{Column, Line};
+        use alacritty_terminal::term::cell::Flags;
+        let (delta, app_cursor) = {
+            let term = self.terminal.term.lock();
+            let mode = *term.mode();
+            if mode.contains(TermMode::ALT_SCREEN) || term.grid().display_offset() != 0 {
+                return;
+            }
+            let cols = term.columns() as i64;
+            let cur = term.grid().cursor.point;
+            let (click, at) = (row as i32, cur.line.0);
+            let wraps = |l: i32| term.grid()[Line(l)][Column(cols as usize - 1)].flags.contains(Flags::WRAPLINE);
+            // Every line between the two must continue into the next.
+            let (lo, hi) = if click <= at { (click, at) } else { (at, click) };
+            if !(lo..hi).all(wraps) {
+                return;
+            }
+            let delta = (click - at) as i64 * cols + col as i64 - cur.column.0 as i64;
+            (delta, mode.contains(TermMode::APP_CURSOR))
+        };
+        if delta == 0 || delta.unsigned_abs() > 2000 {
+            return;
+        }
+        let key: &[u8] = match (delta > 0, app_cursor) {
+            (true, true) => b"\x1bOC",
+            (true, false) => b"\x1b[C",
+            (false, true) => b"\x1bOD",
+            (false, false) => b"\x1b[D",
+        };
+        let bytes: Vec<u8> = key.iter().copied().cycle().take(key.len() * delta.unsigned_abs() as usize).collect();
+        self.terminal.write(bytes);
     }
 
     fn on_scroll(&mut self, ev: &ScrollWheelEvent, _: &mut Window, cx: &mut Context<Self>) {
