@@ -22,6 +22,10 @@ pub enum Overlay {
     About,
     /// First launch.
     Welcome,
+    /// The update dialog (any phase).
+    Update,
+    /// ⌘Q while an update waits.
+    QuitUpdate,
     /// The session strip's ⋯ menu.
     MoreMenu { at: Point<Pixels> },
     /// Command palette (⌘⇧P).
@@ -246,6 +250,14 @@ impl Workspace {
             o @ Overlay::MoreMenu { .. } => (ev.keystroke.key != "escape").then_some(o),
             Overlay::About => (!matches!(ev.keystroke.key.as_str(), "escape" | "enter")).then_some(Overlay::About),
             Overlay::Welcome => (!matches!(ev.keystroke.key.as_str(), "escape" | "enter")).then_some(Overlay::Welcome),
+            Overlay::Update => {
+                if ev.keystroke.key == "escape" {
+                    self.close_update(window, cx);
+                    return;
+                }
+                Some(Overlay::Update)
+            }
+            Overlay::QuitUpdate => (ev.keystroke.key != "escape").then_some(Overlay::QuitUpdate),
             // Typing searches; Esc clears the search, then closes.
             Overlay::Settings { section } => match input::handle(&mut self.settings_query, ev) {
                 Key::Cancel if !self.settings_query.is_empty() => {
@@ -462,6 +474,14 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
         Overlay::Welcome => {
             let c = crate::brand::welcome(ws, cx);
             Some(scrim(ws, false, cx).bg(gpui::black().opacity(0.45)).flex().justify_center().items_start().child(c).into_any_element())
+        }
+        Overlay::Update => {
+            let c = crate::update_ui::dialog(ws, cx);
+            Some(scrim(ws, false, cx).bg(gpui::black().opacity(0.35)).flex().justify_center().items_start().child(c).into_any_element())
+        }
+        Overlay::QuitUpdate => {
+            let c = crate::update_ui::quit_prompt(ws, cx);
+            Some(scrim(ws, true, cx).bg(gpui::black().opacity(0.35)).flex().justify_center().items_start().child(c).into_any_element())
         }
         Overlay::MoreMenu { at } => {
             let m = more_menu(ws, *at, cx);
@@ -1403,6 +1423,25 @@ fn more_menu(ws: &Workspace, at: Point<Pixels>, cx: &mut Context<Workspace>) -> 
         .flex()
         .flex_col()
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .when(crate::updater::waiting(), |d| {
+            let v = crate::updater::snapshot().version.unwrap_or_default();
+            d.child(
+                div()
+                    .id("more-update")
+                    .h(px(26.))
+                    .px(px(10.))
+                    .rounded(px(5.))
+                    .flex()
+                    .items_center()
+                    .text_size(px(13.))
+                    .text_color(ui.accent)
+                    .hover(move |d| d.bg(ui.bg_selected))
+                    .on_click(cx.listener(|this, _, window, cx| this.open_update(window, cx)))
+                    .child(div().flex_1().child(format!("Update to {v}…")))
+                    .child(div().text_size(px(11.5)).text_color(ui.text_tertiary).child("ready")),
+            )
+            .child(sep())
+        })
         .child(div().px(px(10.)).pt(px(4.)).text_size(px(11.)).text_color(ui.text_tertiary).child("Appearance"))
         .child(seg)
         .child(sep())

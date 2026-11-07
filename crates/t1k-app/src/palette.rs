@@ -60,6 +60,7 @@ pub fn commands(ws: &Workspace) -> Vec<Command> {
         act("Smaller Text", "⌘−", DecreaseFontSize),
         act("Actual Size", "⌘0", ResetFontSize),
         act("Settings", "⌘,", OpenSettings),
+        act("Check for Updates…", "", CheckForUpdates),
     ];
     for s in Section::ALL {
         v.push(Command { label: format!("Settings: {}", s.label()), keys: "", run: Run::Settings(s) });

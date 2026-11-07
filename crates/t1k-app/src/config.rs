@@ -75,6 +75,16 @@ reminder = true
 done = false
 # Number on the Dock icon: tabs that need you (input, errors, due reminders).
 dock_badge = true
+
+[updates]
+# Look for a new version once a day, in the background. Nothing interrupts you.
+check = true
+# Download it too, so it's ready; you still choose when to restart.
+download = true
+# "stable", or "beta" for new features first, with rougher edges.
+channel = "stable"
+# Where to look for updates. Empty uses T1K's own feed.
+feed = ""
 "#;
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
@@ -87,6 +97,22 @@ pub struct Config {
     pub sidebar: SidebarCfg,
     pub links: LinksCfg,
     pub notify: NotifyCfg,
+    pub updates: UpdatesCfg,
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[serde(default)]
+pub struct UpdatesCfg {
+    pub check: bool,
+    pub download: bool,
+    pub channel: String,
+    pub feed: String,
+}
+
+impl Default for UpdatesCfg {
+    fn default() -> Self {
+        Self { check: true, download: true, channel: "stable".into(), feed: String::new() }
+    }
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
@@ -217,6 +243,7 @@ impl Default for Config {
             sidebar: SidebarCfg::default(),
             links: LinksCfg::default(),
             notify: NotifyCfg::default(),
+            updates: UpdatesCfg::default(),
         }
     }
 }

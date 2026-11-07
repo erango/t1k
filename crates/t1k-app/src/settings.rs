@@ -365,6 +365,17 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
             toggle(ui, "n-done", n.done, &["notify", "done"], cx).into_any_element()),
         e(Agents, "Notifications", "Dock badge", "Count of tabs that need you", "notify.dock_badge", "badge count icon",
             toggle(ui, "n-badge", n.dock_badge, &["notify", "dock_badge"], cx).into_any_element()),
+        e(Advanced, "Updates", "Check for updates automatically", "Once a day, in the background. Nothing interrupts you.", "updates.check", "update version sparkle auto",
+            toggle(ui, "u-check", c.updates.check, &["updates", "check"], cx).into_any_element()),
+        e(Advanced, "Updates", "Download updates automatically", "Have the update ready; you still choose when to restart", "updates.download", "update version sparkle",
+            toggle(ui, "u-download", c.updates.download, &["updates", "download"], cx).into_any_element()),
+        e(Advanced, "Updates", "Channel", "Beta gets new features first, with rougher edges", "updates.channel", "update version beta stable sparkle",
+            seg(ui, "u-channel", &c.updates.channel, &[("stable", "Stable"), ("beta", "Beta")], &["updates", "channel"], cx)),
+        e(Advanced, "Updates", concat!("Version ", env!("CARGO_PKG_VERSION")), "Check for Updates… is also in the T1K menu", "updates", "update version sparkle check",
+            div().flex().items_center().gap(px(10.))
+                .child(div().text_size(px(12.)).text_color(ui.text_tertiary).child(crate::update_ui::status_words(&crate::updater::snapshot())))
+                .child(pill(ui, "u-now".into(), "Check now".into(), false).on_click(cx.listener(|this, _, window, cx| this.check_for_updates(window, cx))))
+                .into_any_element()),
         e(Advanced, "Files", "Settings file", "~/.config/t1k/config.toml; edits apply live", "config.toml", "config", open_cfg),
         e(Advanced, "Files", "Imported themes", "~/.config/t1k/themes/", "themes_dir", "import", themes_dir),
     ];

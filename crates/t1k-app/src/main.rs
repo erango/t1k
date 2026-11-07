@@ -24,6 +24,8 @@ mod strip;
 mod sidebar;
 mod title;
 mod tooltip;
+mod update_ui;
+mod updater;
 mod viewer;
 mod workspace;
 
@@ -117,7 +119,17 @@ fn main() {
             KeyBinding::new("shift-pageup", ScrollPageUp, Some("Terminal")),
             KeyBinding::new("shift-pagedown", ScrollPageDown, Some("Terminal")),
         ]);
-        cx.on_action(|_: &Quit, cx| cx.quit());
+        cx.on_action(|_: &Quit, cx| {
+            // With an update waiting, ⌘Q asks once (it installs as T1K quits).
+            if Workspace::should_confirm_quit() {
+                if let Some(w) = cx.windows().first().and_then(|w| w.downcast::<Workspace>()) {
+                    if w.update(cx, |ws, window, cx| ws.open_overlay(overlay::Overlay::QuitUpdate, window, cx)).is_ok() {
+                        return;
+                    }
+                }
+            }
+            cx.quit()
+        });
         // Remove this process's hook socket on the way out.
         cx.on_app_quit(|_| async {
             if let Some(d) = session::support_dir() {

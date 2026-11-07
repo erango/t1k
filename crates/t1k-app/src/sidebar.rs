@@ -268,6 +268,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                         window.start_window_move();
                     }
                 })
+                .children(crate::update_ui::pill(ws, cx))
                 // v3-f B: window-level actions as plain icons beside ‹ ›.
                 .child(
                     ghost("sidebar-view", ui)

@@ -196,6 +196,8 @@ pub struct Workspace {
     pub started: Instant,
     /// Last Dock badge value we set (None = never).
     badge: Option<usize>,
+    /// Last `updater::rev()` drawn.
+    update_rev: u64,
     /// GitHub `owner/repo` per project group, for `#123` links (None: no GitHub remote).
     repos: HashMap<PathBuf, Option<String>>,
     _poll: Task<()>,
@@ -307,11 +309,13 @@ impl Workspace {
             next_created: 0,
             started: Instant::now(),
             badge: None,
+            update_rev: 0,
             repos: HashMap::new(),
             _poll: poll,
             _fast: fast,
         };
         cx.observe_window_appearance(window, |this, window, cx| this.apply_theme(window, cx)).detach();
+        crate::updater::start(&this.config.updates);
         // Remember where the window is; saved with the session (debounced through `poll`).
         cx.observe_window_bounds(window, |this, window, _| this.window_frame = Some(frame_of(window))).detach();
         cx.on_app_quit(|this, _| {
@@ -405,6 +409,12 @@ impl Workspace {
                 "overview" => Some(Overlay::Overview { selected: 0 }),
                 "settings" => Some(Overlay::Settings { section: crate::settings::Section::Appearance }),
                 "settings-interface" => Some(Overlay::Settings { section: crate::settings::Section::Interface }),
+                "settings-advanced" => Some(Overlay::Settings { section: crate::settings::Section::Advanced }),
+                "update" => {
+                    crate::updater::check_now();
+                    Some(Overlay::Update)
+                }
+                "quit" => Some(Overlay::QuitUpdate),
                 "settings-search" => {
                     this.settings_query = "font".into();
                     Some(Overlay::Settings { section: crate::settings::Section::Appearance })
@@ -789,6 +799,16 @@ impl Workspace {
 
     /// Every 100 ms: apply agent messages; keep spinners moving while anything works.
     fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let rev = crate::updater::rev();
+        if rev != self.update_rev {
+            self.update_rev = rev;
+            // A check you started has an answer: show it, unless you're in the middle of
+            // something else (the pill and ⋯ menu still carry it).
+            if crate::updater::take_dialog_request() && matches!(self.overlay, Overlay::None | Overlay::Update) {
+                self.open_overlay(Overlay::Update, window, cx);
+            }
+            cx.notify();
+        }
         match self.watcher.poll() {
             Some(Ok(c)) => {
                 if c != self.config {
@@ -1170,6 +1190,7 @@ impl Workspace {
             t1k_themes::load_user_themes(&d);
         }
         (self.mode, self.dark, self.light) = Self::slots(&self.config);
+        crate::updater::apply(&self.config.updates);
         self.apply_theme(window, cx);
         let style = self.terminal_style();
         for tab in &self.tabs {
@@ -1318,6 +1339,8 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &FocusOtherPane, window, cx| this.focus_other_pane(window, cx)))
             .on_action(cx.listener(|this, _: &GoBack, window, cx| this.navigate(true, window, cx)))
             .on_action(cx.listener(|this, _: &ShowAbout, window, cx| this.open_overlay(Overlay::About, window, cx)))
+            .on_action(cx.listener(|this, _: &CheckForUpdates, window, cx| this.check_for_updates(window, cx)))
+            .on_action(cx.listener(|this, _: &ShowUpdate, window, cx| this.open_update(window, cx)))
             .on_action(cx.listener(|this, _: &ToggleCommandPalette, window, cx| {
                 if matches!(this.overlay, Overlay::Palette { .. }) {
                     this.close_overlay(window, cx);

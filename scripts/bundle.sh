@@ -21,6 +21,21 @@ for s in 16 32 128 256 512; do
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/T1K.icns"
 
+# Sparkle (auto-update), pinned and cached in target/sparkle. T1K loads it at runtime and
+# draws its own update UI (crates/t1k-app/src/updater.rs).
+SPARKLE_VERSION=2.10.1
+SPARKLE=target/sparkle/$SPARKLE_VERSION
+if [ ! -d "$SPARKLE/Sparkle.framework" ]; then
+  mkdir -p "$SPARKLE"
+  curl -fsSL "https://github.com/sparkle-project/Sparkle/releases/download/$SPARKLE_VERSION/Sparkle-$SPARKLE_VERSION.tar.xz" | tar xJ -C "$SPARKLE"
+fi
+mkdir -p "$APP/Contents/Frameworks"
+ditto "$SPARKLE/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
+# Public half of the EdDSA key that signs updates. The private half is in the login
+# keychain (Sparkle's generate_keys --account t1k); scripts/release.sh signs with it.
+SPARKLE_PUBLIC_KEY="W1hctyZqC/ipZHQ0ZZ2YltMU7aJ2BqUaZsu/GkHB368="
+FEED_URL="https://raw.githubusercontent.com/erango/t1k/main/appcast.xml"
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -37,6 +52,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
+  <key>SUFeedURL</key><string>$FEED_URL</string>
+  <key>SUPublicEDKey</key><string>$SPARKLE_PUBLIC_KEY</string>
+  <key>SUEnableAutomaticChecks</key><true/>
+  <key>SUScheduledCheckInterval</key><integer>86400</integer>
 </dict>
 </plist>
 PLIST

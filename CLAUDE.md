@@ -42,7 +42,7 @@ Debug environment variables (all read at launch):
 
 | Variable | Effect |
 |---|---|
-| `T1K_DEBUG_OVERLAY=palette\|switcher\|overview\|settings\|settings-interface\|settings-search\|menu\|groupmenu\|termmenu\|sidebarview\|more\|card\|about\|welcome` | Opens that surface |
+| `T1K_DEBUG_OVERLAY=palette\|switcher\|overview\|settings\|settings-interface\|settings-search\|menu\|groupmenu\|termmenu\|sidebarview\|more\|card\|about\|welcome\|settings-advanced\|update\|quit` | Opens that surface (`update` also starts a check) |
 | `T1K_DEBUG_AGENT=working\|needs\|error\|done` | Fakes an agent session on the active tab |
 | `T1K_DEBUG_PROGRAM=<name>` | Shows that program's icon on every tab |
 | `T1K_DEBUG_VIEW=<path>[:line]` | Opens that file in the side panel |
@@ -61,3 +61,4 @@ limit.
 - Commit messages: imperative summary with a type prefix (`feat(sidebar):`, `fix(terminal):`, `design:`, `perf:`, `docs:`), then a body that says what changed for the user and why.
 - Comments explain why, not what. User-facing copy is plain and short.
 - macOS only for now. `bundle.sh` signs with the first "Developer ID Application" identity in the keychain (hardened runtime, `scripts/T1K.entitlements`), or `T1K_SIGN_IDENTITY` (`-` for ad-hoc). Notarize with `T1K_NOTARY_PROFILE=<profile> ./scripts/notarize.sh target/release/T1K.app` (profile from `xcrun notarytool store-credentials`; the existing `kompass` profile works).
+- Updates: Sparkle 2.10.1 is embedded by `bundle.sh` and loaded at runtime (`updater.rs`); T1K draws the UI (`update_ui.rs`). `scripts/release.sh <version> [--beta]` builds, notarizes, signs the zip with the EdDSA key (login keychain, account `t1k`), publishes a GitHub release and pushes `appcast.xml` (the feed, read from raw.githubusercontent on main). `--local <url>` writes everything to `target/updates/` for testing. Release notes: `docs/releases/<version>.md`, one `- ` bullet per line.

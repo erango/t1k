@@ -59,6 +59,7 @@ pub fn about(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         .child(lockup(300.))
         .child(div().text_size(px(13.)).text_color(ui.text_secondary).child("The terminal for running many coding agents at once."))
         .child(div().text_size(px(12.)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(format!("Version {}", env!("CARGO_PKG_VERSION"))))
+        .child(div().text_size(px(12.)).text_color(if crate::updater::waiting() { ui.accent } else { ui.text_tertiary }).child(crate::update_ui::status_words(&crate::updater::snapshot())))
         .child(
             div()
                 .pt(px(6.))
