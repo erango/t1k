@@ -190,6 +190,7 @@ impl Workspace {
 
     pub fn open_overlay(&mut self, o: Overlay, window: &mut Window, cx: &mut Context<Self>) {
         self.hide_card(cx);
+        self.confirm_close_group = None;
         // Rename fields open with the whole name selected, as in Finder.
         if let Overlay::Rename { text, .. } | Overlay::RenameGroup { text, .. } = &o {
             self.edit_sel = input::Sel::all(text);
@@ -1314,6 +1315,30 @@ fn group_menu(ws: &Workspace, key: std::path::PathBuf, at: Point<Pixels>, window
             }
         })));
     }
+
+    // Close group: asks first, in the menu, when something in it is still running.
+    let n = members.len();
+    let running = ws.running_in_group(&key, cx);
+    let confirming = ws.confirm_close_group.as_ref() == Some(&key);
+    let label = if confirming {
+        format!("Stop {running} running and close {n} tab{}", if n == 1 { "" } else { "s" })
+    } else {
+        format!("Close group ({n} tab{})", if n == 1 { "" } else { "s" })
+    };
+    let k = key.clone();
+    m = m.child(
+        item("close-group", label)
+            .when(confirming, |d| d.text_color(ui.status_error).font_weight(FontWeight::MEDIUM))
+            .on_click(cx.listener(move |this, _, window, cx| {
+                if running > 0 && this.confirm_close_group.as_ref() != Some(&k) {
+                    this.confirm_close_group = Some(k.clone());
+                    cx.notify();
+                    return;
+                }
+                this.close_overlay(window, cx);
+                this.close_group(k.clone(), window, cx);
+            })),
+    );
 
     // Color: none plus the theme's six ANSI hues.
     m = m.child(sep()).child(heading("Color"));

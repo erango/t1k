@@ -23,10 +23,12 @@ pub struct ClosedTab {
     pub session: Option<String>,
     /// Its scrollback, replayed when it reopens (no banner).
     pub scrollback: Vec<u8>,
+    /// Tabs closed together (a whole group) share a batch and come back together. 0 = alone.
+    pub batch: u64,
 }
 
 impl Workspace {
-    fn foreground_program(&self, ix: usize, cx: &gpui::App) -> Option<String> {
+    pub(crate) fn foreground_program(&self, ix: usize, cx: &gpui::App) -> Option<String> {
         let n = self.tabs.get(ix)?.view.read(cx).terminal.foreground_name()?;
         (!SHELLS.contains(&n.trim_start_matches('-'))).then_some(n)
     }
@@ -44,7 +46,7 @@ impl Workspace {
         let claude = self.claude_tab(ix);
         let busy = matches!(t.status(), Some(Status::Working) | Some(Status::NeedsInput { .. }));
         if claude && !busy {
-            self.close_claude_gently(id, window, cx);
+            self.close_claude_gently(id, 0, None, window, cx);
         } else {
             self.confirm_close = Some(id);
             cx.notify();
@@ -61,14 +63,48 @@ impl Workspace {
         self.confirm_close = None;
         if self.claude_tab(ix) {
             let id = self.tabs[ix].id.clone();
-            self.close_claude_gently(id, window, cx);
+            self.close_claude_gently(id, 0, None, window, cx);
         } else {
             self.close_with_undo(ix, window, cx);
         }
     }
 
+    /// Tabs in a group still running something (an idle Claude session doesn't count: it
+    /// ends cleanly and comes back with Undo).
+    pub fn running_in_group(&self, key: &std::path::Path, cx: &gpui::App) -> usize {
+        (0..self.tabs.len())
+            .filter(|&i| self.tabs[i].group == key && self.foreground_program(i, cx).is_some())
+            .filter(|&i| !self.claude_tab(i) || matches!(self.tabs[i].status(), Some(Status::Working) | Some(Status::NeedsInput { .. })))
+            .count()
+    }
+
+    /// The group menu's Close group: every tab in it, Claude sessions ending cleanly, under one
+    /// Undo that brings the whole group back. Closing the last group leaves a fresh tab.
+    pub fn close_group(&mut self, key: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        self.confirm_close_group = None;
+        let ids: Vec<String> = self.visual_order().into_iter().filter(|&i| self.tabs[i].group == key).map(|i| self.tabs[i].id.clone()).collect();
+        if ids.is_empty() {
+            return;
+        }
+        if ids.len() == self.tabs.len() {
+            self.open_tab(None, None, window, cx);
+        }
+        self.close_batch += 1;
+        let batch = self.close_batch;
+        let n = ids.len();
+        let toast = format!("{} · {n} tab{}", self.group_label(&key), if n == 1 { "" } else { "s" });
+        for id in ids {
+            let Some(ix) = self.tabs.iter().position(|t| t.id == id) else { continue };
+            if self.claude_tab(ix) && self.foreground_program(ix, cx).is_some() {
+                self.close_claude_gently(id, batch, Some(toast.clone()), window, cx);
+            } else {
+                self.close_with_undo_in(ix, batch, Some(toast.clone()), window, cx);
+            }
+        }
+    }
+
     /// Claude asks for a second Ctrl-C to exit; then close, so its session is saved for Recent.
-    fn close_claude_gently(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+    fn close_claude_gently(&mut self, id: String, batch: u64, toast: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(t) = self.tabs.iter().find(|t| t.id == id) {
             t.view.read(cx).terminal.write(b"\x03".to_vec());
         }
@@ -82,7 +118,7 @@ impl Workspace {
             cx.background_executor().timer(Duration::from_millis(400)).await;
             let _ = this.update_in(cx, |ws, window, cx| {
                 if let Some(ix) = ws.tabs.iter().position(|t| t.id == id) {
-                    ws.close_with_undo(ix, window, cx);
+                    ws.close_with_undo_in(ix, batch, toast, window, cx);
                 }
             });
         })
@@ -91,6 +127,11 @@ impl Workspace {
 
     /// Close and remember the tab so Undo / ⌘⇧T can bring it back.
     pub fn close_with_undo(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_with_undo_in(ix, 0, None, window, cx);
+    }
+
+    /// `close_with_undo` as part of a batch, with the toast's text (default: the tab's title).
+    fn close_with_undo_in(&mut self, ix: usize, batch: u64, toast: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
         let Some(t) = self.tabs.get(ix) else { return };
         let closed = ClosedTab {
             cwd: t.view.read(cx).terminal.cwd().or_else(|| t.cwd.clone()),
@@ -99,6 +140,7 @@ impl Workspace {
             pinned_group: t.pinned_group.clone(),
             session: t.agent.as_ref().map(|a| a.session_id.clone()).filter(|s| !s.is_empty()).or_else(|| t.last_session.clone()),
             scrollback: t.view.read(cx).terminal.snapshot(5_000),
+            batch,
         };
         if self.confirm_close.as_deref() == Some(t.id.as_str()) {
             self.confirm_close = None;
@@ -108,7 +150,7 @@ impl Workspace {
             self.closed.remove(0);
         }
         self.close_tab_at(ix, window, cx);
-        self.close_toast = Some((closed.title, Instant::now()));
+        self.close_toast = Some((toast.unwrap_or(closed.title), Instant::now()));
         self.toast_task = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(TOAST).await;
             let _ = this.update(cx, |ws, cx| {
@@ -124,8 +166,21 @@ impl Workspace {
     /// Undo / ⌘⇧T: reopen the last closed tab in its folder and group, with its scrollback;
     /// a Claude tab resumes its session. A program that was stopped isn't run again.
     pub fn reopen_closed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(c) = self.closed.pop() else { return };
+        let Some(last) = self.closed.pop() else { return };
         self.close_toast = None;
+        // A closed group comes back whole, in its order.
+        let mut all = vec![last];
+        while all[0].batch != 0 && self.closed.last().is_some_and(|c| c.batch == all[0].batch) {
+            all.insert(0, self.closed.pop().unwrap());
+        }
+        for c in all {
+            self.reopen_one(c, window, cx);
+        }
+        self.save();
+        cx.notify();
+    }
+
+    fn reopen_one(&mut self, c: ClosedTab, window: &mut Window, cx: &mut Context<Self>) {
         let cwd = c.cwd.filter(|p| p.is_dir());
         // Its output comes back; the shell starts fresh (its history file still has what
         // you typed, so ↑ finds it), with nothing typed in.

@@ -241,6 +241,9 @@ pub struct Workspace {
     pub toast_task: Option<gpui::Task<()>>,
     /// A tab whose × asked "Stop <program>?" in its row.
     pub confirm_close: Option<String>,
+    /// The group menu's Close group is asking to stop running programs first.
+    pub confirm_close_group: Option<PathBuf>,
+    pub close_batch: u64,
     /// Polls in a row a Needs-you tab showed no question on screen.
     needs_gone: HashMap<String, u8>,
     /// The group header under the pointer and since when (its icon placeholder slides in).
@@ -399,6 +402,8 @@ impl Workspace {
             close_toast: None,
             toast_task: None,
             confirm_close: None,
+            confirm_close_group: None,
+            close_batch: 0,
             needs_gone: HashMap::new(),
             hovered_group: None,
             hover_anim: None,
