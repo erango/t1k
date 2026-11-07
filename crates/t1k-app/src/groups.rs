@@ -47,8 +47,23 @@ pub fn git_branch(cwd: &Path) -> Option<String> {
     None
 }
 
+/// Groups the user makes (like browser tab groups) aren't folders; their key is this prefix
+/// plus a random id, and only tabs moved there by hand belong to them.
+const CUSTOM: &str = "t1k-group:";
+
+pub fn new_custom() -> PathBuf {
+    PathBuf::from(format!("{CUSTOM}{}", uuid::Uuid::new_v4()))
+}
+
+pub fn is_custom(key: &Path) -> bool {
+    key.to_str().is_some_and(|s| s.starts_with(CUSTOM))
+}
+
 /// Short label for a directory: its basename, or "~" for the home directory.
 pub fn label(path: &Path) -> String {
+    if is_custom(path) {
+        return "New group".into();
+    }
     if std::env::var_os("HOME").is_some_and(|h| Path::new(&h) == path) {
         return "~".into();
     }
@@ -67,6 +82,15 @@ pub fn tilde(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn custom_groups_are_not_folders() {
+        let k = super::new_custom();
+        assert!(super::is_custom(&k));
+        assert_ne!(k, super::new_custom());
+        assert_eq!(super::label(&k), "New group");
+        assert!(!super::is_custom(std::path::Path::new("/Users/me/code/t1k")));
+    }
+
     use super::*;
 
     #[test]

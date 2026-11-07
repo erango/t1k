@@ -241,7 +241,7 @@ fn group_header(ws: &Workspace, key: &std::path::Path, tabs: &[usize], sticky: b
     let auto_folded = all_quiet && !ws.show_quiet.contains(&key);
     let folded = ws.collapsed.contains(&key) || auto_folded;
     let label = ws.group_label(&key);
-    let renamed = ws.group_names.contains_key(&key);
+    let renamed = ws.group_names.contains_key(&key) && !crate::groups::is_custom(&key);
     let folder = crate::groups::label(&key);
     let click_key = key.clone();
     div()

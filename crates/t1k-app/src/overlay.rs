@@ -326,7 +326,12 @@ impl Workspace {
             Overlay::RenameGroup { key, mut text } => match input::handle(&mut text, ev) {
                 Key::Submit => {
                     let text = text.trim().to_string();
-                    if text.is_empty() || text == groups::label(&key) {
+                    if groups::is_custom(&key) {
+                        // A made group always keeps a name; empty leaves the current one.
+                        if !text.is_empty() {
+                            self.group_names.insert(key, text);
+                        }
+                    } else if text.is_empty() || text == groups::label(&key) {
                         self.group_names.remove(&key);
                     } else {
                         self.group_names.insert(key, text);
@@ -707,6 +712,9 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                     text,
                     "Enter to save · empty resets to the automatic title · Esc",
                 ),
+                Overlay::RenameGroup { key, text } if groups::is_custom(key) => {
+                    ("Name the group".to_string(), text, "Enter to save · tabs you move here stay until you move them out · Esc")
+                }
                 Overlay::RenameGroup { key, text } => (
                     format!("Rename group · folder {}", groups::tilde(key)),
                     text,
@@ -1141,9 +1149,12 @@ fn menu(ws: &Workspace, tab: usize, at: Point<Pixels>, window: &Window, cx: &mut
             (g, label)
         })
         .collect();
-    if !others.is_empty() || t.pinned_group.is_some() {
+    {
         m = m.child(sep());
         m = m.child(div().px(px(10.)).pt(px(2.)).pb(px(4.)).text_size(px(11.)).text_color(ui.text_tertiary).child("Move to group"));
+        m = m.child(item("move-new", "New group…".into()).on_click(cx.listener(move |this, _, window, cx| {
+            this.new_group_with(tab, window, cx);
+        })));
         for (n, (g, label)) in others.into_iter().enumerate() {
             m = m.child(item(&format!("move-{n}"), label).on_click(cx.listener(move |this, _, window, cx| {
                 this.move_tab(tab, Some(g.clone()), cx);
@@ -1205,15 +1216,21 @@ fn group_menu(ws: &Workspace, key: std::path::PathBuf, at: Point<Pixels>, window
     let k = key.clone();
     m = m.child(item("new", "New tab here".into()).on_click(cx.listener(move |this, _, window, cx| {
         this.close_overlay(window, cx);
-        let cwd = k.is_dir().then(|| k.clone());
-        this.open_tab(cwd, None, window, cx);
+        this.new_tab_in_group(k.clone(), window, cx);
     })));
     let k = key.clone();
     m = m.child(item("rename", "Rename…".into()).on_click(cx.listener(move |this, _, window, cx| {
         let text = this.group_label(&k);
         this.open_overlay(Overlay::RenameGroup { key: k.clone(), text }, window, cx);
     })));
-    if ws.group_names.contains_key(&key) {
+    if groups::is_custom(&key) {
+        let k = key.clone();
+        m = m.child(item("ungroup", "Ungroup".into()).on_click(cx.listener(move |this, _, window, cx| {
+            this.ungroup(&k, cx);
+            this.close_overlay(window, cx);
+        })));
+    }
+    if ws.group_names.contains_key(&key) && !groups::is_custom(&key) {
         let k = key.clone();
         m = m.child(item("reset", "Use folder name".into()).on_click(cx.listener(move |this, _, window, cx| {
             this.group_names.remove(&k);

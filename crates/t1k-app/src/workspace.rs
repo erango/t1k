@@ -810,13 +810,46 @@ impl Workspace {
             }
             None => {
                 t.pinned_group = None;
-                if let Some(c) = &t.cwd {
-                    t.group = groups::project_root(c);
-                }
+                // No known folder yet: home, never a group of your own it was just taken out of.
+                let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+                t.group = groups::project_root(t.cwd.as_deref().unwrap_or(&home));
             }
         }
         self.save();
         cx.notify();
+    }
+
+    /// Start a group of your own with tab `ix` in it, then ask for its name.
+    pub fn new_group_with(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let key = groups::new_custom();
+        self.group_names.insert(key.clone(), "New group".into());
+        self.move_tab(ix, Some(key.clone()), cx);
+        self.open_overlay(crate::overlay::Overlay::RenameGroup { key, text: String::new() }, window, cx);
+    }
+
+    /// A new tab in group `key`: in the folder for a folder group; for a group of your own,
+    /// in the folder of the tab you were on, and kept in the group.
+    pub fn new_tab_in_group(&mut self, key: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        if !groups::is_custom(&key) {
+            let cwd = key.is_dir().then(|| key.clone());
+            self.open_tab(cwd, None, window, cx);
+            return;
+        }
+        let from = self.tabs.get(self.active).filter(|t| t.group == key).or_else(|| self.tabs.iter().find(|t| t.group == key));
+        let cwd = from.and_then(|t| t.view.read(cx).terminal.cwd());
+        self.open_tab(cwd, None, window, cx);
+        self.move_tab(self.active, Some(key), cx);
+    }
+
+    /// Send every tab in a group of your own back to its folder's group; the group goes away.
+    pub fn ungroup(&mut self, key: &PathBuf, cx: &mut Context<Self>) {
+        let ixs: Vec<usize> = self.tabs.iter().enumerate().filter(|(_, t)| &t.group == key).map(|(i, _)| i).collect();
+        for i in ixs {
+            self.move_tab(i, None, cx);
+        }
+        self.group_names.remove(key);
+        self.group_colors.remove(key);
+        self.save();
     }
 
     pub fn group_label(&self, key: &PathBuf) -> String {
@@ -1217,8 +1250,12 @@ impl Workspace {
     // ---- actions ----------------------------------------------------------------------------
 
     fn new_tab(&mut self, _: &NewTab, window: &mut Window, cx: &mut Context<Self>) {
+        let custom = self.tabs.get(self.active).map(|t| t.group.clone()).filter(|g| groups::is_custom(g));
         let cwd = self.tabs.get(self.active).and_then(|t| t.view.read(cx).terminal.cwd());
         self.open_tab(cwd, None, window, cx);
+        if let Some(g) = custom {
+            self.move_tab(self.active, Some(g), cx);
+        }
     }
 
     fn close_tab(&mut self, _: &CloseTab, window: &mut Window, cx: &mut Context<Self>) {
