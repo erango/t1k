@@ -52,6 +52,30 @@ pub fn filter_lines(color: Hsla) -> impl IntoElement {
     })
 }
 
+/// A small filled caret: pointing down (open) or right (folded), like a disclosure triangle.
+pub fn caret(color: Hsla, open: bool) -> impl IntoElement {
+    canvas(|_, _, _| {}, move |b, _, window, _| {
+        let o = b.origin;
+        let pt = |x: f32, y: f32| point(o.x + px(x), o.y + px(y));
+        let mut p = PathBuilder::fill();
+        if open {
+            p.move_to(pt(1., 2.5));
+            p.line_to(pt(7., 2.5));
+            p.line_to(pt(4., 6.));
+        } else {
+            p.move_to(pt(2.5, 1.));
+            p.line_to(pt(6., 4.));
+            p.line_to(pt(2.5, 7.));
+        }
+        p.close();
+        if let Ok(path) = p.build() {
+            window.paint_path(path, color);
+        }
+    })
+    .size(px(8.))
+    .flex_none()
+}
+
 /// Two right chevrons: fold a right-hand panel away.
 pub fn collapse_right(color: Hsla) -> impl IntoElement {
     icon(move |b, window| {

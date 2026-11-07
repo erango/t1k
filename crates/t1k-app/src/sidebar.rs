@@ -312,6 +312,8 @@ fn group_header(ws: &Workspace, key: &std::path::Path, tabs: &[usize], sticky: b
             // Renamed groups keep the real folder name visible.
             d.child(div().flex_none().text_size(px(10. * k)).font_family("JetBrains Mono").text_color(ui.text_disabled).child(folder.clone()))
         })
+        // A dim disclosure caret after the name (as in Claude desktop): ▾ open, ▸ folded.
+        .child(crate::icons::caret(ui.text_tertiary, !folded))
         .child(div().flex_1())
         .map(|d| {
             if folded {
@@ -324,8 +326,7 @@ fn group_header(ws: &Workspace, key: &std::path::Path, tabs: &[usize], sticky: b
                         .gap(px(4.))
                         .text_size(px(11.5 * k))
                         .when(!loud.is_empty(), |d| d.child(div().text_color(ui.status_needs).child(loud.clone())))
-                        .when(!quiet.is_empty(), |d| d.child(div().text_color(ui.text_tertiary).child(quiet.clone())))
-                        .child(div().text_color(ui.text_disabled).child("›")),
+                        .when(!quiet.is_empty(), |d| d.child(div().text_color(ui.text_tertiary).child(quiet.clone()))),
                 )
             } else {
                 let mut agg = div().flex_none().flex().items_center().gap(px(9.));
