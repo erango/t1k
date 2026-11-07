@@ -548,7 +548,8 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
                 .flex()
                 .flex_col()
                 .justify_center()
-                .gap(px(2.))
+                // Title and second line sit close, read as one item.
+                .line_height(gpui::relative(1.25))
                 .child(if confirming {
                     crate::close::confirm_row(ws, ix, k, cx)
                 } else {

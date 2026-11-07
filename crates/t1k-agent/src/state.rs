@@ -120,9 +120,14 @@ impl AgentState {
     /// says 1M or usage has already passed 200k (then the session must be on a 1M window).
     pub fn context_percent(&self) -> Option<u32> {
         let used = self.context_tokens?;
+        Some(((used * 100) / self.context_window()?).min(100) as u32)
+    }
+
+    /// The model's context window in tokens (1M for "[1m]" models or past 200k, else 200k).
+    pub fn context_window(&self) -> Option<u64> {
+        let used = self.context_tokens?;
         let big = self.model.as_deref().is_some_and(|m| m.contains("1m")) || used > 200_000;
-        let window = if big { 1_000_000 } else { 200_000 };
-        Some(((used * 100) / window).min(100) as u32)
+        Some(if big { 1_000_000 } else { 200_000 })
     }
 
     /// Number of distinct files the session edited.

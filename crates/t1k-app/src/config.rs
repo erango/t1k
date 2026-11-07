@@ -238,9 +238,9 @@ impl InterfaceCfg {
     /// Row height with an always-on second line (design DETAIL heights).
     pub fn two_line_height(&self) -> f32 {
         match self.density.as_str() {
-            "compact" => 44.,
-            "spacious" => 60.,
-            _ => 52.,
+            "compact" => 40.,
+            "spacious" => 54.,
+            _ => 46.,
         }
     }
 
