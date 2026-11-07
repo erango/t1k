@@ -178,52 +178,98 @@ fn stepper(
         .child(btn("inc", "+", value + step))
 }
 
-fn swatch(t: &t1k_themes::Theme) -> impl IntoElement {
+/// A theme drawn small in its own colors: prompt chevron, two text bars, the 8 ANSI colors.
+fn theme_preview(t: &t1k_themes::Theme) -> gpui::Div {
     let c = |v: u32| -> Hsla { gpui::rgb(v).into() };
+    // ANSI 0 is often the background itself; start at 1 then so every dot shows.
+    let first = if t.ansi[0] == t.bg { 1 } else { 0 };
     div()
-        .w(px(64.))
-        .h(px(28.))
-        .rounded(px(5.))
+        .w(px(132.))
+        .h(px(64.))
+        .rounded(px(7.))
         .bg(c(t.bg))
         .border_1()
-        .border_color(c(t.fg).opacity(0.2))
+        .border_color(gpui::hsla(0., 0., 0.5, 0.28))
+        .px(px(10.))
+        .py(px(9.))
         .flex()
-        .items_center()
-        .justify_center()
-        .gap(px(3.))
-        .children([1usize, 2, 3, 4, 5].map(|i| div().size(px(7.)).rounded_full().bg(c(t.ansi[i]))))
+        .flex_col()
+        .justify_between()
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(5.))
+                        .child(div().text_size(px(9.)).line_height(px(9.)).font_weight(FontWeight::BOLD).text_color(c(t.ansi[2])).child("❯"))
+                        .child(div().w(px(22.)).h(px(2.5)).rounded(px(1.25)).bg(c(t.fg))),
+                )
+                .child(div().w(px(30.)).h(px(2.5)).rounded(px(1.25)).bg(c(t.fg).opacity(0.45))),
+        )
+        .child(div().flex().gap(px(4.)).children((first..first + 8).map(|i| div().size(px(4.5)).rounded_full().bg(c(t.ansi[i])))))
 }
 
-fn theme_grid(ws: &Workspace, dark: bool, cx: &mut Context<Workspace>) -> impl IntoElement {
+/// Settings › Appearance › Themes (canvas v3-w, B): a preview tile per slot that opens the
+/// theme picker for it. System mode shows both; Dark or Light shows only its own. The slot
+/// showing now has an accent ring.
+fn theme_tiles(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
     let ui = ws.ui;
-    let current = if dark { &ws.config.theme.dark } else { &ws.config.theme.light };
-    // Wrapped lines must not stretch to fill the scroll area's height.
-    let mut grid = div().w_full().flex().flex_wrap().content_start().items_start().gap(px(8.)).py(px(8.));
-    for t in t1k_themes::all().into_iter().filter(|t| t.is_dark() == dark) {
-        let on = t.name.eq_ignore_ascii_case(current);
-        let name = t.name.to_string();
-        grid = grid.child(
-            div()
-                .id(SharedString::from(format!("theme-{name}")))
-                .w(px(162.))
-                .p(px(6.))
-                .rounded(px(8.))
-                .border_1()
-                .border_color(if on { ui.accent } else { ui.border })
-                .when(on, |d| d.bg(ui.accent.opacity(0.12)))
-                .hover(move |d| d.bg(ui.bg_hover))
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .on_click(cx.listener(move |_, _, _, _| {
-                    let slot: &'static [&'static str] = if dark { &["theme", "dark"] } else { &["theme", "light"] };
-                    set(slot, name.as_str());
-                }))
-                .child(swatch(t))
-                .child(div().flex_1().text_size(px(11.)).text_color(ui.text_primary).line_clamp(2).child(t.name.to_string())),
-        );
-    }
-    grid
+    let slots: Vec<bool> = match ws.config.appearance.as_str() {
+        "dark" => vec![true],
+        "light" => vec![false],
+        _ => vec![true, false],
+    };
+    let showing_dark = ws.theme.is_dark();
+    let tile = |dark: bool| {
+        let t = ws.theme_slot(dark);
+        let now = dark == showing_dark;
+        let slot = if dark { "Dark" } else { "Light" };
+        let gid = SharedString::from(format!("theme-tile-{slot}"));
+        div()
+            .id(gid.clone())
+            .group(gid.clone())
+            .w(px(144.))
+            .p(px(6.))
+            .rounded(px(10.))
+            .flex()
+            .flex_col()
+            .gap(px(7.))
+            .cursor_pointer()
+            .hover(move |d| d.bg(ui.bg_hover))
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.open_theme_picker_for(dark, window, cx);
+                this.settings_return = Some(Section::Appearance);
+            }))
+            .child(
+                div()
+                    .relative()
+                    .child(theme_preview(t))
+                    .when(now, |d| d.child(div().absolute().top(px(-3.5)).left(px(-3.5)).right(px(-3.5)).bottom(px(-3.5)).rounded(px(10.5)).border(px(1.5)).border_color(ui.accent))),
+            )
+            .child(
+                div()
+                    .px(px(2.))
+                    .flex()
+                    .items_end()
+                    .gap(px(4.))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap(px(1.))
+                            .child(div().text_size(px(11.)).text_color(ui.text_tertiary).child(if now { format!("{slot} · now") } else { slot.to_string() }))
+                            .child(div().truncate().text_size(px(12.5)).text_color(ui.text_primary).child(t.name.to_string())),
+                    )
+                    .child(div().text_size(px(14.)).text_color(ui.text_tertiary).group_hover(gid, move |s| s.text_color(ui.text_primary)).child("›")),
+            )
+    };
+    div().flex().gap(px(8.)).children(slots.into_iter().map(tile)).into_any_element()
 }
 
 /// Three icon tiles; the chosen one has an accent ring.
@@ -351,6 +397,8 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
     let mut out = vec![
         e(Appearance, "Theme", "Mode", "System follows macOS; ⌘⇧L flips dark and light", "appearance", "dark light system theme",
             seg(ui, "mode", &c.appearance, &[("system", "System"), ("dark", "Dark"), ("light", "Light")], &["appearance"], cx)),
+        e(Appearance, "Theme", "Themes", "Opens every theme with a live preview", "theme.dark", "theme dark light colors themes",
+            theme_tiles(ws, cx)),
         e(Appearance, "App", "App icon", "In the Dock; it turns red while a tab needs you", "interface.app_icon", "icon dock logo face prompt wordmark",
             icon_picker(ui, &c.interface.app_icon, cx)),
         e(Interface, "Sidebar", "Density", "Row height: 28 / 34 / 40", "interface.density", "compact spacious rows",
@@ -521,32 +569,7 @@ fn page(ws: &Workspace, section: Section, query: &str, window: &mut Window, cx: 
     body = body.children(cards(ui, mine, 0));
     match section {
         Section::Appearance => {
-            let heading = |s: &str| div().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_tertiary).child(s.to_uppercase());
             body = body
-                .child(div().flex().flex_col().gap(px(6.)).child(heading("Dark theme")).child(theme_grid(ws, true, cx)))
-                .child(div().flex().flex_col().gap(px(6.)).child(heading("Light theme")).child(theme_grid(ws, false, cx)))
-                .child(
-                    div()
-                        .id("browse-themes")
-                        .h(px(28.))
-                        .px(px(12.))
-                        .flex()
-                        .items_center()
-                        .w(px(220.))
-                        .rounded(px(6.))
-                        .bg(ui.bg_control)
-                        .border_1()
-                        .border_color(ui.border)
-                        .text_size(px(12.5))
-                        .text_color(ui.text_primary)
-                        .cursor_pointer()
-                        .hover(move |d| d.bg(ui.bg_hover))
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.open_theme_picker(window, cx);
-                            this.settings_return = Some(Section::Appearance);
-                        }))
-                        .child("Browse themes with preview…"),
-                )
                 .child(
                     div()
                         .text_size(px(12.))
