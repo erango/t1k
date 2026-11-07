@@ -244,7 +244,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                     .justify_center()
                     .cursor_pointer()
                     .when(selected, |d| d.bg(ui.bg_terminal))
-                    .when(!selected, |d| d.hover(move |d| d.bg(ui.bg_hover)))
+                    .when(!selected, |d| d.hover(move |d| d.bg(ui.sidebar_hover)))
                     .on_click(cx.listener(move |this, _, window, cx| this.activate(i, window, cx)))
                     .when(selected, |d| d.child(div().absolute().left_0().top(px(5.)).bottom(px(5.)).w(px(3.)).rounded_r(px(2.)).bg(ui.accent)))
                     .child(

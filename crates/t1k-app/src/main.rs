@@ -111,6 +111,8 @@ fn main() {
         })
         .detach();
 
+        // Screenshots while you keep working: open behind other windows, without taking focus.
+        let background = std::env::var_os("T1K_DEBUG_BACKGROUND").is_some();
         let window_bounds = restored_bounds(cx).unwrap_or_else(|| WindowBounds::Windowed(Bounds::centered(None, size(px(1100.), px(720.)), cx)));
         cx.open_window(
             WindowOptions {
@@ -120,11 +122,14 @@ fn main() {
                     appears_transparent: true,
                     traffic_light_position: Some(gpui::point(px(12.), px(11.))),
                 }),
+                focus: !background,
                 ..Default::default()
             },
             |window, cx| cx.new(|cx| Workspace::new(window, cx)),
         )
         .expect("open window");
-        cx.activate(true);
+        if !background {
+            cx.activate(true);
+        }
     });
 }

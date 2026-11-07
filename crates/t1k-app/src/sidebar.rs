@@ -105,7 +105,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                         group = group.child(
                             quiet_row(ui, k, format!("recent-{sid}"))
                                 .h(px(28.))
-                                .hover(move |d| d.bg(ui.bg_hover).text_color(ui.text_primary))
+                                .hover(move |d| d.bg(ui.sidebar_hover).text_color(ui.text_primary))
                                 .on_click(cx.listener(move |this, _, window, cx| this.reopen_recent(&sid, window, cx)))
                                 .child(div().flex_1().min_w_0().truncate().child(r.title.clone()))
                                 .child(div().flex_none().text_size(px(11. * k)).child(format!("↺ {}", ago(r.ended_at)))),
@@ -127,7 +127,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             .border_color(ui.border)
             .flex()
             .items_center()
-            .hover(move |d| d.bg(ui.bg_hover))
+            .hover(move |d| d.bg(ui.sidebar_hover))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
     };
 
@@ -144,6 +144,9 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         .flex()
         .flex_col()
         .bg(ui.bg_sidebar)
+        // The edge hairline is drawn first and under everything, so the selected row (and its
+        // curves) can paint over it where it joins the terminal; a border can't be covered.
+        .child(div().absolute().top_0().bottom_0().right_0().w(px(1.)).bg(ui.sidebar_edge))
         // Title-bar strip: traffic lights, then back / forward; drags the window.
         .child(
             div()
@@ -222,6 +225,8 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                     .right_0()
                     .pb(px(4.))
                     .bg(ui.bg_sidebar)
+                    .border_r_1()
+                    .border_color(ui.sidebar_edge)
                     .shadow_sm()
                     .child(group_header(ws, &key, &tabs, true, cx))
             })),
@@ -257,7 +262,7 @@ fn group_header(ws: &Workspace, key: &std::path::Path, tabs: &[usize], sticky: b
         .flex()
         .items_center()
         .gap(px(8.))
-        .hover(move |d| d.bg(ui.bg_hover))
+        .hover(move |d| d.bg(ui.sidebar_hover))
         .when(auto_folded, |d| d.tooltip(crate::tooltip::text(ui, QUIET_HELP)))
         .on_mouse_down(MouseButton::Right, cx.listener({
             let key = key.clone();
@@ -347,7 +352,7 @@ fn group_header(ws: &Workspace, key: &std::path::Path, tabs: &[usize], sticky: b
                 .flex()
                 .gap(px(2.))
                 .rounded(px(6.))
-                .bg(ui.bg_hover)
+                .bg(ui.sidebar_hover)
                 .invisible()
                 .group_hover(gid, |s| s.visible())
                 .child(
@@ -383,7 +388,7 @@ fn ghost(id: &'static str, ui: UiColors) -> gpui::Stateful<Div> {
         .flex()
         .items_center()
         .justify_center()
-        .hover(move |d| d.bg(ui.bg_hover))
+        .hover(move |d| d.bg(ui.sidebar_hover))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
 }
 
@@ -403,7 +408,7 @@ fn quiet_row(ui: UiColors, k: f32, id: String) -> gpui::Stateful<Div> {
         .gap(px(6.))
         .text_size(px(12. * k))
         .text_color(ui.text_tertiary)
-        .hover(move |d| d.bg(ui.bg_hover).text_color(ui.text_secondary))
+        .hover(move |d| d.bg(ui.sidebar_hover).text_color(ui.text_secondary))
 }
 
 /// Group marker: filled with the group's color, else an outline ring.
@@ -527,12 +532,28 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
     if selected {
         // Selected: filled with the terminal background, flush to the sidebar's right edge so the
         // row reads as part of the terminal; 3px accent bar inset 7px top and bottom.
+        // Design v3-o C1: the row and the terminal are one surface. It reaches over the edge
+        // hairline, and 8 px concave curves above and below flare it into the terminal.
+        let fillet = |top: bool| {
+            div()
+                .absolute()
+                .right_0()
+                .when(top, |d| d.top(px(-R)))
+                .when(!top, |d| d.bottom(px(-R)))
+                .w(px(R))
+                .h(px(R))
+                .bg(ui.bg_terminal)
+                .child(div().size(px(R)).bg(ui.bg_sidebar).when(top, |d| d.rounded_br(px(R))).when(!top, |d| d.rounded_tr(px(R))))
+        };
+        const R: f32 = 8.;
         el = el
             .bg(ui.bg_terminal)
-            .rounded_l(px(6.))
+            .rounded_l(px(R))
+            .child(fillet(true))
+            .child(fillet(false))
             .child(div().absolute().left_0().top(px(7.)).bottom(px(7.)).w(px(3.)).rounded(px(2.)).bg(ws.group_color(&tab.group).unwrap_or(ui.accent)));
     } else {
-        el = el.mr(px(INSET)).rounded(px(6.)).hover(move |d| d.bg(ui.bg_hover));
+        el = el.mr(px(INSET)).rounded(px(6.)).hover(move |d| d.bg(ui.sidebar_hover));
     }
     el.into_any_element()
 }
@@ -733,7 +754,7 @@ fn nav_button(ws: &Workspace, back: bool, cx: &mut Context<Workspace>) -> impl I
         // Don't drag the window from the buttons.
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .when(enabled, |d| {
-            d.hover(move |d| d.bg(ui.bg_hover).text_color(ui.text_primary))
+            d.hover(move |d| d.bg(ui.sidebar_hover).text_color(ui.text_primary))
                 .on_click(cx.listener(move |this, _, window, cx| this.navigate(back, window, cx)))
         })
         .child(if back { "‹" } else { "›" })
@@ -978,7 +999,7 @@ fn needs_area(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement>
             .flex()
             .items_center()
             .gap(px(7.))
-            .hover(move |d| d.bg(ui.bg_hover))
+            .hover(move |d| d.bg(ui.sidebar_hover))
     };
     let mut area = div().flex_none().mb(px(8.)).flex().flex_col().gap(px(2.));
     if queue.is_empty() {
@@ -1027,7 +1048,7 @@ fn needs_area(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement>
                 .flex()
                 .items_center()
                 .gap(px(8.))
-                .hover(move |d| d.bg(ui.bg_hover))
+                .hover(move |d| d.bg(ui.sidebar_hover))
                 .on_click(cx.listener(move |this, _, window, cx| this.activate(i, window, cx)))
                 .child(div().flex_1().min_w_0().truncate().text_size(px(12.5 * k)).text_color(ui.text_primary).child(t.title()))
                 .child(div().flex_none().text_size(px(11. * k)).text_color(tone).child(needs_reason(t)))

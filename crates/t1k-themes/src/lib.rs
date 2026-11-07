@@ -54,6 +54,10 @@ pub struct UiColors {
     pub bg_terminal: Hsla,
     pub bg_raised: Hsla,
     pub bg_hover: Hsla,
+    /// Hover fill on the sidebar (its own shade, since the sidebar isn't the terminal's).
+    pub sidebar_hover: Hsla,
+    /// Hairline between the sidebar and the terminal (broken where the selected tab joins).
+    pub sidebar_edge: Hsla,
     pub bg_selected: Hsla,
     pub bg_control: Hsla,
     pub border: Hsla,
@@ -131,11 +135,16 @@ impl Theme {
         let hc = self.is_high_contrast();
         // Text tiers and fills: (normal, high contrast).
         let t = |n: f32, h: f32| if hc { h } else { n };
+        let sidebar = mix(bg, fg, if self.is_dark() { t(0.05, 0.1) } else { t(0.12, 0.1) });
         let shade = if self.is_dark() { 0x000000 } else { 0x6b7280 };
         let accent = self.accent.unwrap_or(if self.is_dark() { self.ansi[12] } else { self.ansi[4] });
         UiColors {
             bg_chrome: hsla(mix(bg, shade, if self.is_dark() { 0.18 } else { 0.07 }), 1.),
-            bg_sidebar: hsla(mix(bg, shade, if self.is_dark() { 0.25 } else { 0.10 }), 1.),
+            // Design v3-o S3: shaded toward the theme's own text color (lighter than the
+            // terminal in dark, darker in light), so warm themes stay warm.
+            bg_sidebar: hsla(sidebar, 1.),
+            sidebar_hover: hsla(mix(sidebar, fg, t(0.06, 0.12)), 1.),
+            sidebar_edge: hsla(fg, t(0.08, 0.45)),
             bg_terminal: hsla(bg, 1.),
             bg_raised: hsla(mix(bg, fg, 0.04), 1.),
             bg_hover: hsla(mix(bg, fg, t(0.06, 0.1)), 1.),
