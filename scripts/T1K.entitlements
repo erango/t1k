@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for the Developer ID build.
+  Empty on purpose: T1K is not sandboxed, and the shells and agents it runs are
+  separate binaries with their own signatures. Add a key only when a concrete
+  hardened-runtime failure needs it.
+-->
+<plist version="1.0">
+<dict/>
+</plist>

@@ -60,4 +60,4 @@ limit.
 
 - Commit messages: imperative summary with a type prefix (`feat(sidebar):`, `fix(terminal):`, `design:`, `perf:`, `docs:`), then a body that says what changed for the user and why.
 - Comments explain why, not what. User-facing copy is plain and short.
-- macOS only for now. The app bundle is ad-hoc signed by `bundle.sh`.
+- macOS only for now. `bundle.sh` signs with the first "Developer ID Application" identity in the keychain (hardened runtime, `scripts/T1K.entitlements`), or `T1K_SIGN_IDENTITY` (`-` for ad-hoc). Notarize with `T1K_NOTARY_PROFILE=<profile> ./scripts/notarize.sh target/release/T1K.app` (profile from `xcrun notarytool store-credentials`; the existing `kompass` profile works).

@@ -41,8 +41,28 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Ad-hoc signature so macOS runs it locally.
-codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || true
+# Signing. T1K_SIGN_IDENTITY names a "Developer ID Application: ..." identity in the
+# keychain; when unset, the first Developer ID identity found is used. Distribution
+# signing needs the hardened runtime and a secure timestamp (both required for
+# notarization, see scripts/notarize.sh). T1K_SIGN_IDENTITY=- forces an ad-hoc signature.
+IDENTITY=${T1K_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -1)}
+if [ -n "$IDENTITY" ] && [ "$IDENTITY" != "-" ]; then
+  # Nested code (Sparkle) is signed inside-out before the app itself.
+  if [ -d "$APP/Contents/Frameworks/Sparkle.framework" ]; then
+    SP="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"
+    for c in "$SP/XPCServices/Installer.xpc" "$SP/XPCServices/Downloader.xpc" "$SP/Autoupdate" "$SP/Updater.app"; do
+      [ -e "$c" ] && codesign --force --options runtime --timestamp --sign "$IDENTITY" "$c"
+    done
+    codesign --force --options runtime --timestamp --sign "$IDENTITY" "$APP/Contents/Frameworks/Sparkle.framework"
+  fi
+  codesign --force --options runtime --timestamp \
+    --entitlements scripts/T1K.entitlements --sign "$IDENTITY" "$APP"
+  codesign --verify --strict --verbose=1 "$APP"
+  echo "Signed with $IDENTITY"
+else
+  codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || true
+  echo "Ad-hoc signed"
+fi
 echo "Built $APP"
 
 if [ "${1:-}" = "--install" ]; then
