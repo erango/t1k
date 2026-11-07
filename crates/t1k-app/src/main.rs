@@ -18,6 +18,7 @@ mod groups;
 mod helper;
 mod helper_cli;
 mod icons;
+mod rail;
 mod reminders;
 mod session;
 mod settings;

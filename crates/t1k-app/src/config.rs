@@ -58,6 +58,11 @@ title = "auto"
 second_line = "none"
 # Show a detail card when the pointer rests on a tab.
 hover_card = true
+# What ⌘\\ and dragging the edge to the window's side fold the sidebar to: "rail" (a slim
+# strip of tab icons that still shows what needs you) or "hidden".
+collapsed = "rail"
+# Rest the pointer on the rail this long to see the full sidebar over the terminal. 0: never.
+peek_ms = 400
 
 [links]
 # ⌘-click a file path to open it. Empty picks the first of Zed, Cursor, VS Code, else the
@@ -297,6 +302,8 @@ pub struct SidebarCfg {
     pub title: String,
     pub second_line: String,
     pub hover_card: bool,
+    pub collapsed: String,
+    pub peek_ms: u64,
 }
 
 impl Default for Config {
@@ -347,6 +354,8 @@ impl Default for SidebarCfg {
             title: "auto".into(),
             second_line: "none".into(),
             hover_card: true,
+            collapsed: "rail".into(),
+            peek_ms: 400,
         }
     }
 }

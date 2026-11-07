@@ -162,6 +162,12 @@ pub struct Workspace {
     pub group_colors: HashMap<PathBuf, u8>,
     pub group_sort: HashMap<PathBuf, session::GroupSort>,
     pub sidebar_open: bool,
+    /// Live sidebar-edge drag: what releasing would do.
+    pub sidebar_drag: Option<crate::rail::DragPreview>,
+    /// The full sidebar shown over the terminal from the rail.
+    pub peek: bool,
+    pub peek_gen: u64,
+    pub peek_task: Option<Task<()>>,
     /// Sidebar shows two-line rows (hover intent or ⌥ held).
     /// Tab id whose detail card is showing (hover intent on a sidebar row).
     pub card: Option<String>,
@@ -300,6 +306,10 @@ impl Workspace {
             group_colors: saved.group_colors.iter().cloned().collect(),
             group_sort: saved.group_sort.iter().cloned().collect(),
             sidebar_open: saved.sidebar_open.unwrap_or(true),
+            sidebar_drag: None,
+            peek: false,
+            peek_gen: 0,
+            peek_task: None,
             card: None,
             alt_held: false,
             hover_task: None,
@@ -400,6 +410,23 @@ impl Workspace {
         }
         if first_launch {
             this.open_overlay(Overlay::Welcome, window, cx);
+        }
+        // Debug aid: T1K_DEBUG_SIDEBAR=rail|hidden|peek|drag:<x> starts collapsed / peeking /
+        // mid-drag with the pointer at x.
+        match std::env::var("T1K_DEBUG_SIDEBAR").as_deref() {
+            Ok("rail") => this.sidebar_open = false,
+            Ok("hidden") => {
+                this.sidebar_open = false;
+                this.config.sidebar.collapsed = "hidden".into();
+            }
+            Ok("peek") => {
+                this.sidebar_open = false;
+                this.peek = true;
+            }
+            Ok(d) if d.starts_with("drag:") => {
+                this.sidebar_drag = d[5..].parse::<f32>().ok().map(crate::rail::preview_for);
+            }
+            _ => {}
         }
         // Debug aid: T1K_DEBUG_AGENT=working|needs|error|done fakes a Claude session on the
         // active tab, for screenshots of the strip, sidebar and card.
@@ -1219,7 +1246,9 @@ impl Workspace {
     }
 
     fn toggle_sidebar(&mut self, _: &ToggleSidebar, _: &mut Window, cx: &mut Context<Self>) {
-        self.sidebar_open = !self.sidebar_open;
+        // ⌘\ while peeking pins the sidebar open.
+        self.sidebar_open = !self.sidebar_open || self.peek;
+        self.peek = false;
         self.save();
         cx.notify();
     }
@@ -1479,13 +1508,39 @@ impl Render for Workspace {
         let root = select!(root, SelectTab1 => 0, SelectTab2 => 1, SelectTab3 => 2, SelectTab4 => 3,
             SelectTab5 => 4, SelectTab6 => 5, SelectTab7 => 6, SelectTab8 => 7, SelectTab9 => 8);
 
-        let sidebar = self.sidebar_open.then(|| crate::sidebar::render(self, cx));
+        use crate::rail::Shown;
+        let shown = self.sidebar_shown();
+        let sidebar = match shown {
+            Shown::Full(_) => Some(crate::sidebar::render(self, cx)),
+            Shown::Rail => Some(crate::rail::render(self, cx)),
+            Shown::Hidden => None,
+        };
+        // From the rail: the full sidebar over the terminal, not resizing it.
+        let peek = (self.peek && shown == Shown::Rail).then(|| {
+            div()
+                .id("peek")
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .left(px(crate::rail::RAIL_W))
+                .flex()
+                .shadow_lg()
+                .occlude()
+                .on_hover(cx.listener(|this, over: &bool, _, cx| this.rail_hover(*over, cx)))
+                .child(crate::sidebar::render(self, cx))
+        });
+        let readout = crate::rail::readout(self);
         let overlay = crate::overlay::render(self, window, cx);
         // The file viewer and the outputs panel share the right side; the viewer wins.
         let panel = match &self.viewer {
             Some(v) => Some(crate::viewer::render(self, v, cx)),
             None => self.panel.open.then(|| crate::outputs_panel::render(self, cx)),
         };
+        let root = root
+            .on_drag_move::<crate::rail::EdgeDrag>(cx.listener(|this, ev: &gpui::DragMoveEvent<crate::rail::EdgeDrag>, _, cx| {
+                this.sidebar_drag_move(ev.event.position.x, cx)
+            }))
+            .capture_any_mouse_up(cx.listener(Self::sidebar_drag_end));
         root.relative().children(sidebar).child(
             div()
                 .flex_1()
@@ -1497,6 +1552,8 @@ impl Render for Workspace {
                 .child(div().flex_1().min_h_0().children(active_view)),
         )
         .children(panel)
+        .children(peek)
+        .children(readout)
         .children(overlay)
     }
 }

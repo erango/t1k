@@ -131,9 +131,14 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
     };
 
+    let width = match ws.sidebar_shown() {
+        crate::rail::Shown::Full(w) => w,
+        _ => ws.config.sidebar.width.clamp(crate::rail::MIN_W, crate::rail::MAX_W),
+    };
     div()
         .id("sidebar")
-        .w(px(ws.config.sidebar.width.clamp(200., 480.)))
+        .relative()
+        .w(px(width))
         .flex_none()
         .h_full()
         .flex()
@@ -206,6 +211,8 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 )
         )
         .children(attention(ws, cx))
+        // Peeking from the rail, the edge isn't draggable (the rail's is).
+        .when(!ws.peek, |d| d.child(crate::rail::edge(ws, cx)))
         .child(
             div().relative().flex_1().min_h_0().child(list).children(sticky.map(|(key, tabs, dy)| {
                 div()

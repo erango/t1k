@@ -51,6 +51,7 @@ Debug environment variables (all read at launch):
 | `T1K_DEBUG_HINTS=1`, `T1K_DEBUG_FIND=<query>` | Starts terminals in hint mode / with the find bar open |
 | `T1K_DEBUG_DUMP=<file>` | Writes the sidebar model as text on changes |
 | `T1K_PROFILE=1` | Logs frame build/paint times |
+| `T1K_DEBUG_SIDEBAR=rail\|hidden\|peek\|drag:<x>` | Starts with the sidebar collapsed, peeking from the rail, or mid-drag with the pointer at x |
 | `T1K_FRESH=1` | Ignores the saved tabs |
 
 Run against an isolated HOME so your real session and config stay untouched, e.g.

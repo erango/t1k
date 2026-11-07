@@ -143,7 +143,12 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
         .items_center()
         .gap(px(12.))
         .pr(px(12.))
-        .pl(px(if ws.sidebar_open { 18. } else { 84. }))
+        .pl(px(match ws.sidebar_shown() {
+            crate::rail::Shown::Full(_) => 18.,
+            // The traffic lights straddle the rail and the strip.
+            crate::rail::Shown::Rail => 84. - crate::rail::RAIL_W,
+            crate::rail::Shown::Hidden => 84.,
+        }))
         .relative()
         .bg(ui.bg_terminal)
         .when_some(alarm, |d, c| {
