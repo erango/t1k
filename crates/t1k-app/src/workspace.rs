@@ -1922,6 +1922,6 @@ fn restored_banner(mut bytes: Vec<u8>) -> Vec<u8> {
     if bytes.is_empty() {
         return bytes;
     }
-    bytes.extend_from_slice(b"\x1b[0m\x1b[2m\xe2\x94\x80\xe2\x94\x80 restored from the last session \xe2\x94\x80\xe2\x94\x80\x1b[0m\r\n");
+    bytes.extend_from_slice(format!("\x1b[0m\x1b[2m{}\x1b[0m\r\n", t1k_terminal::terminal::RESTORED_BANNER).as_bytes());
     bytes
 }

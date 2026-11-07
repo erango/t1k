@@ -1102,7 +1102,7 @@ mod profile {
 const PROMPT_MARK: &str = "t1k://prompt";
 
 /// Lines (grid coordinates, history negative) where a marked prompt begins, oldest first.
-fn prompt_starts<T>(term: &alacritty_terminal::Term<T>) -> Vec<i32> {
+pub(crate) fn prompt_starts<T>(term: &alacritty_terminal::Term<T>) -> Vec<i32> {
     use alacritty_terminal::index::{Column, Line};
     let grid = term.grid();
     let cols = term.columns().min(16);

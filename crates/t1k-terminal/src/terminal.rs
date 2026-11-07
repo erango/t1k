@@ -318,7 +318,15 @@ impl Terminal {
     /// reflows to the next window's width. Empty when the screen is an alternate one (vim,
     /// htop), whose contents mean nothing once the program is gone.
     pub fn snapshot(&self, max_lines: usize) -> Vec<u8> {
-        snapshot_term(&self.term.lock(), max_lines)
+        // At a shell prompt, stop before it: the next launch prints a fresh one, and saving
+        // it would stack one more prompt per restart.
+        let idle = self.foreground_name().is_none_or(|n| SHELLS.contains(&n.trim_start_matches('-')));
+        let term = self.term.lock();
+        let cut = idle.then(|| {
+            let cursor = term.grid().cursor.point.line.0;
+            crate::view::prompt_starts(&*term).into_iter().filter(|&l| l <= cursor).last().unwrap_or(cursor)
+        });
+        snapshot_term(&term, max_lines, cut)
     }
 
     /// The last `n` non-blank lines of the screen (for previews), oldest first.
@@ -364,7 +372,27 @@ impl Drop for Terminal {
 }
 
 /// See `Terminal::snapshot`.
-pub fn snapshot_term<T>(term: &Term<T>, max_lines: usize) -> Vec<u8> {
+/// The line put under restored scrollback; never saved again.
+pub const RESTORED_BANNER: &str = "── restored from the last session ──";
+
+const SHELLS: &[&str] = &["zsh", "bash", "fish", "sh", "login", "nu", "xonsh"];
+
+fn plain(ansi: &str) -> String {
+    let mut out = String::new();
+    let mut esc = false;
+    for c in ansi.chars() {
+        match (esc, c) {
+            (false, '\x1b') => esc = true,
+            (true, c) if c.is_ascii_alphabetic() => esc = false,
+            (true, _) => {}
+            (false, c) => out.push(c),
+        }
+    }
+    out
+}
+
+/// `cut`: a line to stop before (the shell's current prompt), if any.
+pub fn snapshot_term<T>(term: &Term<T>, max_lines: usize, cut: Option<i32>) -> Vec<u8> {
     use alacritty_terminal::grid::Dimensions;
     use alacritty_terminal::index::{Column, Line};
     use alacritty_terminal::term::cell::Flags;
@@ -378,7 +406,10 @@ pub fn snapshot_term<T>(term: &Term<T>, max_lines: usize) -> Vec<u8> {
     let cols = term.columns();
     // Down to the last line with text (a TUI's status line can sit below the cursor).
     let blank = |l: i32| (0..cols).all(|c| matches!(grid[Line(l)][Column(c)].c, ' ' | '\0'));
-    let mut last = term.bottommost_line().0;
+    let mut last = cut.map(|c| c - 1).unwrap_or(term.bottommost_line().0);
+    if last < term.topmost_line().0 {
+        return Vec::new();
+    }
     while last > term.topmost_line().0 && blank(last) {
         last -= 1;
     }
@@ -443,7 +474,28 @@ pub fn snapshot_term<T>(term: &Term<T>, max_lines: usize) -> Vec<u8> {
             style = None;
         }
     }
-    out.into_bytes()
+    // Drop banners from earlier restores, and the stale prompt saved just above each one
+    // by older versions, so restarting never piles them up.
+    let prompt = cut.map(|l| {
+        let row = &grid[Line(l)];
+        (0..cols).map(|c| row[Column(c)].c).collect::<String>().replace('\0', " ").trim().to_string()
+    });
+    let mut kept: Vec<&str> = Vec::new();
+    for line in out.split_inclusive("\r\n") {
+        let text = plain(line);
+        if text.trim() == RESTORED_BANNER {
+            if kept.last().is_some_and(|p| prompt.as_deref().is_some_and(|q| !q.is_empty() && plain(p).trim() == q)) {
+                kept.pop();
+            }
+            continue;
+        }
+        kept.push(line);
+    }
+    // Leading blank lines left behind by what was dropped.
+    while kept.first().is_some_and(|l| plain(l).trim().is_empty()) {
+        kept.remove(0);
+    }
+    kept.concat().into_bytes()
 }
 
 #[cfg(test)]
@@ -462,21 +514,34 @@ mod snapshot_tests {
     #[test]
     fn snapshot_round_trips_text_and_color() {
         let src = term_with(b"plain\r\n\x1b[31mred\x1b[0m and \x1b[1mbold\x1b[0m\r\n$ ", 40);
-        let snap = snapshot_term(&src, 100);
+        let snap = snapshot_term(&src, 100, None);
         let text = String::from_utf8(snap.clone()).unwrap();
         assert!(text.contains("plain"));
         assert!(text.contains("\x1b[0;31mred"), "{text:?}");
         assert!(text.contains("\x1b[0;1mbold"), "{text:?}");
         // Replaying the snapshot shows the same lines.
         let again = term_with(&snap, 40);
-        assert_eq!(String::from_utf8(snapshot_term(&again, 100)).unwrap(), text);
+        assert_eq!(String::from_utf8(snapshot_term(&again, 100, None)).unwrap(), text);
+    }
+
+    #[test]
+    fn restarts_do_not_pile_up_prompts_and_banners() {
+        // What an older version saved: output, the prompt, the banner, and again.
+        let old = format!("ls\r\nfile.txt\r\n$ \r\n{RESTORED_BANNER}\r\n$ \r\n{RESTORED_BANNER}\r\n$ ");
+        let src = term_with(old.as_bytes(), 40);
+        let cursor = src.grid().cursor.point.line.0;
+        let text = String::from_utf8(snapshot_term(&src, 100, Some(cursor))).unwrap();
+        let p = plain(&text);
+        assert!(p.contains("file.txt"), "{p:?}");
+        assert!(!p.contains("restored"), "{p:?}");
+        assert!(!p.contains('$'), "{p:?}");
     }
 
     #[test]
     fn wrapped_lines_stay_joined() {
         let long = "x".repeat(25);
         let src = term_with(format!("{long}\r\n").as_bytes(), 10);
-        let text = String::from_utf8(snapshot_term(&src, 100)).unwrap();
+        let text = String::from_utf8(snapshot_term(&src, 100, None)).unwrap();
         assert!(text.contains(&long), "{text:?}");
     }
 }
