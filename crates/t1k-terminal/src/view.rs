@@ -1072,7 +1072,7 @@ fn build_frame(view: &TerminalView, focused: bool) -> Frame {
 }
 
 /// With T1K_PROFILE=1, log average and worst build/paint times every 120 frames.
-mod profile {
+pub mod profile {
     use std::cell::RefCell;
     use std::time::Duration;
 

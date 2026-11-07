@@ -67,7 +67,7 @@ fn set<V: Into<toml_edit::Value>>(keys: &'static [&'static str], v: V) {
     config::set_value(keys, v.into());
 }
 
-/// A setting row (design: label, description, config key; the key lights up on hover).
+/// A setting row: label and description. The config key isn't shown (search still finds it).
 fn row(ui: UiColors, e: Entry, n: usize) -> impl IntoElement {
     let gid = SharedString::from(format!("setting-{n}"));
     div()
@@ -90,15 +90,7 @@ fn row(ui: UiColors, e: Entry, n: usize) -> impl IntoElement {
                 .flex_col()
                 .gap(px(2.))
                 .child(div().text_size(px(13.)).text_color(ui.text_primary).child(e.label))
-                .when(!e.desc.is_empty(), |d| d.child(div().text_size(px(12.)).text_color(ui.text_tertiary).child(e.desc)))
-                .child(
-                    div()
-                        .text_size(px(10.5))
-                        .font_family("JetBrains Mono")
-                        .text_color(ui.text_disabled)
-                        .group_hover(gid, move |s| s.text_color(ui.accent))
-                        .child(e.key),
-                ),
+                .when(!e.desc.is_empty(), |d| d.child(div().text_size(px(12.)).text_color(ui.text_tertiary).child(e.desc))),
         )
         .child(div().flex_none().child(e.control))
 }
@@ -124,9 +116,9 @@ fn pill(ui: UiColors, id: String, label: String, on: bool) -> gpui::Stateful<gpu
         .flex()
         .items_center()
         .text_size(px(12.))
-        .text_color(if on { ui.text_primary } else { ui.text_secondary })
-        .bg(if on { ui.accent.opacity(0.28) } else { ui.bg_control })
-        .hover(move |d| d.bg(ui.accent.opacity(0.18)))
+        // The chosen one is filled with the accent, so it's clear at a glance which is on.
+        .when(on, |d| d.bg(ui.accent).text_color(gpui::white()).font_weight(FontWeight::MEDIUM))
+        .when(!on, |d| d.bg(ui.bg_control).text_color(ui.text_secondary).hover(move |d| d.bg(ui.accent.opacity(0.18))))
         .child(label)
 }
 
@@ -297,13 +289,13 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
     let agent_rows: Vec<Entry> = t1k_agent::agents::AgentKind::ALL
         .into_iter()
         .map(|kind| {
-            let found = crate::agent_setup::detected(kind);
-            let done = crate::agent_setup::installed(kind);
+            let (found, done) = agent_status(kind);
             let control = if done {
                 div().text_size(px(12.)).text_color(ui.status_done).child("✓ Connected").into_any_element()
             } else if found {
                 pill(ui, format!("hooks-{}", kind.id()), "Install hooks".into(), true)
                     .on_click(cx.listener(move |this, _, _, cx| {
+                        forget_agent_status();
                         if let Err(e) = crate::agent_setup::install(kind) {
                             log::error!("install {} hooks: {e}", kind.label());
                         }
@@ -361,7 +353,7 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
             seg(ui, "mode", &c.appearance, &[("system", "System"), ("dark", "Dark"), ("light", "Light")], &["appearance"], cx)),
         e(Appearance, "App", "App icon", "In the Dock; it turns red while a tab needs you", "interface.app_icon", "icon dock logo face prompt wordmark",
             icon_picker(ui, &c.interface.app_icon, cx)),
-        e(Interface, "Sidebar", "Density", "Row height: 28 / 32 / 36", "interface.density", "compact spacious rows",
+        e(Interface, "Sidebar", "Density", "Row height: 28 / 34 / 40", "interface.density", "compact spacious rows",
             seg(ui, "density", &c.interface.density, &[("compact", "Compact"), ("comfortable", "Comfortable"), ("spacious", "Spacious")], &["interface", "density"], cx)),
         e(Interface, "Sidebar", "UI text size", "Sidebar and panels; the terminal has its own size", "interface.text_size", "font size scale",
             stepper(ui, "uits", c.interface.text_size as f64, 1., (10., 18.), &["interface", "text_size"], |v| format!("{v:.0} px"), cx).into_any_element()),
@@ -555,24 +547,6 @@ fn page(ws: &Workspace, section: Section, query: &str, window: &mut Window, cx: 
                         .child("Import more: drop a Ghostty, iTerm2, Alacritty, Windows Terminal or base16 file on the window, or run `t1k theme import <file>`."),
                 );
         }
-        Section::Terminal => {
-            let c = &ws.config;
-            body = body.child(
-                div()
-                    .p(px(12.))
-                    .rounded(px(8.))
-                    .bg(ui.bg_terminal)
-                    .border_1()
-                    .border_color(ui.border)
-                    .font_family(SharedString::from(c.terminal.font.family.clone()))
-                    .text_size(px(c.terminal.font.size))
-                    .line_height(gpui::relative(c.terminal.font.line_height))
-                    .text_color(ui.text_primary)
-                    .child("fn main() { println!(\"0O 1lI {} => != ->\"); }")
-                    .child("● Bash(cargo test)  ⎿ 212/388  ✳ ⏵⏵")
-                    .child(div().text_color(ui.link).child("https://github.com/erango/t1k/pull/12")),
-            );
-        }
         Section::Keybindings => {
             body = body.child(
                 div().text_size(px(12.)).text_color(ui.text_tertiary).child(
@@ -663,8 +637,45 @@ fn key_row(ws: &Workspace, b: &'static crate::keymap::Bind, cx: &mut Context<Wor
         .into_any_element()
 }
 
-/// Installed font families that look monospaced (by name), with the configured one first.
+// Settings is rebuilt every frame while it's open (scrolling, typing a search). Reading the
+// agents' config files and listing every installed font each time made it stutter, so both
+// are kept for a few seconds.
+type Cached<T> = std::cell::RefCell<Option<(std::time::Instant, T)>>;
+
+thread_local! {
+    static AGENTS: Cached<Vec<(bool, bool)>> = const { std::cell::RefCell::new(None) };
+    static FONTS: Cached<Vec<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// (found on this Mac, hooks installed) for an agent, re-read at most every 3 s.
+fn agent_status(kind: t1k_agent::agents::AgentKind) -> (bool, bool) {
+    AGENTS.with(|c| {
+        let mut c = c.borrow_mut();
+        if c.as_ref().is_none_or(|(at, _)| at.elapsed().as_secs() >= 3) {
+            let all = t1k_agent::agents::AgentKind::ALL.iter().map(|&k| (crate::agent_setup::detected(k), crate::agent_setup::installed(k))).collect();
+            *c = Some((std::time::Instant::now(), all));
+        }
+        let ix = t1k_agent::agents::AgentKind::ALL.iter().position(|&k| k == kind).unwrap_or(0);
+        c.as_ref().and_then(|(_, v)| v.get(ix).copied()).unwrap_or((false, false))
+    })
+}
+
+fn forget_agent_status() {
+    AGENTS.with(|c| *c.borrow_mut() = None);
+}
+
 fn monospace_fonts(window: &Window) -> Vec<String> {
+    FONTS.with(|c| {
+        let mut c = c.borrow_mut();
+        if c.as_ref().is_none_or(|(at, _)| at.elapsed().as_secs() >= 30) {
+            *c = Some((std::time::Instant::now(), list_monospace_fonts(window)));
+        }
+        c.as_ref().map(|(_, v)| v.clone()).unwrap_or_default()
+    })
+}
+
+/// Installed font families that look monospaced (by name), with the configured one first.
+fn list_monospace_fonts(window: &Window) -> Vec<String> {
     const HINTS: [&str; 12] =
         ["mono", "menlo", "monaco", "courier", "code", "consolas", "iosevka", "hack", "fira", "meslo", "jetbrains", "sf mono"];
     let mut names: Vec<String> = window
@@ -683,12 +694,39 @@ fn monospace_fonts(window: &Window) -> Vec<String> {
     names
 }
 
+/// A few lines in the terminal font, pinned under the Terminal page so font changes show
+/// while scrolling through the settings.
+fn terminal_preview(ws: &Workspace) -> impl IntoElement {
+    let ui = ws.ui;
+    let c = &ws.config;
+    div()
+        .p(px(12.))
+        .rounded(px(8.))
+        .bg(ui.bg_terminal)
+        .border_1()
+        .border_color(ui.border)
+        .font_family(SharedString::from(c.terminal.font.family.clone()))
+        .text_size(px(c.terminal.font.size))
+        .line_height(gpui::relative(c.terminal.font.line_height))
+        .text_color(ui.text_primary)
+        .child("fn main() { println!(\"0O 1lI {} => != ->\"); }")
+        .child("● Bash(cargo test)  ⎿ 212/388  ✳ ⏵⏵")
+        .child(div().text_color(ui.link).child("https://github.com/erango/t1k/pull/12"))
+}
+
 pub fn claude_hooks_installed() -> bool {
     let Some(home) = std::env::var_os("HOME") else { return false };
     std::fs::read_to_string(std::path::Path::new(&home).join(".claude/settings.json")).is_ok_and(|s| s.contains("T1K_BIN"))
 }
 
 pub fn render(ws: &Workspace, section: Section, window: &mut Window, cx: &mut Context<Workspace>) -> AnyElement {
+    let t0 = std::time::Instant::now();
+    let out = render_inner(ws, section, window, cx);
+    t1k_terminal::view::profile::record("settings", t0.elapsed());
+    out
+}
+
+fn render_inner(ws: &Workspace, section: Section, window: &mut Window, cx: &mut Context<Workspace>) -> AnyElement {
     let ui = ws.ui;
     let query = ws.settings_query.clone();
     let searching = !query.trim().is_empty();
@@ -770,7 +808,34 @@ pub fn render(ws: &Workspace, section: Section, window: &mut Window, cx: &mut Co
         .relative()
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(nav)
-        .child(div().id("settings-body").flex_1().min_w_0().overflow_y_scroll().px(px(28.)).py(px(22.)).child(body))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .child(div().id("settings-body").flex_1().min_h_0().overflow_y_scroll().px(px(28.)).py(px(22.)).child(body))
+                // Sticky footer: the settings scroll under it; its shadow shows they do.
+                .when(section == Section::Terminal && !searching, |d| {
+                    d.child(
+                        div()
+                            .flex_none()
+                            .px(px(28.))
+                            .pt(px(12.))
+                            .pb(px(16.))
+                            .bg(ui.bg_raised)
+                            .border_t_1()
+                            .border_color(ui.border)
+                            .shadow(vec![gpui::BoxShadow {
+                                color: gpui::black().opacity(0.28),
+                                offset: gpui::point(px(0.), px(-6.)),
+                                blur_radius: px(14.),
+                                spread_radius: px(0.),
+                            }])
+                            .child(terminal_preview(ws)),
+                    )
+                }),
+        )
         .child(
             div()
                 .id("settings-close")

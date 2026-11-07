@@ -16,6 +16,25 @@ pub fn run(args: &[String]) -> bool {
             statusline(&args[2..]);
             true
         }
+        // List tabs open in other terminals (read-only). `--titles` also asks the apps that
+        // can say for tab names (macOS may ask to allow it).
+        Some("import") if args.iter().any(|a| a == "--list") => {
+            let mut found = crate::import::scan();
+            if args.iter().any(|a| a == "--titles") {
+                let mut sources: Vec<_> = found.iter().map(|f| f.source).collect();
+                sources.dedup();
+                crate::import::apply_titles(&mut found, &crate::import::titles(&sources));
+            }
+            for f in &found {
+                let home = std::env::var("HOME").unwrap_or_default();
+                let cwd = f.cwd.as_ref().map(|c| c.display().to_string().replacen(&home, "~", 1)).unwrap_or_default();
+                let claude = f.claude.as_ref().map(|c| format!("  claude {} ({})", &c.session_id[..8.min(c.session_id.len())], if c.busy { "busy" } else { "idle" })).unwrap_or_default();
+                let running = f.running.as_ref().map(|r| format!("  running: {r}")).unwrap_or_default();
+                let title = f.title.as_ref().map(|t| format!("  \"{t}\"")).unwrap_or_default();
+                println!("{:<9} {:<8} {cwd}{title}{claude}{running}", f.source.label(), f.tty);
+            }
+            true
+        }
         Some("theme") => {
             theme_cmd(&args[2..]);
             true

@@ -633,6 +633,7 @@ impl Workspace {
                 "overview" => Some(Overlay::Overview { selected: 0 }),
                 "settings" => Some(Overlay::Settings { section: crate::settings::Section::Appearance }),
                 "settings-interface" => Some(Overlay::Settings { section: crate::settings::Section::Interface }),
+                "settings-terminal" => Some(Overlay::Settings { section: crate::settings::Section::Terminal }),
                 "settings-advanced" => Some(Overlay::Settings { section: crate::settings::Section::Advanced }),
                 "update" => {
                     crate::updater::check_now();

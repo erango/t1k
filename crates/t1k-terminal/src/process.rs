@@ -98,6 +98,56 @@ pub fn started(_pid: i32) -> Option<std::time::SystemTime> {
     None
 }
 
+/// What the scanner needs about any process: parent, process group, controlling tty and
+/// the tty's foreground group.
+#[derive(Clone, Copy, Debug)]
+pub struct Info {
+    pub pid: i32,
+    pub ppid: i32,
+    pub pgid: i32,
+    /// Controlling terminal device (`u32::MAX`/0 when none).
+    pub tdev: u32,
+    pub tpgid: i32,
+    pub uid: u32,
+}
+
+#[cfg(target_os = "macos")]
+pub fn info(pid: i32) -> Option<Info> {
+    let mut b: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
+    let n = unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, &mut b as *mut _ as *mut libc::c_void, size) };
+    (n == size).then_some(Info { pid, ppid: b.pbi_ppid as i32, pgid: b.pbi_pgid as i32, tdev: b.e_tdev, tpgid: b.e_tpgid as i32, uid: b.pbi_uid })
+}
+
+/// Every process id on the system.
+#[cfg(target_os = "macos")]
+pub fn all_pids() -> Vec<i32> {
+    let n = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
+    if n <= 0 {
+        return Vec::new();
+    }
+    let mut buf = vec![0i32; n as usize + 64];
+    let n = unsafe { libc::proc_listallpids(buf.as_mut_ptr() as *mut libc::c_void, (buf.len() * 4) as i32) };
+    buf.truncate(n.max(0) as usize);
+    buf.retain(|&p| p > 0);
+    buf
+}
+
+/// Full path of a process's executable.
+#[cfg(target_os = "macos")]
+pub fn path(pid: i32) -> Option<String> {
+    let mut buf = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    let n = unsafe { libc::proc_pidpath(pid, buf.as_mut_ptr() as *mut libc::c_void, buf.len() as u32) };
+    (n > 0).then(|| String::from_utf8_lossy(&buf[..n as usize]).into_owned())
+}
+
+/// "ttys003" for a tty device number.
+#[cfg(target_os = "macos")]
+pub fn tty_name(dev: u32) -> Option<String> {
+    let p = unsafe { libc::devname(dev as libc::dev_t, libc::S_IFCHR) };
+    (!p.is_null()).then(|| unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned())
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

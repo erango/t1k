@@ -104,3 +104,4 @@ pub fn install_all() -> Vec<String> {
         })
         .collect()
 }
+

@@ -22,7 +22,7 @@ light = "Mercury Light"
 padding = 14
 option_as_meta = false
 # Copy text to the clipboard as soon as you finish selecting it.
-copy_on_select = false
+copy_on_select = true
 # zsh: mark each prompt so Cmd-Up / Cmd-Down jump between commands. Applies to new tabs.
 shell_integration = true
 # Where a new tab's first prompt appears: "bottom" (input stays where your eyes are) or "top".
@@ -341,7 +341,7 @@ impl Default for ThemeCfg {
 }
 impl Default for TerminalCfg {
     fn default() -> Self {
-        Self { padding: 14., option_as_meta: false, copy_on_select: false, restore_scrollback: true, resume_agents: true, shell_integration: true, prompt_gravity: "bottom".into(), font: FontCfg::default() }
+        Self { padding: 14., option_as_meta: false, copy_on_select: true, restore_scrollback: true, resume_agents: true, shell_integration: true, prompt_gravity: "bottom".into(), font: FontCfg::default() }
     }
 }
 impl Default for FontCfg {
