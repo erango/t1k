@@ -31,6 +31,10 @@ pub fn run(args: &[String]) -> bool {
             println!("The hooks do nothing outside T1K.");
             true
         }
+        Some("helper") => {
+            crate::helper_cli::run(&args[2..]);
+            true
+        }
         _ => false,
     }
 }

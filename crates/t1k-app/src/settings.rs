@@ -405,6 +405,33 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
             toggle(ui, "n-done", n.done, &["notify", "done"], cx).into_any_element()),
         e(Agents, "Notifications", "Dock badge", "Count of tabs that need you", "notify.dock_badge", "badge count icon",
             toggle(ui, "n-badge", n.dock_badge, &["notify", "dock_badge"], cx).into_any_element()),
+        e(Agents, "Helper", "Cheap-model helper", "Titles, recaps and ⌘↵ search for agents that don't write their own, through a CLI you already use", "helper.backend", "llm haiku gemini flash summary recap title search ai model cheap",
+            {
+                let mut opts: Vec<(&'static str, &'static str)> = vec![("off", "Off")];
+                for b in t1k_agent::helper::Backend::ALL {
+                    if b.find().is_some() || c.helper.backend == b.id() {
+                        opts.push((b.id(), b.label()));
+                    }
+                }
+                seg(ui, "helper", &c.helper.backend, &opts, &["helper", "backend"], cx)
+            }),
+        e(Agents, "Helper", "Name untitled sessions", "From the first prompt; Claude Code names its own", "helper.titles", "llm title name",
+            toggle(ui, "h-titles", c.helper.titles, &["helper", "titles"], cx).into_any_element()),
+        e(Agents, "Helper", "Recap each turn", "Sends the end of that tab's screen to the CLI's provider", "helper.recaps", "llm recap summary privacy",
+            toggle(ui, "h-recaps", c.helper.recaps, &["helper", "recaps"], cx).into_any_element()),
+        e(Agents, "Helper", "Search by meaning", "⌘↵ in Find tab (⌘P) ranks tabs by what they're about", "helper.search", "llm search switcher semantic",
+            toggle(ui, "h-search", c.helper.search, &["helper", "search"], cx).into_any_element()),
+        e(Agents, "Helper", "Last 7 days", "Time, tokens and cost of every helper call, measured", "helper.stats", "llm cost tokens usage benchmark",
+            div().flex().items_center().gap(px(10.))
+                .child(div().max_w(px(360.)).text_size(px(12.)).text_color(ui.text_tertiary).child(crate::helper::week().line()))
+                .child(pill(ui, "h-bench".into(), "Run benchmark".into(), false).on_click(cx.listener(|this, _, window, cx| {
+                    this.close_overlay(window, cx);
+                    this.open_tab(None, Some("Helper benchmark".into()), window, cx);
+                    let ix = this.tabs.len() - 1;
+                    let bin = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "t1k".into());
+                    this.tabs[ix].view.read(cx).terminal.write(format!("'{bin}' helper bench\r").into_bytes());
+                })))
+                .into_any_element()),
         e(Advanced, "Updates", "Check for updates automatically", "Once a day, in the background. Nothing interrupts you.", "updates.check", "update version sparkle auto",
             toggle(ui, "u-check", c.updates.check, &["updates", "check"], cx).into_any_element()),
         e(Advanced, "Updates", "Download updates automatically", "Have the update ready; you still choose when to restart", "updates.download", "update version sparkle",

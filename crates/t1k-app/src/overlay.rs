@@ -146,7 +146,26 @@ impl Workspace {
         scored.sort_by_key(|&(s, i)| {
             (!self.tabs[i].needs_you(), std::cmp::Reverse(s), self.tabs[i].urgency().min(2), std::cmp::Reverse(self.tabs[i].last_active))
         });
-        scored.into_iter().map(|(_, i)| i).collect()
+        let mut out: Vec<usize> = scored.into_iter().map(|(_, i)| i).collect();
+        // The helper's picks for this query lead, even where the words don't match.
+        let ranked = self.meaning_hits(query);
+        if !ranked.is_empty() {
+            out.retain(|i| !ranked.contains(i));
+            out.splice(0..0, ranked);
+        }
+        out
+    }
+
+    /// Tabs the helper ranked for `query` (⌘↵ in the switcher), best first, within the filter.
+    pub fn meaning_hits(&self, query: &str) -> Vec<usize> {
+        match &self.helper.search {
+            Some((q, Some(ids))) if q == query => ids
+                .iter()
+                .filter_map(|id| self.tabs.iter().position(|t| &t.id == id))
+                .filter(|&i| self.switcher_keeps(i, self.switcher_filter))
+                .collect(),
+            _ => Vec::new(),
+        }
     }
 
     /// Whether tab `i` passes a switcher filter chip.
@@ -193,6 +212,10 @@ impl Workspace {
         let overlay = std::mem::replace(&mut self.overlay, Overlay::None);
         let next = match overlay {
             Overlay::None => None,
+            Overlay::Switcher { query, .. } if ev.keystroke.key == "enter" && ev.keystroke.modifiers.platform => {
+                self.helper_search(&query, cx);
+                Some(Overlay::Switcher { query, selected: 0 })
+            }
             Overlay::Switcher { query, .. } if ev.keystroke.key == "tab" => {
                 self.switcher_filter = self.switcher_filter.step(ev.keystroke.modifiers.shift);
                 Some(Overlay::Switcher { query, selected: 0 })
@@ -431,12 +454,20 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
             let results = ws.switcher_results(query);
             let selected = *selected;
             // Sections: NEEDS YOU first, then everything else.
-            let needs_count = results.iter().take(9).filter(|&&i| ws.tabs[i].needs_you()).count();
+            let meaning = ws.meaning_hits(query).len();
+            let pending = ws.helper.search.as_ref().is_some_and(|(q, r)| q == query && r.is_none());
+            let needs_count = if meaning > 0 { 0 } else { results.iter().take(9).filter(|&&i| ws.tabs[i].needs_you()).count() };
             let section = |label: &'static str, color: gpui::Hsla| {
                 div().h(px(22.)).px(px(14.)).flex().items_center().text_size(px(10.5)).font_weight(FontWeight::SEMIBOLD).text_color(color).child(label)
             };
             let mut rows: Vec<AnyElement> = Vec::new();
             for (n, &i) in results.iter().take(9).enumerate() {
+                if n == 0 && meaning > 0 {
+                    rows.push(section("BY MEANING", ui.accent).into_any_element());
+                }
+                if n == meaning && meaning > 0 {
+                    rows.push(section("MATCHES", ui.text_tertiary).into_any_element());
+                }
                 if n == 0 && needs_count > 0 {
                     rows.push(section("NEEDS YOU", ui.status_needs).into_any_element());
                 }
@@ -448,7 +479,7 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                     if n >= needs_count && prev.is_none_or(|p| kind(p) != kind(t)) {
                         rows.push(section(if kind(t) == 1 { "AGENTS" } else { "SHELLS" }, ui.text_tertiary).into_any_element());
                     }
-                } else if n == needs_count {
+                } else if n == needs_count && meaning == 0 {
                     rows.push(section("MATCHES", ui.text_tertiary).into_any_element());
                 }
                 let is_sel = n == selected;
@@ -538,6 +569,13 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                         .child(keycap(ui, "esc")),
                 )
                 .child(switcher_chips(ws, cx))
+                .when(pending, |d| {
+                    d.child(
+                        div().h(px(30.)).px(px(14.)).flex().items_center().gap(px(8.)).text_size(px(12.5)).text_color(ui.text_tertiary)
+                            .child(crate::sidebar::spinner(ui.text_tertiary, ws.started))
+                            .child(format!("Searching by meaning with {}…", ws.config.helper.backend().map(|b| b.label()).unwrap_or(""))),
+                    )
+                })
                 .child(div().h(px(1.)).bg(ui.border).mb(px(4.)))
                 .children(rows)
                 .when(results.is_empty(), |d| {
@@ -562,6 +600,7 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                         .child("↵ open")
                         .child("↑↓ move")
                         .child("⇥ filter")
+                        .when(ws.config.helper.backend().is_some() && ws.config.helper.search, |d| d.child("⌘↵ by meaning"))
                         .child("esc close")
                         .child(div().flex_1())
                         .child("matches title · recap · project · branch · PR · files"),

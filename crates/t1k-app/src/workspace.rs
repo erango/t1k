@@ -185,6 +185,10 @@ pub struct Workspace {
     pub settings_query: String,
     /// Settings › Keybindings: the action waiting for a new shortcut.
     pub key_recording: Option<&'static str>,
+    /// The cheap-model helper's queue and switcher search.
+    pub helper: crate::helper::HelperState,
+    /// Tabs whose agent finished a turn since the last tick (for the helper).
+    turns_done: Vec<String>,
     /// The sidebar list's scroll position (for the sticky group header).
     pub sidebar_scroll: gpui::ScrollHandle,
     /// The switcher's filter chip (back to All when it closes).
@@ -308,6 +312,8 @@ impl Workspace {
             hooks_installed: crate::settings::claude_hooks_installed(),
             settings_query: String::new(),
             key_recording: None,
+            helper: Default::default(),
+            turns_done: Vec::new(),
             sidebar_scroll: gpui::ScrollHandle::new(),
             switcher_filter: Default::default(),
             theme_before: None,
@@ -412,6 +418,15 @@ impl Workspace {
                     "needs" => { a.apply_hook(Hook::Notification { message: "Claude needs your permission to use Bash".into() }); }
                     "error" => { a.apply_hook(Hook::Stop); }
                     "done" => { a.apply_hook(Hook::Stop); }
+                    // A Codex session with no title or recap that just finished: the helper
+                    // fills both (needs [helper] backend set).
+                    "helper" => {
+                        a.kind = t1k_agent::agents::AgentKind::Codex;
+                        a.goal = None;
+                        a.recap = None;
+                        a.apply_hook(Hook::Stop);
+                        this.turns_done.push(t.id.clone());
+                    }
                     _ => {}
                 }
                 if state == "error" {
@@ -888,6 +903,11 @@ impl Workspace {
         while let Ok(env) = self.agent_rx.try_recv() {
             changed |= self.apply_envelope(env, window);
         }
+        for id in std::mem::take(&mut self.turns_done) {
+            if let Some(ix) = self.tabs.iter().position(|t| t.id == id) {
+                self.helper_after_turn(ix, cx);
+            }
+        }
         if changed {
             self.debug_dump();
         }
@@ -928,6 +948,10 @@ impl Workspace {
         let tab = &mut self.tabs[ix];
         let before = tab.agent.as_ref().map(|a| a.status.clone());
         let finished = tab.agent.as_mut().unwrap().apply_hook(hook);
+        if finished {
+            self.turns_done.push(env.tab_id.clone());
+        }
+        let tab = &mut self.tabs[ix];
         if finished && !visible {
             tab.unread = true;
         }

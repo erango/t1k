@@ -48,6 +48,9 @@ pub struct AgentState {
     pub goal: Option<String>,
     /// First prompt, as a fallback goal until Claude names the session.
     pub first_prompt: Option<String>,
+    /// The first and latest prompts in full (capped), for the helper's title and recap.
+    pub first_prompt_full: Option<String>,
+    pub last_prompt: Option<String>,
     /// Current step while working: "Editing src/auth.rs".
     pub now: Option<String>,
     /// Claude's latest recap (`away_summary`).
@@ -72,6 +75,8 @@ impl AgentState {
             since: Instant::now(),
             goal: None,
             first_prompt: None,
+            first_prompt_full: None,
+            last_prompt: None,
             now: None,
             recap: None,
             branch: None,
@@ -144,6 +149,11 @@ impl AgentState {
                 }
             }
             Hook::UserPromptSubmit { prompt } => {
+                let full: String = prompt.trim().chars().take(2000).collect();
+                if !full.is_empty() {
+                    self.first_prompt_full.get_or_insert_with(|| full.clone());
+                    self.last_prompt = Some(full);
+                }
                 if self.first_prompt.is_none() {
                     let p = prompt.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
                     if !p.is_empty() {

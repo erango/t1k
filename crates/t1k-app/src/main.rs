@@ -15,6 +15,8 @@ mod overlay;
 mod palette;
 mod platform;
 mod groups;
+mod helper;
+mod helper_cli;
 mod icons;
 mod session;
 mod settings;

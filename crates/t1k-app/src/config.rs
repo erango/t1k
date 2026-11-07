@@ -94,6 +94,19 @@ feed = ""
 # paths are shortened to ~ and email addresses removed. Applies at the next launch.
 crash_reports = true
 
+[helper]
+# Optional: a cheap model, run through an agent CLI you already use, writes what the agents
+# don't: titles for untitled sessions, a one-line recap after each turn, and ⌘↵ in the tab
+# switcher to find a tab by meaning. "off", "claude", "codex", "agy", "gemini" or "grok".
+# Recaps send the end of that tab's screen to the CLI's provider. `t1k helper bench` compares
+# speed and cost; `t1k helper stats` shows what it used.
+backend = "off"
+# Empty: the CLI's small model (haiku, gemini-3.8-flash-low...).
+model = ""
+titles = true
+recaps = true
+search = true
+
 [keys]
 # Shortcut overrides, by action (Settings › Keybindings writes these). Several shortcuts are
 # separated by commas; "" turns one off. For example:
@@ -113,8 +126,31 @@ pub struct Config {
     pub notify: NotifyCfg,
     pub updates: UpdatesCfg,
     pub privacy: PrivacyCfg,
+    pub helper: HelperCfg,
     /// Shortcut overrides by `keymap::Bind::id`.
     pub keys: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[serde(default)]
+pub struct HelperCfg {
+    pub backend: String,
+    pub model: String,
+    pub titles: bool,
+    pub recaps: bool,
+    pub search: bool,
+}
+
+impl Default for HelperCfg {
+    fn default() -> Self {
+        Self { backend: "off".into(), model: String::new(), titles: true, recaps: true, search: true }
+    }
+}
+
+impl HelperCfg {
+    pub fn backend(&self) -> Option<t1k_agent::helper::Backend> {
+        t1k_agent::helper::Backend::parse(&self.backend)
+    }
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
@@ -276,6 +312,7 @@ impl Default for Config {
             updates: UpdatesCfg::default(),
             privacy: PrivacyCfg::default(),
             keys: Default::default(),
+            helper: HelperCfg::default(),
         }
     }
 }
