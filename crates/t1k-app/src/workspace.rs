@@ -243,6 +243,9 @@ pub struct Workspace {
     pub confirm_close: Option<String>,
     /// Polls in a row a Needs-you tab showed no question on screen.
     needs_gone: HashMap<String, u8>,
+    /// The group header under the pointer and since when (its icon placeholder slides in).
+    pub hovered_group: Option<(PathBuf, Instant)>,
+    hover_anim: Option<gpui::Task<()>>,
     /// Scrollback files were written for every tab (at quit); the session points at them.
     scrollback_saved: bool,
     /// Scrollback to replay into the next terminal `open_tab` spawns (session restore).
@@ -393,6 +396,8 @@ impl Workspace {
             toast_task: None,
             confirm_close: None,
             needs_gone: HashMap::new(),
+            hovered_group: None,
+            hover_anim: None,
             scrollback_saved: false,
             restore_next: None,
             key_note: None,
@@ -1096,6 +1101,35 @@ impl Workspace {
             }
         }
         changed
+    }
+
+    pub fn group_hovered(&mut self, key: &std::path::Path, over: bool, cx: &mut Context<Self>) {
+        if over {
+            self.hovered_group = Some((key.to_path_buf(), Instant::now()));
+            // Repaint for the slide-in (150 ms), then stop.
+            self.hover_anim = Some(cx.spawn(async move |this, cx| {
+                for _ in 0..12 {
+                    cx.background_executor().timer(Duration::from_millis(16)).await;
+                    if this.update(cx, |_, cx| cx.notify()).is_err() {
+                        break;
+                    }
+                }
+            }));
+        } else if self.hovered_group.as_ref().is_some_and(|(k, _)| k == key) {
+            self.hovered_group = None;
+        }
+        cx.notify();
+    }
+
+    /// 0 → 1 over 150 ms (ease-out) while the pointer is on group `key`'s header.
+    pub fn group_hover_progress(&self, key: &std::path::Path) -> f32 {
+        match &self.hovered_group {
+            Some((k, at)) if k == key => {
+                let t = (at.elapsed().as_secs_f32() / 0.15).min(1.);
+                1. - (1. - t) * (1. - t)
+            }
+            _ => 0.,
+        }
     }
 
     /// Write every tab's scrollback to `scrollback/<tab id>.ansi` (at quit). Owner-only, since

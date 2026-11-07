@@ -277,6 +277,10 @@ fn group_header(ws: &Workspace, key: &std::path::Path, tabs: &[usize], sticky: b
         .gap(px(9.))
         .hover(move |d| d.bg(ui.sidebar_hover))
         .when(auto_folded, |d| d.tooltip(crate::tooltip::text(ui, QUIET_HELP)))
+        .on_hover(cx.listener({
+            let key = key.clone();
+            move |this, over: &bool, _, cx| this.group_hovered(&key, *over, cx)
+        }))
         .on_mouse_down(MouseButton::Right, cx.listener({
             let key = key.clone();
             move |this, ev: &gpui::MouseDownEvent, window, cx| {
@@ -432,28 +436,36 @@ fn quiet_row(ui: UiColors, k: f32, id: String) -> gpui::Stateful<Div> {
 fn icon_slot(ws: &Workspace, key: &std::path::Path, sticky: bool, cx: &mut Context<Workspace>) -> impl IntoElement {
     let ui = ws.ui;
     let size = ws.config.interface.icon_size(false);
-    let gid = SharedString::from(format!("gh-{}", key.display()));
     let k = key.to_path_buf();
     let icon = ws.group_icons.get(key).cloned();
-    let has = icon.is_some();
-    div()
+    // No icon: no room at rest, so names line up with icons on the left; hovering the
+    // header slides a dashed placeholder in (design follow-up to v3-n2).
+    let t = if icon.is_some() { 1. } else { ws.group_hover_progress(key) };
+    let base = div()
         .id(SharedString::from(format!("gicon-{}{}", if sticky { "s-" } else { "" }, key.display())))
-        .size(px(size))
         .flex_none()
         .flex()
         .items_center()
         .justify_center()
         .cursor_pointer()
-        .tooltip(crate::tooltip::text(ui, if has { "Change icon" } else { "Choose an icon" }))
+        .tooltip(crate::tooltip::text(ui, if icon.is_some() { "Change icon" } else { "Choose an icon" }))
         .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
             cx.stop_propagation();
             this.open_icon_picker(k.clone(), ev.position(), window, cx);
-        }))
-        .map(|d| match icon {
-            Some(e) => d.text_size(px(size.min(18.) - 3.)).child(e),
-            None => d.child(
+        }));
+    match icon {
+        Some(e) => base.size(px(size)).text_size(px(size.min(18.) - 3.)).child(e),
+        None => base
+            .h(px(16.))
+            .w(px(16. * t))
+            // Cancel the header's 9 px gap while the slot is closed.
+            .mr(px(-9. * (1. - t)))
+            .overflow_hidden()
+            .opacity(t)
+            .child(
                 div()
                     .size(px(16.))
+                    .flex_none()
                     .rounded(px(4.))
                     .border_1()
                     .border_dashed()
@@ -461,12 +473,10 @@ fn icon_slot(ws: &Workspace, key: &std::path::Path, sticky: bool, cx: &mut Conte
                     .flex()
                     .items_center()
                     .justify_center()
-                    .invisible()
-                    .group_hover(gid, |s| s.visible())
                     // A drawn plus: the text glyph sat low in the box.
                     .child(crate::icons::plus(ui.text_tertiary)),
             ),
-        })
+    }
 }
 
 fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
