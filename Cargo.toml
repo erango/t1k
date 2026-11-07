@@ -13,3 +13,10 @@ alacritty_terminal = "0.26.0"
 anyhow = "1"
 log = "0.4"
 env_logger = "0.11"
+
+[profile.release]
+# Line tables go into a separate dSYM (split-debuginfo) that scripts/release.sh uploads to
+# Sentry, so crash reports name the code; the shipped binary is stripped.
+debug = "line-tables-only"
+split-debuginfo = "packed"
+strip = "symbols"

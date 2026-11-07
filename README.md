@@ -96,6 +96,12 @@ t1k theme list
 
 Not a fan of the android? Settings › Appearance › App icon offers a chrome `>_` prompt or the T1K wordmark.
 
+## Privacy
+
+Release builds send crash reports and error messages to the developers through [Sentry](https://sentry.io), so bugs get fixed without anyone having to file them. They never include terminal contents. Before anything is sent, your home folder becomes `~`, user names in paths, email addresses and URL query strings are removed, and text a crash quotes is redacted ([`telemetry.rs`](crates/t1k-app/src/telemetry.rs)). Turn it off in Settings › Advanced › Privacy (`privacy.crash_reports = false`), or set `T1K_TELEMETRY=off`. Builds from source send nothing unless you give them your own DSN.
+
+The update check fetches [`appcast.xml`](appcast.xml) from this repo once a day; turn that off in Settings › Advanced › Updates.
+
 ## Build and contribute
 
 ```sh

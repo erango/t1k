@@ -23,6 +23,7 @@ mod split;
 mod strip;
 mod sidebar;
 mod title;
+mod telemetry;
 mod tooltip;
 mod update_ui;
 mod updater;
@@ -66,7 +67,14 @@ fn main() {
     if cli::run(&args) {
         return;
     }
-    env_logger::init();
+    // Crash reports: only builds with a DSN, and only while privacy.crash_reports is on.
+    let _sentry = telemetry::init(config::load().privacy.crash_reports);
+    // Debug aid: T1K_DEBUG_CRASH=error sends a test error report, =panic crashes on purpose.
+    match std::env::var("T1K_DEBUG_CRASH").as_deref() {
+        Ok("error") => log::error!("test error report from {}", std::env::var("HOME").unwrap_or_default()),
+        Ok("panic") => panic!("test panic in `private text`"),
+        _ => {}
+    }
     Application::new().run(|cx: &mut App| {
         cx.bind_keys([
             KeyBinding::new("cmd-q", Quit, None),

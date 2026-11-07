@@ -88,6 +88,11 @@ download = true
 channel = "stable"
 # Where to look for updates. Empty uses T1K's own feed.
 feed = ""
+
+[privacy]
+# Send crash reports and errors to T1K's developers (Sentry). Never terminal contents;
+# paths are shortened to ~ and email addresses removed. Applies at the next launch.
+crash_reports = true
 "#;
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
@@ -101,6 +106,19 @@ pub struct Config {
     pub links: LinksCfg,
     pub notify: NotifyCfg,
     pub updates: UpdatesCfg,
+    pub privacy: PrivacyCfg,
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[serde(default)]
+pub struct PrivacyCfg {
+    pub crash_reports: bool,
+}
+
+impl Default for PrivacyCfg {
+    fn default() -> Self {
+        Self { crash_reports: true }
+    }
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
@@ -248,6 +266,7 @@ impl Default for Config {
             links: LinksCfg::default(),
             notify: NotifyCfg::default(),
             updates: UpdatesCfg::default(),
+            privacy: PrivacyCfg::default(),
         }
     }
 }
@@ -328,6 +347,11 @@ impl Watcher {
 }
 
 /// Set a string key in config.toml, keeping comments and layout. `keys` is a path like ["theme", "dark"].
+/// The config file as it is now (defaults if missing or invalid).
+pub fn load() -> Config {
+    path().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|t| toml::from_str(&t).ok()).unwrap_or_default()
+}
+
 pub fn set(keys: &[&str], value: &str) {
     set_value(keys, value.into());
 }

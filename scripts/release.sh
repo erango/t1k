@@ -18,6 +18,7 @@
 # Needs: T1K_NOTARY_PROFILE (see scripts/notarize.sh) unless --local, and gh logged in.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+[ -f .env.local ] && . ./.env.local
 
 VERSION="${1:?usage: release.sh <version> [--beta] [--local <base url>]}"
 shift
@@ -44,6 +45,13 @@ sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
 ./scripts/bundle.sh
 if [ -z "$LOCAL" ]; then
   ./scripts/notarize.sh target/release/T1K.app
+fi
+
+# Debug symbols to Sentry, so crash reports from this build name the code.
+if [ -n "${SENTRY_AUTH_TOKEN:-}" ] && command -v sentry-cli >/dev/null; then
+  SENTRY_ORG=tv-tracker SENTRY_PROJECT=t1k sentry-cli debug-files upload --wait target/release/t1k.dSYM
+else
+  echo "==> skipped dSYM upload (needs SENTRY_AUTH_TOKEN in .env.local and sentry-cli)"
 fi
 
 # 4. Zip (ditto keeps symlinks and signatures intact) and sign for Sparkle.

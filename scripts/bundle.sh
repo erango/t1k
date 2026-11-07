@@ -6,6 +6,8 @@ cd "$(dirname "$0")/.."
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
 APP=target/release/T1K.app
 
+# Build-time secrets (not committed): T1K_SENTRY_DSN turns on crash reporting in this build.
+[ -f .env.local ] && . ./.env.local
 cargo build --release -p t1k-app
 
 rm -rf "$APP"

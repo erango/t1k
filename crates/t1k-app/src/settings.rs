@@ -416,6 +416,8 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
                 .child(div().text_size(px(12.)).text_color(ui.text_tertiary).child(crate::update_ui::status_words(&crate::updater::snapshot())))
                 .child(pill(ui, "u-now".into(), "Check now".into(), false).on_click(cx.listener(|this, _, window, cx| this.check_for_updates(window, cx))))
                 .into_any_element()),
+        e(Advanced, "Privacy", "Send crash reports", if crate::telemetry::available() { "Crashes and errors, never terminal contents; applies at next launch" } else { "This build has no crash reporting" }, "privacy.crash_reports", "sentry telemetry crash error report privacy",
+            toggle(ui, "crash", c.privacy.crash_reports, &["privacy", "crash_reports"], cx).into_any_element()),
         e(Advanced, "Files", "Settings file", "~/.config/t1k/config.toml; edits apply live", "config.toml", "config", open_cfg),
         e(Advanced, "Files", "Imported themes", "~/.config/t1k/themes/", "themes_dir", "import", themes_dir),
     ];
