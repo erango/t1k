@@ -195,6 +195,12 @@ pub struct Workspace {
     pub import_last: Option<(usize, i64)>,
     /// A short message at the bottom of the sidebar, and when it appeared.
     pub notice: Option<(String, Instant)>,
+    /// The sidebar row under the pointer (tab id), for its × button.
+    pub hover_row: Option<String>,
+    /// The notice offers Undo (it's about a move).
+    pub notice_undo: bool,
+    /// Tab moves between groups, newest last: (tab id, group, pinned group) before the move.
+    pub move_undo: Vec<Vec<(String, PathBuf, Option<PathBuf>)>>,
     /// Automatic group hue (ANSI 4-6), by name, bumped so neighbors differ.
     auto_hues: HashMap<PathBuf, u8>,
     /// The order the hues were last worked out for; they change only when it does.
@@ -398,6 +404,9 @@ impl Workspace {
             import_seen: saved.import_seen.clone(),
             import_last: saved.import_last,
             notice: None,
+            notice_undo: false,
+            hover_row: None,
+            move_undo: Vec::new(),
             auto_hues: HashMap::new(),
             hues_for: Vec::new(),
             group_emptied: HashMap::new(),
@@ -1032,6 +1041,48 @@ impl Workspace {
         cx.notify();
     }
 
+    /// Move tabs (by id) into group `to`, remembering where they were for ⌘Z and the notice's Undo.
+    pub fn move_tabs_undoable(&mut self, ids: &[String], to: &PathBuf, cx: &mut Context<Self>) {
+        let mut before = Vec::new();
+        for id in ids {
+            let Some(ix) = self.tabs.iter().position(|t| &t.id == id) else { continue };
+            let t = &self.tabs[ix];
+            if &t.group == to {
+                continue;
+            }
+            before.push((t.id.clone(), t.group.clone(), t.pinned_group.clone()));
+            self.move_tab(ix, Some(to.clone()), cx);
+        }
+        if before.is_empty() {
+            return;
+        }
+        let n = before.len();
+        let name = self.group_label(to);
+        let what = if n == 1 { self.tabs.iter().find(|t| t.id == before[0].0).map(|t| t.title()).unwrap_or_default() } else { format!("{n} tabs") };
+        self.move_undo.push(before);
+        if self.move_undo.len() > 20 {
+            self.move_undo.remove(0);
+        }
+        self.notice = Some((format!("Moved {what} to {name}"), Instant::now()));
+        self.notice_undo = true;
+        cx.notify();
+    }
+
+    /// Put the last moved tabs back where they were (⌘Z, or Undo on the notice).
+    pub fn undo_move(&mut self, cx: &mut Context<Self>) {
+        let Some(before) = self.move_undo.pop() else { return };
+        for (id, group, pinned) in before {
+            if let Some(t) = self.tabs.iter_mut().find(|t| t.id == id) {
+                t.group = group;
+                t.pinned_group = pinned;
+            }
+        }
+        self.notice = Some(("Moved back".into(), Instant::now()));
+        self.notice_undo = false;
+        self.save();
+        cx.notify();
+    }
+
     /// Start a group of your own with tab `ix` in it, then ask for its name.
     pub fn new_group_with(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
         let key = groups::new_custom();
@@ -1657,6 +1708,16 @@ impl Workspace {
     /// once one is showing, moving to another row switches at once. Leaving hides it shortly
     /// after, unless another row picks it up first. Rows never change size.
     pub fn row_hovered(&mut self, id: String, hovered: bool, cx: &mut Context<Self>) {
+        // The row under the pointer, right away (its × shows); the card waits for intent below.
+        if hovered {
+            if self.hover_row.as_ref() != Some(&id) {
+                self.hover_row = Some(id.clone());
+                cx.notify();
+            }
+        } else if self.hover_row.as_ref() == Some(&id) {
+            self.hover_row = None;
+            cx.notify();
+        }
         if hovered && self.card.is_some() {
             self.hover_task = None;
             if self.card.as_ref() != Some(&id) {
@@ -2071,6 +2132,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::select_theme))
             .on_action(cx.listener(|this, _: &ShowThemePicker, window, cx| this.open_theme_picker(window, cx)))
             .on_action(cx.listener(|this, _: &ReopenClosedTab, window, cx| this.reopen_closed(window, cx)))
+            .on_action(cx.listener(|this, _: &UndoMove, _, cx| this.undo_move(cx)))
             .on_action(cx.listener(|this, _: &MoveGroupUp, _, cx| {
                 if let Some(g) = this.tabs.get(this.active).map(|t| t.group.clone()) {
                     this.move_group(&g, -1, cx);

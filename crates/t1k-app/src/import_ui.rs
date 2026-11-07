@@ -269,6 +269,7 @@ impl Workspace {
             self.activate(first, window, cx);
             self.import_last = Some((n, crate::usage::now()));
             self.notice = Some((format!("Brought {n} tab{} over", if n == 1 { "" } else { "s" }), Instant::now()));
+            self.notice_undo = false;
             self.import_found = Some(Vec::new());
         }
         self.save();
@@ -294,9 +295,10 @@ impl Workspace {
             self.tabs[i].view.read(cx).terminal.write(format!("claude --resume {}\r", w.session_id).into_bytes());
             let title = self.tabs[i].title();
             self.notice = Some((format!("Resumed {title} from {}", w.source.label()), Instant::now()));
+            self.notice_undo = false;
             changed = true;
         }
-        if self.notice.as_ref().is_some_and(|(_, at)| at.elapsed().as_secs() >= 5) {
+        if self.notice.as_ref().is_some_and(|(_, at)| at.elapsed().as_secs() >= if self.notice_undo { 8 } else { 5 }) {
             self.notice = None;
             changed = true;
         }
@@ -644,7 +646,7 @@ pub fn offer(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement> 
 }
 
 /// A short message at the bottom of the sidebar ("Brought 11 tabs over").
-pub fn notice(ws: &Workspace) -> Option<AnyElement> {
+pub fn notice(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement> {
     let ui = ws.ui;
     let (text, _) = ws.notice.as_ref()?;
     Some(
@@ -663,8 +665,24 @@ pub fn notice(ws: &Workspace) -> Option<AnyElement> {
             .flex()
             .items_center()
             .text_size(px(12.5))
+            .gap(px(8.))
             .text_color(ui.text_secondary)
-            .child(div().truncate().child(text.clone()))
+            .child(div().flex_1().min_w_0().truncate().child(text.clone()))
+            .when(ws.notice_undo, |d| {
+                d.child(
+                    div()
+                        .id("notice-undo")
+                        .flex_none()
+                        .flex()
+                        .gap(px(6.))
+                        .text_color(ui.accent)
+                        .font_weight(FontWeight::MEDIUM)
+                        .cursor_pointer()
+                        .on_click(cx.listener(|this, _, _, cx| this.undo_move(cx)))
+                        .child("Undo")
+                        .child(mono(crate::keymap::display_for(&crate::actions::UndoMove, &ws.config.keys), ui.text_tertiary)),
+                )
+            })
             .into_any_element(),
     )
 }

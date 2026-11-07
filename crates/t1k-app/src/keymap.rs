@@ -33,6 +33,7 @@ pub const ALL: &[Bind] = &[
     b!("new_tab", "New tab", "Tabs", ["cmd-t"], NewTab),
     b!("close_tab", "Close tab", "Tabs", ["cmd-w"], CloseTab),
     b!("reopen_closed_tab", "Reopen closed tab", "Tabs", ["cmd-shift-t"], ReopenClosedTab),
+    b!("undo_move", "Undo moving tabs", "Tabs", ["cmd-z"], UndoMove),
     b!("next_tab", "Next tab", "Tabs", ["cmd-shift-]", "ctrl-tab"], NextTab),
     b!("prev_tab", "Previous tab", "Tabs", ["cmd-shift-[", "ctrl-shift-tab"], PrevTab),
     b!("back", "Back", "Tabs", ["cmd-["], GoBack),

@@ -239,7 +239,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             })),
         )
         .children(crate::close::toast(ws, cx))
-        .children(crate::import_ui::notice(ws))
+        .children(crate::import_ui::notice(ws, cx))
         .children(crate::import_ui::offer(ws, cx))
         .into_any_element()
 }
@@ -263,10 +263,41 @@ fn group_header(ws: &Workspace, key: &std::path::Path, tabs: &[usize], sticky: b
     let ghost_label = label.clone();
     div()
         .id(SharedString::from(format!("group-{}{}", if sticky { "s-" } else { "" }, key.display())))
-        // Drag a header to reorder groups; a line shows where it will land.
+        // Drag a header onto another group's header to move all its tabs there; onto the gap
+        // above a header to reorder groups (a line shows where it will land). Tabs dropped on a
+        // header join that group.
         .on_drag(GroupDrag(drag_key), move |_, _, _, cx| cx.new(|_| GroupGhost { label: ghost_label.clone().into(), ui }))
-        .drag_over::<GroupDrag>(move |s, _, _, _| s.border_t_2().border_color(ui.accent))
-        .on_drop(cx.listener(move |this, d: &GroupDrag, _, cx| this.reorder_group(&d.0, &drop_key, cx)))
+        .drag_over::<GroupDrag>(move |s, _, _, _| s.bg(ui.accent.opacity(0.18)).rounded(px(6.)))
+        .drag_over::<TabDrag>(move |s, _, _, _| s.bg(ui.accent.opacity(0.18)).rounded(px(6.)))
+        .on_drop(cx.listener({
+            let to = drop_key.clone();
+            move |this, d: &GroupDrag, _, cx| {
+                if d.0 != to {
+                    let ids: Vec<String> = this.tabs.iter().filter(|t| t.group == d.0).map(|t| t.id.clone()).collect();
+                    this.move_tabs_undoable(&ids, &to, cx);
+                }
+            }
+        }))
+        .on_drop(cx.listener({
+            let to = drop_key.clone();
+            move |this, d: &TabDrag, _, cx| this.move_tabs_undoable(std::slice::from_ref(&d.0), &to, cx)
+        }))
+        .when(!sticky, |d| {
+            let to = drop_key.clone();
+            d.child(
+                div()
+                    .id(SharedString::from(format!("reorder-{}", key.display())))
+                    .absolute()
+                    .left_0()
+                    .right_0()
+                    .top(px(-10.))
+                    .h(px(9.))
+                    .flex()
+                    .items_center()
+                    .drag_over::<GroupDrag>(move |s, _, _, _| s.border_b_2().border_color(ui.accent))
+                    .on_drop(cx.listener(move |this, d: &GroupDrag, _, cx| this.reorder_group(&d.0, &to, cx))),
+            )
+        })
         .group(SharedString::from(format!("gh-{}", key.display())))
         .relative()
         .h(px(26.))
@@ -528,8 +559,13 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
     let row_group = SharedString::from(format!("row-{}", tab.id));
     let confirming = ws.confirm_close.as_deref() == Some(tab.id.as_str());
 
+    let (drag_id, drag_label, drop_group) = (tab.id.clone(), tab.title(), tab.group.clone());
     let mut el = div()
         .id(SharedString::from(tab.id.clone()))
+        // Drag a tab onto another group (its header or any of its tabs) to move it there.
+        .on_drag(TabDrag(drag_id), move |_, _, _, cx| cx.new(|_| GroupGhost { label: drag_label.clone().into(), ui }))
+        .drag_over::<TabDrag>(move |s, _, _, _| s.bg(ui.accent.opacity(0.12)))
+        .on_drop(cx.listener(move |this, d: &TabDrag, _, cx| this.move_tabs_undoable(std::slice::from_ref(&d.0), &drop_group, cx)))
         .group(row_group.clone())
         .relative()
         .flex_none()
@@ -1154,6 +1190,10 @@ fn needs_area(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement>
 /// A group header being dragged to a new place.
 #[derive(Clone)]
 pub struct GroupDrag(pub std::path::PathBuf);
+
+/// A tab being dragged to another group (by tab id).
+#[derive(Clone)]
+pub struct TabDrag(pub String);
 
 /// What follows the pointer while dragging a group: its name, lifted.
 pub struct GroupGhost {

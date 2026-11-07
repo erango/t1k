@@ -204,14 +204,16 @@ impl Workspace {
 }
 
 /// The × at a row's right end, shown while the row is hovered.
-pub fn close_button(ws: &Workspace, ix: usize, row_group: gpui::SharedString, cx: &mut Context<Workspace>) -> impl IntoElement {
+pub fn close_button(ws: &Workspace, ix: usize, _row_group: gpui::SharedString, cx: &mut Context<Workspace>) -> impl IntoElement {
     let ui = ws.ui;
+    let shown = ws.tabs.get(ix).is_some_and(|t| ws.hover_row.as_deref() == Some(t.id.as_str()));
     let keys = crate::keymap::display_for(&crate::actions::CloseTab, &ws.config.keys);
     div()
         .id(gpui::SharedString::from(format!("close-{ix}")))
         // No width at rest, so titles keep their room; on hover it takes 20 px and the
         // right-end content (wait time, spinner) shifts left instead of being covered.
-        .w(px(0.))
+        // (Drawn from the workspace's hovered row: a group-hover style never showed it.)
+        .w(px(if shown { 20. } else { 0. }))
         .h(px(20.))
         .flex_none()
         .overflow_hidden()
@@ -219,8 +221,6 @@ pub fn close_button(ws: &Workspace, ix: usize, row_group: gpui::SharedString, cx
         .flex()
         .items_center()
         .justify_center()
-        .invisible()
-        .group_hover(row_group, |s| s.visible().w(px(20.)))
         .hover(move |d| d.bg(ui.bg_selected))
         .tooltip(crate::tooltip::text(ui, format!("Close tab  {keys}")))
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
