@@ -201,6 +201,8 @@ pub struct Workspace {
     pub switcher_filter: crate::overlay::SwitcherFilter,
     /// While the theme picker previews: what to go back to on esc.
     theme_before: Option<(AppearanceMode, &'static Theme, &'static Theme)>,
+    /// The Settings page a drill-down (the theme picker) was opened from; Esc and ‹ return there.
+    pub settings_return: Option<crate::settings::Section>,
     /// The last shortcut change, shown under its row ("Was on Find tab").
     pub key_note: Option<(&'static str, String)>,
     _key_interceptor: gpui::Subscription,
@@ -327,6 +329,7 @@ impl Workspace {
             sidebar_scroll: gpui::ScrollHandle::new(),
             switcher_filter: Default::default(),
             theme_before: None,
+            settings_return: None,
             key_note: None,
             _key_interceptor: {
                 // Recording a shortcut must see keys before any binding fires (⌘P would

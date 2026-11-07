@@ -195,6 +195,7 @@ impl Workspace {
         // Closing the theme picker any way but ↵ goes back to the theme you had.
         self.end_theme_preview(None, window, cx);
         self.key_recording = None;
+        self.settings_return = None;
         self.settings_query.clear();
         if let Some(t) = self.tabs.get(self.active) {
             let h = gpui::Focusable::focus_handle(t.view.read(cx), cx);

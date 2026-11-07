@@ -213,7 +213,7 @@ fn theme_grid(ws: &Workspace, dark: bool, cx: &mut Context<Workspace>) -> impl I
         grid = grid.child(
             div()
                 .id(SharedString::from(format!("theme-{name}")))
-                .w(px(150.))
+                .w(px(162.))
                 .p(px(6.))
                 .rounded(px(8.))
                 .border_1()
@@ -536,7 +536,10 @@ fn page(ws: &Workspace, section: Section, query: &str, window: &mut Window, cx: 
                         .text_color(ui.text_primary)
                         .cursor_pointer()
                         .hover(move |d| d.bg(ui.bg_hover))
-                        .on_click(cx.listener(|this, _, window, cx| this.open_theme_picker(window, cx)))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.open_theme_picker(window, cx);
+                            this.settings_return = Some(Section::Appearance);
+                        }))
                         .child("Browse themes with preview…"),
                 )
                 .child(
@@ -758,8 +761,26 @@ pub fn render(ws: &Workspace, section: Section, window: &mut Window, cx: &mut Co
         .border_color(ui.border)
         .shadow_lg()
         .flex()
+        .relative()
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(nav)
         .child(div().id("settings-body").flex_1().min_w_0().overflow_y_scroll().px(px(28.)).py(px(22.)).child(body))
+        .child(
+            div()
+                .id("settings-close")
+                .absolute()
+                .top(px(14.))
+                .right(px(14.))
+                .size(px(26.))
+                .rounded(px(6.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .cursor_pointer()
+                .hover(move |d| d.bg(ui.bg_hover))
+                .tooltip(crate::tooltip::text(ui, "Close (esc)"))
+                .on_click(cx.listener(|this, _, window, cx| this.close_overlay(window, cx)))
+                .child(crate::icons::close(ui.text_secondary)),
+        )
         .into_any_element()
 }

@@ -38,12 +38,12 @@ impl Workspace {
             match input::handle(&mut query, ev) {
                 Key::Cancel => {
                     self.end_theme_preview(None, window, cx);
-                    return None;
+                    return self.settings_return.take().map(|section| Overlay::Settings { section });
                 }
                 Key::Submit => {
                     let pick = results(&query, dark).get(selected).map(|t| t.name.to_string());
                     self.end_theme_preview(pick.as_deref(), window, cx);
-                    return None;
+                    return self.settings_return.take().map(|section| Overlay::Settings { section });
                 }
                 Key::Edited => selected = 0,
                 Key::Up => selected = selected.saturating_sub(1),
@@ -189,6 +189,31 @@ pub fn render(ws: &Workspace, query: &str, selected: usize, dark: bool, cx: &mut
                 .gap(px(10.))
                 .border_b_1()
                 .border_color(ui.border)
+                .children(ws.settings_return.map(|_| {
+                    div()
+                        .id("theme-back")
+                        .h(px(26.))
+                        .pl(px(4.))
+                        .pr(px(8.))
+                        .mr(px(4.))
+                        .rounded(px(6.))
+                        .flex()
+                        .items_center()
+                        .gap(px(2.))
+                        .text_size(px(12.5))
+                        .text_color(ui.text_secondary)
+                        .cursor_pointer()
+                        .hover(move |d| d.bg(ui.bg_hover))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.end_theme_preview(None, window, cx);
+                            if let Some(section) = this.settings_return.take() {
+                                this.overlay = Overlay::Settings { section };
+                                cx.notify();
+                            }
+                        }))
+                        .child(crate::icons::back(ui.text_secondary))
+                        .child("Settings")
+                }))
                 .child(crate::icons::search(ui.text_tertiary))
                 .child(
                     div()

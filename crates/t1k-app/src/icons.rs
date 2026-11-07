@@ -52,6 +52,33 @@ pub fn filter_lines(color: Hsla) -> impl IntoElement {
     })
 }
 
+/// An ×, for closing a dialog.
+pub fn close(color: Hsla) -> impl IntoElement {
+    icon(move |b, window| {
+        let o = b.origin;
+        let pt = |x: f32, y: f32| point(o.x + px(x), o.y + px(y));
+        stroke(window, color, |p| {
+            p.move_to(pt(3.5, 3.5));
+            p.line_to(pt(10.5, 10.5));
+            p.move_to(pt(10.5, 3.5));
+            p.line_to(pt(3.5, 10.5));
+        })
+    })
+}
+
+/// A left chevron, for going back.
+pub fn back(color: Hsla) -> impl IntoElement {
+    icon(move |b, window| {
+        let o = b.origin;
+        let pt = |x: f32, y: f32| point(o.x + px(x), o.y + px(y));
+        stroke(window, color, |p| {
+            p.move_to(pt(8.5, 3.));
+            p.line_to(pt(4.5, 7.));
+            p.line_to(pt(8.5, 11.));
+        })
+    })
+}
+
 /// A plus (new tab).
 pub fn plus(color: Hsla) -> impl IntoElement {
     icon(move |b, window| {
