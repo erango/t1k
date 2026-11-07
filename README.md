@@ -1,3 +1,5 @@
+<p align="center"><img src="resources/brand/readme-header.png" alt="T1K" width="600"></p>
+
 # T1K
 
 T1K is a terminal for working with many Claude Code agents at once. It's built in Rust on [GPUI](https://www.gpui.rs) (Zed's UI framework) and [`alacritty_terminal`](https://crates.io/crates/alacritty_terminal). It runs on macOS only.
