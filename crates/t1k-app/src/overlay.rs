@@ -1389,7 +1389,7 @@ fn terminal_menu(
             this.close_overlay(window, cx);
             let h = gpui::Focusable::focus_handle(view.read(cx), cx);
             window.focus(&h);
-            view.update(cx, |v, cx| f(v, cx));
+            view.update(cx, f);
         })
     };
     let mut m = div()

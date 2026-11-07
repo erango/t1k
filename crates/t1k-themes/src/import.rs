@@ -19,7 +19,7 @@ pub fn parse_hex(s: &str) -> Option<u32> {
         3 => {
             let v = u32::from_str_radix(h, 16).ok()?;
             let (r, g, b) = ((v >> 8) & 0xf, (v >> 4) & 0xf, v & 0xf);
-            Some((r * 17) << 16 | (g * 17) << 8 | b * 17)
+            Some(((r * 17) << 16) | ((g * 17) << 8) | (b * 17))
         }
         // #rrggbbaa: drop alpha.
         8 => u32::from_str_radix(&h[..6], 16).ok(),

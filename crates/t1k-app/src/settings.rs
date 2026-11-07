@@ -144,6 +144,7 @@ fn toggle(ui: UiColors, id: &'static str, on: bool, keys: &'static [&'static str
         .child(div().size(px(16.)).rounded_full().bg(gpui::white()))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn stepper(
     ui: UiColors,
     id: &'static str,

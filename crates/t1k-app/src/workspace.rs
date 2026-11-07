@@ -282,7 +282,7 @@ impl Workspace {
                 cx.background_executor().timer(Duration::from_millis(33)).await;
                 n = n.wrapping_add(1);
                 let alive = this.update_in(cx, |ws, window, cx| {
-                    if n % 3 == 0 {
+                    if n.is_multiple_of(3) {
                         ws.tick(window, cx);
                     } else if ws.sidebar_open && ws.tabs.iter().any(|t| t.status() == Some(&Status::Working)) {
                         cx.notify();
@@ -619,8 +619,8 @@ impl Workspace {
         })
     }
 
-    fn repo_for(&mut self, group: &PathBuf) -> Option<String> {
-        self.repos.entry(group.clone()).or_insert_with(|| crate::links::github_repo(group)).clone()
+    fn repo_for(&mut self, group: &std::path::Path) -> Option<String> {
+        self.repos.entry(group.to_path_buf()).or_insert_with(|| crate::links::github_repo(group)).clone()
     }
 
     /// Which references each terminal turns into links: `#123` only in GitHub repos, ticket

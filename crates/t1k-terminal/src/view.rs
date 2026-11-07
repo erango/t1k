@@ -715,8 +715,11 @@ struct Frame {
     /// Link under the mouse while cmd is held.
     hovered: Option<usize>,
     /// Hint mode: typed prefix and (label, link id, first cell) per link.
-    hints: Option<(String, Vec<(String, usize, (usize, usize))>)>,
+    hints: Option<(String, Vec<HintLabel>)>,
 }
+
+/// A hint-mode label: (label, link id, first cell as (col, row)).
+type HintLabel = (String, usize, (usize, usize));
 
 /// Hint labels in reading order: one letter each while they fit, else two.
 fn hint_labels(link_map: &HashMap<(usize, usize), usize>) -> Vec<(String, usize, (usize, usize))> {
@@ -797,8 +800,8 @@ fn detect_links(
         let mut is_prompt = false;
         loop {
             is_prompt |= prompt_rows[r];
-            for c in 0..cols {
-                chars.push(grid[r][c]);
+            for (c, ch) in grid[r].iter().enumerate().take(cols) {
+                chars.push(*ch);
                 pos.push((c, r));
             }
             let wrapped = wraps[r];
@@ -992,7 +995,7 @@ fn build_frame(view: &TerminalView, focused: bool) -> Frame {
     }
 
     let cursor = (show_cursor && cursor_vp.0 >= 0)
-        .then(|| (cursor_vp.1, cursor_vp.0 as usize, cursor.shape, focused));
+        .then_some((cursor_vp.1, cursor_vp.0 as usize, cursor.shape, focused));
     let hints = view.hints.as_ref().map(|typed| (typed.clone(), hint_labels(&link_map)));
     Frame { bg_rects, highlights, batches, drawn, cursor, links, link_map, cmd_down: view.cmd_down || view.hints.is_some(), hovered, hints }
 }
