@@ -220,7 +220,8 @@ fn install_antigravity(config: &mut Value) -> bool {
 /// Add T1K's hooks to an agent's config value. Returns true if anything changed. Idempotent.
 pub fn install(kind: AgentKind, config: &mut Value) -> bool {
     match kind {
-        AgentKind::Claude => install_matcher_style(kind, config, "*"),
+        // Claude also gets the status-line wrapper, the only source of its plan usage limits.
+        AgentKind::Claude => install_matcher_style(kind, config, "*") | crate::statusline::wrap(config),
         AgentKind::Codex => install_matcher_style(kind, config, "*"),
         // Gemini matchers are regular expressions.
         AgentKind::Gemini => install_matcher_style(kind, config, ".*"),
@@ -243,6 +244,7 @@ pub fn install(kind: AgentKind, config: &mut Value) -> bool {
 pub fn installed(kind: AgentKind, config: &Value) -> bool {
     match kind {
         AgentKind::Antigravity => config.get("t1k-status").is_some_and(is_t1k),
+        AgentKind::Claude => config.get("hooks").is_some_and(is_t1k) && crate::statusline::is_wrapped(config),
         _ => config.get("hooks").is_some_and(is_t1k),
     }
 }

@@ -9,6 +9,7 @@ pub mod hooks;
 pub mod outputs;
 pub mod server;
 pub mod state;
+pub mod statusline;
 pub mod transcript;
 
 pub use state::{AgentState, Status};

@@ -262,6 +262,8 @@ pub struct Workspace {
     watcher: config::Watcher,
     socket: Option<PathBuf>,
     agent_rx: Receiver<Envelope>,
+    /// Claude's plan usage limits (5-hour and weekly), from the status-line wrapper.
+    pub usage: Option<t1k_agent::statusline::Usage>,
     next_created: usize,
     pub started: Instant,
     /// Last Dock badge value we set (None = never).
@@ -427,6 +429,7 @@ impl Workspace {
             watcher,
             socket,
             agent_rx,
+            usage: None,
             next_created: 0,
             started: Instant::now(),
             badge: None,
@@ -1327,6 +1330,15 @@ impl Workspace {
     }
 
     fn apply_envelope(&mut self, env: Envelope, window: &Window) -> bool {
+        // Plan usage limits are per account, not per tab: keep the latest from any tab.
+        if env.payload.get("hook_event_name").and_then(|v| v.as_str()) == Some(t1k_agent::statusline::EVENT) {
+            let usage = t1k_agent::statusline::parse(&env.payload);
+            let changed = usage.is_some() && usage.as_ref().map(|u| (u.five_hour, u.seven_day)) != self.usage.as_ref().map(|u| (u.five_hour, u.seven_day));
+            if usage.is_some() {
+                self.usage = usage;
+            }
+            return changed;
+        }
         let Some(ix) = self.tabs.iter().position(|t| t.id == env.tab_id) else { return false };
         let Some((hook, session_id)) = Hook::parse(&env.payload) else { return false };
         let visible = ix == self.active && window.is_window_active();

@@ -12,6 +12,10 @@ pub fn run(args: &[String]) -> bool {
             hook(&args[2..]);
             true
         }
+        Some("statusline") => {
+            statusline();
+            true
+        }
         Some("theme") => {
             theme_cmd(&args[2..]);
             true
@@ -74,6 +78,22 @@ fn hook(args: &[String]) {
     let _ = send(&PathBuf::from(socket), &Envelope { tab_id, payload });
 }
 
+/// Forward Claude's plan usage limits from its status-line input (stdin) to the T1K window that
+/// owns this tab. Prints nothing: the wrapper runs the user's own status line after this.
+fn statusline() {
+    let (Some(tab_id), Some(socket)) = (std::env::var("T1K_TAB_ID").ok(), std::env::var_os("T1K_SOCKET")) else {
+        return;
+    };
+    let mut buf = Vec::new();
+    if std::io::stdin().take(4 << 20).read_to_end(&mut buf).is_err() {
+        return;
+    }
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(&buf) else { return };
+    if let Some(payload) = t1k_agent::statusline::forward_payload(&v) {
+        let _ = send(&PathBuf::from(socket), &Envelope { tab_id, payload });
+    }
+}
+
 /// Add T1K's hooks to ~/.claude/settings.json (backing it up first).
 fn setup_claude() -> anyhow::Result<()> {
     let home = std::env::var_os("HOME").ok_or_else(|| anyhow::anyhow!("HOME not set"))?;
@@ -93,7 +113,7 @@ fn setup_claude() -> anyhow::Result<()> {
     }
     std::fs::create_dir_all(path.parent().unwrap())?;
     std::fs::write(&path, serde_json::to_vec_pretty(&settings)?)?;
-    println!("Installed T1K hooks in {}. They do nothing outside T1K.", path.display());
+    println!("Installed T1K hooks and the status-line wrapper in {}. They do nothing outside T1K; your status line looks the same.", path.display());
     Ok(())
 }
 

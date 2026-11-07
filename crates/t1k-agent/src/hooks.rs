@@ -120,7 +120,7 @@ pub fn install_into(settings: &mut Value) -> bool {
         list.push(entry);
         changed = true;
     }
-    changed
+    changed | crate::statusline::wrap(settings)
 }
 
 #[cfg(test)]
