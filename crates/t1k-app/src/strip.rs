@@ -252,10 +252,14 @@ fn top_output(ws: &Workspace, a: &t1k_agent::AgentState) -> Option<TopOutput> {
 fn outputs_button(ws: &Workspace, n: usize, fresh: bool, top: Option<TopOutput>, cx: &mut Context<Workspace>) -> impl IntoElement {
     let ui = ws.ui;
     let open = ws.panel.open;
+    // Each half rounds its own outer corners: overflow clipping is rectangular, so a fill
+    // would otherwise show square corners inside the rounded border.
+    let split = top.is_some();
     let left = div()
         .id("outputs-toggle")
         .h_full()
         .px(px(7.))
+        .map(|d| if split { d.rounded_l(px(5.)) } else { d.rounded(px(5.)) })
         .flex()
         .items_center()
         .gap(px(5.))
@@ -296,6 +300,7 @@ fn outputs_button(ws: &Workspace, n: usize, fresh: bool, top: Option<TopOutput>,
                     div()
                         .id("top-output")
                         .h_full()
+                        .rounded_r(px(5.))
                         .pl(px(7.))
                         .pr(px(8.))
                         .flex()

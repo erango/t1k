@@ -1178,7 +1178,7 @@ fn menu(ws: &Workspace, tab: usize, at: Point<Pixels>, window: &Window, cx: &mut
     m = m.child(sep());
     m = m.child(item("close", "Close tab".into()).on_click(cx.listener(move |this, _, window, cx| {
         this.close_overlay(window, cx);
-        this.close_tab_at(tab, window, cx);
+        this.request_close(tab, window, cx);
     })));
 
     // Keep the menu inside the window.

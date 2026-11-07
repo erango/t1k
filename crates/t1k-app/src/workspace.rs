@@ -235,10 +235,16 @@ pub struct Workspace {
     pub stopping: HashMap<String, Instant>,
     /// Keeps the quit dialog's list live while it's open.
     pub quit_ticker: Option<gpui::Task<()>>,
+    /// Closed tabs, newest last, for Undo and ⌘⇧T.
+    pub closed: Vec<crate::close::ClosedTab>,
+    pub close_toast: Option<(String, Instant)>,
+    pub toast_task: Option<gpui::Task<()>>,
+    /// A tab whose × asked "Stop <program>?" in its row.
+    pub confirm_close: Option<String>,
     /// Scrollback files were written for every tab (at quit); the session points at them.
     scrollback_saved: bool,
     /// Scrollback to replay into the next terminal `open_tab` spawns (session restore).
-    restore_next: Option<Vec<u8>>,
+    pub restore_next: Option<Vec<u8>>,
     /// The last shortcut change, shown under its row ("Was on Find tab").
     pub key_note: Option<(&'static str, String)>,
     _key_interceptor: gpui::Subscription,
@@ -380,6 +386,10 @@ impl Workspace {
             resume_after_quit: HashSet::new(),
             stopping: HashMap::new(),
             quit_ticker: None,
+            closed: Vec::new(),
+            close_toast: None,
+            toast_task: None,
+            confirm_close: None,
             scrollback_saved: false,
             restore_next: None,
             key_note: None,
@@ -1525,7 +1535,7 @@ impl Workspace {
             self.close_split(self.active, window, cx);
             return;
         }
-        self.close_tab_at(self.active, window, cx);
+        self.close_with_undo(self.active, window, cx);
     }
 
     fn step(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
@@ -1831,6 +1841,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::follow_system))
             .on_action(cx.listener(Self::select_theme))
             .on_action(cx.listener(|this, _: &ShowThemePicker, window, cx| this.open_theme_picker(window, cx)))
+            .on_action(cx.listener(|this, _: &ReopenClosedTab, window, cx| this.reopen_closed(window, cx)))
             .on_action(cx.listener(|this, _: &MoveGroupUp, _, cx| {
                 if let Some(g) = this.tabs.get(this.active).map(|t| t.group.clone()) {
                     this.move_group(&g, -1, cx);

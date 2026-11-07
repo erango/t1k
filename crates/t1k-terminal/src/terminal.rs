@@ -324,7 +324,7 @@ impl Terminal {
         let term = self.term.lock();
         let cut = idle.then(|| {
             let cursor = term.grid().cursor.point.line.0;
-            crate::view::prompt_starts(&*term).into_iter().filter(|&l| l <= cursor).last().unwrap_or(cursor)
+            crate::view::prompt_starts(&*term).into_iter().rfind(|&l| l <= cursor).unwrap_or(cursor)
         });
         snapshot_term(&term, max_lines, cut)
     }

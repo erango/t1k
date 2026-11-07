@@ -20,4 +20,7 @@ if [[ -o interactive ]]; then
   builtin autoload -Uz add-zsh-hook
   add-zsh-hook precmd _t1k_prompt_start
   add-zsh-hook preexec _t1k_command_start
+  # Closing a tab hangs up its shell. Save what you typed first, so a reopened tab (or any
+  # new one) finds it with ↑.
+  TRAPHUP() { [[ -n "$HISTFILE" ]] && builtin fc -AI 2>/dev/null; builtin exit 129 }
 fi

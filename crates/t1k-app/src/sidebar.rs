@@ -237,6 +237,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                     .child(group_header(ws, &key, &tabs, true, cx))
             })),
         )
+        .children(crate::close::toast(ws, cx))
         .into_any_element()
 }
 
@@ -511,9 +512,12 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
     let height = if two_lines { ws.config.interface.two_line_height() } else { ws.config.interface.row_height() } * k.max(1.);
     let icon_size = ws.config.interface.icon_size(two_lines);
     let hover_id = tab.id.clone();
+    let row_group = SharedString::from(format!("row-{}", tab.id));
+    let confirming = ws.confirm_close.as_deref() == Some(tab.id.as_str());
 
     let mut el = div()
         .id(SharedString::from(tab.id.clone()))
+        .group(row_group.clone())
         .relative()
         .flex_none()
         .h(px(height))
@@ -534,7 +538,9 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
                 .flex_col()
                 .justify_center()
                 .gap(px(2.))
-                .child(
+                .child(if confirming {
+                    crate::close::confirm_row(ws, ix, k, cx)
+                } else {
                     div()
                         .flex()
                         .items_center()
@@ -555,8 +561,11 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
                                 .gap(px(5.))
                                 .child(div().size(px(12.)).flex_none().child(spinner_sized(ui.status_working, ws.started, 4.75)))
                                 .child(div().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(w))
-                        })),
-                )
+                        }))
+                        // Design v3-r a′: × after the right end, on hover.
+                        .child(crate::close::close_button(ws, ix, row_group.clone(), cx))
+                        .into_any_element()
+                })
                 .when(two_lines, |d| {
                     d.child(
                         div()
@@ -590,7 +599,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
             this.hide_card(cx);
             this.open_overlay(crate::overlay::Overlay::Menu { tab: ix, at: ev.position }, window, cx);
         }))
-        .on_mouse_down(MouseButton::Middle, cx.listener(move |this, _, window, cx| this.close_tab_at(ix, window, cx)));
+        .on_mouse_down(MouseButton::Middle, cx.listener(move |this, _, window, cx| this.request_close(ix, window, cx)));
 
     if selected {
         // Selected: filled with the terminal background, flush to the sidebar's right edge so the

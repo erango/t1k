@@ -240,6 +240,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             g = g.child(
                 div()
                     .id(SharedString::from(format!("rail-{}", t.id)))
+                    .group(SharedString::from(format!("railrow-{}", t.id)))
                     .relative()
                     .w_full()
                     .h(px(28.))
@@ -250,6 +251,30 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                     .when(selected, |d| d.bg(ui.bg_terminal))
                     .when(!selected, |d| d.hover(move |d| d.bg(ui.sidebar_hover)))
                     .on_click(cx.listener(move |this, _, window, cx| this.activate(i, window, cx)))
+                    // Design v3-r: on hover, a small × badge at the icon's top-right.
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("rail-close-{}", t.id)))
+                            .absolute()
+                            .top(px(-1.))
+                            .right(px(5.))
+                            .size(px(16.))
+                            .rounded_full()
+                            .bg(ui.bg_raised)
+                            .border_1()
+                            .border_color(ui.border)
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .invisible()
+                            .group_hover(SharedString::from(format!("railrow-{}", t.id)), |s| s.visible())
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                cx.stop_propagation();
+                                this.request_close(i, window, cx);
+                            }))
+                            .child(div().size(px(14.)).flex().items_center().justify_center().child(crate::icons::close(ui.text_secondary))),
+                    )
                     .child(
                         div()
                             .relative()
