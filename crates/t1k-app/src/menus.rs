@@ -59,5 +59,12 @@ pub fn install(cx: &mut App) {
                     MenuItem::submenu(Menu { name: "Light Theme".into(), items: theme_items(false) }),
                 ],
             },
+            Menu {
+                name: "Help".into(),
+                items: vec![
+                    MenuItem::action("Report a Bug…", ReportBug),
+                    MenuItem::action("T1K on GitHub", OpenRepo),
+                ],
+            },
         ]);
 }

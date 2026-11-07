@@ -130,6 +130,8 @@ fn main() {
             }
             cx.quit()
         });
+        cx.on_action(|_: &ReportBug, cx| cx.open_url(&format!("{}/issues", brand::REPO)));
+        cx.on_action(|_: &OpenRepo, cx| cx.open_url(brand::REPO));
         // Remove this process's hook socket on the way out.
         cx.on_app_quit(|_| async {
             if let Some(d) = session::support_dir() {
