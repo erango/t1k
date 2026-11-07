@@ -94,6 +94,10 @@ t1k theme import ~/Downloads/Dracula.itermcolors   # Ghostty, iTerm2, Alacritty,
 t1k theme list
 ```
 
+Shortcuts: Settings › Keybindings, or `[keys]` in config.toml. Themes with live preview: View › Choose Theme….
+
+**Optional helper.** Codex, Antigravity and Grok sessions don't name themselves or write recaps. Turn on `[helper]` (Settings › Agents) and a small model, run through an agent CLI you already use, fills those in, and ⌘↵ in Find tab ranks tabs by meaning. It's off by default. Each call is measured: `t1k helper bench` compares the CLIs you have, and `t1k helper stats` shows what it used. On Claude Code's Haiku a call takes about 3 s and $0.0001.
+
 Not a fan of the android? Settings › Appearance › App icon offers a chrome `>_` prompt or the T1K wordmark.
 
 ## Privacy

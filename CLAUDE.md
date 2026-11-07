@@ -42,10 +42,10 @@ Debug environment variables (all read at launch):
 
 | Variable | Effect |
 |---|---|
-| `T1K_DEBUG_OVERLAY=palette\|switcher\|overview\|settings\|settings-interface\|settings-search\|menu\|groupmenu\|termmenu\|sidebarview\|more\|card\|about\|welcome\|settings-advanced\|update\|update-background\|quit` | Opens that surface (`update` also starts a check) |
+| `T1K_DEBUG_OVERLAY=palette\|switcher\|overview\|settings\|settings-interface\|settings-search\|settings-keys\|themes\|menu\|groupmenu\|termmenu\|sidebarview\|more\|card\|about\|welcome\|settings-advanced\|update\|update-background\|quit` | Opens that surface (`update` also starts a check) |
 | `T1K_DEBUG_UPDATE=install` | Presses Restart now as soon as an update is ready (with `T1K_DEBUG_OVERLAY=update-background`) |
 | `T1K_DEBUG_CRASH=error\|panic` | Sends a test error report / crashes on purpose (needs a DSN) |
-| `T1K_DEBUG_AGENT=working\|needs\|error\|done` | Fakes an agent session on the active tab |
+| `T1K_DEBUG_AGENT=working\|needs\|error\|done\|helper` | Fakes an agent session on the active tab (`helper`: an untitled Codex turn that just finished, for the helper) |
 | `T1K_DEBUG_PROGRAM=<name>` | Shows that program's icon on every tab |
 | `T1K_DEBUG_VIEW=<path>[:line]` | Opens that file in the side panel |
 | `T1K_DEBUG_HINTS=1`, `T1K_DEBUG_FIND=<query>` | Starts terminals in hint mode / with the find bar open |
@@ -64,4 +64,6 @@ limit.
 - Comments explain why, not what. User-facing copy is plain and short.
 - macOS only for now. `bundle.sh` signs with the first "Developer ID Application" identity in the keychain (hardened runtime, `scripts/T1K.entitlements`), or `T1K_SIGN_IDENTITY` (`-` for ad-hoc). Notarize with `T1K_NOTARY_PROFILE=<profile> ./scripts/notarize.sh target/release/T1K.app` (profile from `xcrun notarytool store-credentials`).
 - Crash reporting: Sentry (org `tv-tracker`, project `t1k`), in `telemetry.rs`. On only when the build has a DSN (`T1K_SENTRY_DSN` in the gitignored `.env.local`, read by `bundle.sh` and baked in with `option_env!`) and `privacy.crash_reports` is true. `log::error!` becomes an event and warn/info become breadcrumbs, all scrubbed (home folder to `~`, emails, URL queries, backtick-quoted panic text). `release.sh` uploads the dSYM with `SENTRY_AUTH_TOKEN` from `.env.local`. Never log terminal contents.
+- Helper (`[helper]`, off by default): `t1k-agent/src/helper.rs` runs one-shot prompts through an agent CLI (claude, codex, agy, gemini, grok) for titles, recaps and switcher search; `t1k-app/src/helper.rs` queues them. Claude Code must run with `--setting-sources "" --strict-mcp-config --tools "" --system-prompt …`, or it loads the user's whole setup (measured 376k tokens, $0.38 for one word; stripped: ~700 tokens, $0.0001). Every call is logged to `helper.jsonl`; `t1k helper bench` / `t1k helper stats`. Codex and Grok parsing is written from their docs, not yet run.
+- Keys: every shortcut is in `keymap.rs` (`ALL`); `[keys]` in config.toml overrides by id. Add new bindable actions there, not in `main.rs`.
 - Updates: Sparkle 2.10.1 is embedded by `bundle.sh` and loaded at runtime (`updater.rs`); T1K draws the UI (`update_ui.rs`). `scripts/release.sh <version> [--beta]` builds, notarizes, signs the zip with the EdDSA key (login keychain, account `t1k`), publishes a GitHub release and pushes `appcast.xml` (the feed, read from raw.githubusercontent on main). `--local <url>` writes everything to `target/updates/` for testing. Release notes: `docs/releases/<version>.md`, one `- ` bullet per line.
