@@ -76,50 +76,6 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
         _ => None,
     });
 
-    // PR chip with CI, from the last PR the session opened.
-    let pr = agent.and_then(|a| a.prs.last()).map(|(n, url)| {
-        let info = ws.panel.prs.get(url).cloned().flatten();
-        let (fg, bg) = match info.as_ref().map(|i| (i.state.as_str(), i.checks.1 > 0)) {
-            Some((_, true)) => (ui.status_error, ui.status_error.opacity(0.12)),
-            Some(("MERGED", _)) => (ui.accent, ui.accent.opacity(0.12)),
-            _ => (ui.link, ui.link.opacity(0.12)),
-        };
-        let checks = info.map(|i| {
-            let (ok, bad, wait) = i.checks;
-            let mut v = Vec::new();
-            if i.state == "MERGED" {
-                v.push("merged".to_string());
-            }
-            if ok > 0 {
-                v.push(format!("✓ {ok}"));
-            }
-            if bad > 0 {
-                v.push(format!("✗ {bad}"));
-            }
-            if wait > 0 {
-                v.push(format!("● {wait}"));
-            }
-            v.join(" · ")
-        });
-        let url = url.clone();
-        div()
-            .id("pr-chip")
-            .flex_none()
-            .h(px(22.))
-            .px(px(8.))
-            .flex()
-            .items_center()
-            .gap(px(6.))
-            .rounded(px(6.))
-            .bg(bg)
-            .text_size(px(11.5))
-            .text_color(fg)
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .on_click(move |_, _, cx| cx.open_url(&url))
-            .child(div().font_family("JetBrains Mono").font_weight(FontWeight::SEMIBOLD).child(format!("#{n}")))
-            .children(checks.filter(|c| !c.is_empty()))
-    });
-
     // Context meter: gray, amber from 70%, red from 90%.
     let ctx = agent.filter(|a| a.status != Status::Ended).and_then(|a| a.context_percent()).map(|p| {
         let c = if p >= 90 { ui.status_error } else if p >= 70 { ui.status_needs } else { ui.text_quiet };
@@ -133,7 +89,9 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
     });
 
     let needs = matches!(agent.map(|a| &a.status), Some(Status::NeedsInput { .. }));
-    let outputs = agent.map(|a| a.outputs.iter().filter(|o| o.kind != Kind::File).count() + usize::from(a.files_edited() > 0)).unwrap_or(0);
+    let outputs = ws.tabs.get(ws.active).map(|t| t.outputs_count()).unwrap_or(0);
+    let fresh = ws.outputs_new(ws.active);
+    let top = agent.and_then(|a| top_output(ws, a));
 
     div()
         .id("titlebar")
@@ -180,7 +138,6 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
                         .child(div().text_size(px(11.5)).font_family("JetBrains Mono").child(b))
                 }),
         )
-        .children(pr)
         .child(div().flex_1())
         .children(ctx)
         .when(needs, |d| {
@@ -202,28 +159,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
                     .child("Open prompt"),
             )
         })
-        .child(
-            div()
-                .id("outputs-toggle")
-                .flex_none()
-                .h(px(26.))
-                .px(px(9.))
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .rounded(px(6.))
-                .bg(if ws.panel.open { ui.bg_selected } else { ui.bg_hover })
-                .text_size(px(12.))
-                // One line box for both labels: mixing the mono face for the count with the UI
-                // face put them on different baselines and pushed the label off center.
-                .line_height(px(14.))
-                .text_color(ui.text_secondary)
-                .hover(move |d| d.text_color(ui.text_primary))
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .on_click(cx.listener(|this, _, _, cx| this.toggle_outputs(cx)))
-                .child("Outputs")
-                .when(outputs > 0, |d| d.child(div().text_color(ui.text_tertiary).child(outputs.to_string()))),
-        )
+        .child(outputs_button(ws, outputs, fresh, top, cx))
         .child(
             div()
                 .id("more")
@@ -259,4 +195,110 @@ impl Workspace {
             window.focus(&h);
         }
     }
+}
+
+/// The one output worth a direct link from the strip (design v3-l): an open PR with its
+/// checks, then a merged PR, then an artifact or doc, then a ticket. Commits, files and
+/// plain URLs never take the slot.
+pub struct TopOutput {
+    /// Small glyph before the label (CI state for PRs).
+    glyph: Option<(&'static str, gpui::Hsla)>,
+    kind: &'static str,
+    label: String,
+    url: String,
+    tooltip: String,
+}
+
+fn top_output(ws: &Workspace, a: &t1k_agent::AgentState) -> Option<TopOutput> {
+    let ui = ws.ui;
+    let pr = |merged_wanted: bool| {
+        a.prs.iter().rev().find_map(|(n, url)| {
+            let info = ws.panel.prs.get(url).cloned().flatten();
+            let merged = info.as_ref().is_some_and(|i| i.state == "MERGED");
+            let closed = info.as_ref().is_some_and(|i| i.state == "CLOSED");
+            if closed || merged != merged_wanted {
+                return None;
+            }
+            let (glyph, tip) = match info.as_ref().map(|i| i.checks) {
+                _ if merged => (("✓", ui.accent), "merged".to_string()),
+                Some((_, bad, _)) if bad > 0 => (("✗", ui.text_tertiary), format!("{bad} checks failing")),
+                Some((_, _, wait)) if wait > 0 => (("●", ui.text_tertiary), "checks running".into()),
+                Some((ok, _, _)) if ok > 0 => (("✓", ui.status_done), "checks passed".into()),
+                _ => (("●", ui.text_disabled), "no checks yet".into()),
+            };
+            Some(TopOutput { glyph: Some(glyph), kind: "PR", label: format!("#{n}"), url: url.clone(), tooltip: format!("Open PR #{n} · {tip}") })
+        })
+    };
+    let other = |kinds: &[Kind], name: &'static str| {
+        a.outputs.iter().rev().find(|o| kinds.contains(&o.kind)).map(|o| {
+            let label: String = o.label.chars().take(22).collect();
+            TopOutput { glyph: None, kind: name, label, url: o.target.clone(), tooltip: format!("Open {}", o.label) }
+        })
+    };
+    pr(false).or_else(|| pr(true)).or_else(|| other(&[Kind::Artifact, Kind::Doc], "")).or_else(|| other(&[Kind::Ticket], ""))
+}
+
+/// H2: [tray + count | top output]. The left half opens the panel, the right half the output.
+fn outputs_button(ws: &Workspace, n: usize, fresh: bool, top: Option<TopOutput>, cx: &mut Context<Workspace>) -> impl IntoElement {
+    let ui = ws.ui;
+    let open = ws.panel.open;
+    let left = div()
+        .id("outputs-toggle")
+        .h_full()
+        .px(px(7.))
+        .flex()
+        .items_center()
+        .gap(px(5.))
+        .when(open, |d| d.bg(ui.bg_selected))
+        .hover(move |d| d.bg(ui.bg_selected))
+        .tooltip(crate::tooltip::text(ui, if n == 0 { "Outputs · none yet".to_string() } else { format!("Outputs · {n}") }))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_outputs(cx)))
+        .child(crate::icons::tray(if n == 0 { ui.text_disabled } else if open { ui.text_primary } else { ui.text_secondary }))
+        .when(n > 0, |d| {
+            d.child(
+                div()
+                    .text_color(if fresh { ui.accent } else { ui.text_secondary })
+                    .font_weight(if fresh { FontWeight::SEMIBOLD } else { FontWeight::MEDIUM })
+                    .child(n.to_string()),
+            )
+        });
+    let framed = n > 0;
+    div()
+        .flex_none()
+        .h(px(26.))
+        .rounded(px(6.))
+        .overflow_hidden()
+        .flex()
+        .items_center()
+        .text_size(px(12.))
+        .line_height(px(14.))
+        .when(framed, |d| d.border_1().border_color(ui.border))
+        .child(left)
+        .children(top.map(|t| {
+            let url = t.url.clone();
+            div()
+                .flex()
+                .items_center()
+                .h_full()
+                .child(div().w(px(1.)).h(px(14.)).bg(ui.border))
+                .child(
+                    div()
+                        .id("top-output")
+                        .h_full()
+                        .pl(px(7.))
+                        .pr(px(8.))
+                        .flex()
+                        .items_center()
+                        .gap(px(5.))
+                        .text_color(if fresh { ui.accent } else { ui.text_secondary })
+                        .hover(move |d| d.bg(ui.bg_selected).text_color(ui.text_primary))
+                        .tooltip(crate::tooltip::text(ui, t.tooltip))
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_click(move |_, _, cx| cx.open_url(&url))
+                        .children(t.glyph.map(|(g, c)| div().text_size(px(10.)).text_color(c).child(g)))
+                        .when(!t.kind.is_empty(), |d| d.child(t.kind))
+                        .child(div().font_family(if t.kind == "PR" { "JetBrains Mono" } else { ".SystemUIFont" }).when(t.kind == "PR", |d| d.text_size(px(11.5)).font_weight(FontWeight::SEMIBOLD)).child(t.label)),
+                )
+        }))
 }

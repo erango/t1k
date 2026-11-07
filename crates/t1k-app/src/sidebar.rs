@@ -917,8 +917,8 @@ pub fn needs_reason(tab: &Tab) -> String {
 /// Top-of-sidebar attention area (v3):
 /// - hooks not installed: a one-line "Connect Claude Code" banner;
 /// - something needs you: "Needs you N · ⌘J" with one row per tab (what it wants, how long);
-/// - otherwise, if any agents exist: a quiet "All caught up · N working" line, so the layout
-///   doesn't jump when the last one is handled.
+/// - otherwise, if any agents exist: a quiet "All caught up" row in the same place, so the
+///   layout doesn't jump when the last one is handled.
 fn attention(ws: &Workspace, cx: &mut Context<Workspace>) -> Vec<AnyElement> {
     let mut out = Vec::new();
     out.extend(connect_banner(ws, cx));
@@ -957,50 +957,52 @@ fn connect_banner(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElem
 }
 
 fn needs_area(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement> {
+    // Design v3-m option F: a row styled like a group header, not a box, so nothing under
+    // Find reads as a second field. When tabs need you they list under it like a group's
+    // tabs; the header line itself never moves.
     let k = ws.config.interface.text_scale();
     let ui = ws.ui;
-    let base = || div().flex_none().mx(px(10.)).mb(px(10.)).rounded(px(8.)).overflow_hidden();
     let queue = ws.needs_queue();
-    if queue.is_empty() {
-        let agents = ws.tabs.iter().filter(|t| t.agent.is_some()).count();
-        if agents == 0 {
-            return None;
-        }
-        let working = ws.tabs.iter().filter(|t| t.status() == Some(&Status::Working)).count();
-        let tail = if working > 0 { format!(" · {working} working") } else { String::new() };
-        return Some(
-            base()
-                .h(px(30.))
-                .px(px(12.))
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .bg(ui.bg_terminal)
-                .text_size(px(12. * k))
-                .text_color(ui.text_tertiary)
-                .child(div().text_color(ui.status_done).child("✓"))
-                .child(format!("All caught up{tail}"))
-                .into_any_element(),
-        );
+    let agents = ws.tabs.iter().filter(|t| t.agent.is_some()).count();
+    if queue.is_empty() && agents == 0 {
+        return None;
     }
-    let n = queue.len();
-    let mut bar = base().bg(ui.bg_raised).border_1().border_color(ui.status_needs.opacity(0.18)).flex().flex_col();
-    bar = bar.child(
+    let header = || {
         div()
             .id("needs-you")
-            .h(px(30.))
-            .pl(px(12.))
-            .pr(px(10.))
+            .h(px(26.))
+            .flex_none()
+            .mx(px(INSET))
+            .px(px(10.))
+            .rounded(px(6.))
             .flex()
             .items_center()
-            .gap(px(9.))
+            .gap(px(7.))
             .hover(move |d| d.bg(ui.bg_hover))
+    };
+    let mut area = div().flex_none().mb(px(8.)).flex().flex_col().gap(px(2.));
+    if queue.is_empty() {
+        let working = ws.tabs.iter().filter(|t| t.status() == Some(&Status::Working)).count();
+        area = area.child(
+            header()
+                .tooltip(crate::tooltip::text(ui, "Nothing needs you. ⌘J jumps to the next tab that does."))
+                .child(div().w(px(11.)).text_size(px(11. * k)).text_color(ui.status_done.opacity(0.75)).child("✓"))
+                .child(div().flex_1().text_size(px(12. * k)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_secondary).child("All caught up"))
+                .when(working > 0, |d| d.child(div().text_size(px(11.5 * k)).text_color(ui.text_tertiary).child(format!("{working} working")))),
+        );
+        return Some(area.into_any_element());
+    }
+    let n = queue.len();
+    area = area.child(
+        header()
             .on_click(cx.listener(|this, _, window, cx| this.jump_next_needs(window, cx)))
             .child(
-                div().size(px(13.)).flex().items_center().justify_center().rounded_full().bg(ui.status_needs.opacity(0.2))
-                    .child(div().size(px(7.)).rounded_full().bg(ui.status_needs)),
+                div().w(px(11.)).flex().justify_center().child(
+                    div().size(px(13.)).flex().items_center().justify_center().rounded_full().bg(ui.status_needs.opacity(0.2))
+                        .child(div().size(px(7.)).rounded_full().bg(ui.status_needs)),
+                ),
             )
-            .child(div().text_size(px(12.5 * k)).font_weight(FontWeight::MEDIUM).text_color(ui.text_primary).child("Needs you"))
+            .child(div().text_size(px(12. * k)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).child("Needs you"))
             .child(div().text_size(px(11. * k)).font_family("JetBrains Mono").font_weight(FontWeight::SEMIBOLD).text_color(ui.status_needs).child(format!("{n}")))
             .child(div().flex_1())
             .child(div().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child("⌘J")),
@@ -1013,26 +1015,29 @@ fn needs_area(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement>
         };
         let error = matches!(t.status(), Some(Status::Error { .. }));
         let tone = if error { ui.status_error } else { ui.status_needs };
-        bar = bar.child(
+        area = area.child(
             div()
                 .id(SharedString::from(format!("needs-{}", t.id)))
                 .h(px(28.))
-                .pl(px(34.))
+                .flex_none()
+                .mx(px(INSET))
+                .pl(px(27.))
                 .pr(px(10.))
+                .rounded(px(6.))
                 .flex()
                 .items_center()
                 .gap(px(8.))
-                .border_t_1()
-                .border_color(ui.border)
                 .hover(move |d| d.bg(ui.bg_hover))
                 .on_click(cx.listener(move |this, _, window, cx| this.activate(i, window, cx)))
-                .child(div().flex_1().min_w_0().truncate().text_size(px(12. * k)).text_color(ui.text_secondary).child(t.title()))
-                .child(div().flex_none().text_size(px(11. * k)).text_color(tone.opacity(0.85)).child(needs_reason(t)))
+                .child(div().flex_1().min_w_0().truncate().text_size(px(12.5 * k)).text_color(ui.text_primary).child(t.title()))
+                .child(div().flex_none().text_size(px(11. * k)).text_color(tone).child(needs_reason(t)))
                 .child(div().w(px(28.)).flex_none().flex().justify_end().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(tone).child(age)),
         );
     }
     if n > 4 {
-        bar = bar.child(div().h(px(24.)).pl(px(34.)).flex().items_center().text_size(px(11.5 * k)).text_color(ui.text_tertiary).border_t_1().border_color(ui.border).child(format!("+{} more · ⌘J walks them", n - 4)));
+        area = area.child(
+            div().h(px(24.)).mx(px(INSET)).pl(px(27.)).flex().items_center().text_size(px(11.5 * k)).text_color(ui.text_tertiary).child(format!("+{} more · ⌘J walks them", n - 4)),
+        );
     }
-    Some(bar.into_any_element())
+    Some(area.into_any_element())
 }

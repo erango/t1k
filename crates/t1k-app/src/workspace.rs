@@ -55,6 +55,14 @@ pub struct Tab {
 }
 
 impl Tab {
+    /// Outputs shown in the panel: everything but single files, plus one entry for edited files.
+    pub fn outputs_count(&self) -> usize {
+        self.agent
+            .as_ref()
+            .map(|a| a.outputs.iter().filter(|o| o.kind != t1k_agent::outputs::Kind::File).count() + usize::from(a.files_edited() > 0))
+            .unwrap_or(0)
+    }
+
     /// Hook-driven agent status; without hooks, what the program's title glyph says while it runs.
     pub fn status(&self) -> Option<&Status> {
         match &self.agent {
@@ -203,6 +211,8 @@ pub struct Workspace {
     theme_before: Option<(AppearanceMode, &'static Theme, &'static Theme)>,
     /// The Settings page a drill-down (the theme picker) was opened from; Esc and ‹ return there.
     pub settings_return: Option<crate::settings::Section>,
+    /// Outputs count per tab id when the user last saw them (panel open on that tab).
+    pub outputs_seen: HashMap<String, usize>,
     /// The last shortcut change, shown under its row ("Was on Find tab").
     pub key_note: Option<(&'static str, String)>,
     _key_interceptor: gpui::Subscription,
@@ -330,6 +340,7 @@ impl Workspace {
             switcher_filter: Default::default(),
             theme_before: None,
             settings_return: None,
+            outputs_seen: HashMap::new(),
             key_note: None,
             _key_interceptor: {
                 // Recording a shortcut must see keys before any binding fires (⌘P would
@@ -852,6 +863,11 @@ impl Workspace {
         self.save();
     }
 
+    /// Whether tab `ix` has outputs the user hasn't seen in the panel yet.
+    pub fn outputs_new(&self, ix: usize) -> bool {
+        self.tabs.get(ix).is_some_and(|t| self.outputs_seen.get(&t.id).is_some_and(|s| t.outputs_count() > *s))
+    }
+
     pub fn group_label(&self, key: &PathBuf) -> String {
         self.group_names.get(key).cloned().unwrap_or_else(|| groups::label(key))
     }
@@ -921,6 +937,14 @@ impl Workspace {
 
     /// Every 100 ms: apply agent messages; keep spinners moving while anything works.
     fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Outputs already there count as seen; new ones stay "new" until the panel shows them.
+        for (i, t) in self.tabs.iter().enumerate() {
+            let n = t.outputs_count();
+            let seen = self.outputs_seen.entry(t.id.clone()).or_insert(n);
+            if (self.panel.open && i == self.active) || n < *seen {
+                *seen = n;
+            }
+        }
         let rev = crate::updater::rev();
         if rev != self.update_rev {
             self.update_rev = rev;

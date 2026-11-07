@@ -52,6 +52,29 @@ pub fn filter_lines(color: Hsla) -> impl IntoElement {
     })
 }
 
+/// A tray (outputs).
+pub fn tray(color: Hsla) -> impl IntoElement {
+    icon(move |b, window| {
+        let o = b.origin;
+        let pt = |x: f32, y: f32| point(o.x + px(x), o.y + px(y));
+        stroke(window, color, |p| {
+            p.move_to(pt(3.5, 3.));
+            p.line_to(pt(10.5, 3.));
+            p.line_to(pt(12.2, 8.));
+            p.line_to(pt(12.2, 11.5));
+            p.line_to(pt(1.8, 11.5));
+            p.line_to(pt(1.8, 8.));
+            p.line_to(pt(3.5, 3.));
+            p.move_to(pt(1.8, 8.));
+            p.line_to(pt(4.8, 8.));
+            p.line_to(pt(5.6, 9.6));
+            p.line_to(pt(8.4, 9.6));
+            p.line_to(pt(9.2, 8.));
+            p.line_to(pt(12.2, 8.));
+        })
+    })
+}
+
 /// An ×, for closing a dialog.
 pub fn close(color: Hsla) -> impl IntoElement {
     icon(move |b, window| {
