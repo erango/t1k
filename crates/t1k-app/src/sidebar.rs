@@ -29,6 +29,13 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         .size_full()
         .overflow_y_scroll()
         .track_scroll(&ws.sidebar_scroll)
+        // Dragging a tab or group near the top or bottom edge scrolls the list.
+        .on_drag_move::<TabDrag>(cx.listener(|this, e: &gpui::DragMoveEvent<TabDrag>, _, cx| {
+            this.drag_near_edge(f32::from(e.event.position.y), f32::from(e.bounds.top()), f32::from(e.bounds.bottom()), cx)
+        }))
+        .on_drag_move::<GroupDrag>(cx.listener(|this, e: &gpui::DragMoveEvent<GroupDrag>, _, cx| {
+            this.drag_near_edge(f32::from(e.event.position.y), f32::from(e.bounds.top()), f32::from(e.bounds.bottom()), cx)
+        }))
         .pb(px(12.))
         .flex()
         .flex_col()

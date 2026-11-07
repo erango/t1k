@@ -248,6 +248,10 @@ pub struct Workspace {
     turns_done: Vec<String>,
     /// The sidebar list's scroll position (for the sticky group header).
     pub sidebar_scroll: gpui::ScrollHandle,
+    /// While dragging a tab or group near the list's top or bottom edge: px per frame
+    /// (negative scrolls up), and the task scrolling it.
+    drag_scroll: f32,
+    drag_scroll_task: Option<Task<()>>,
     /// The switcher's filter chip (back to All when it closes).
     pub switcher_filter: crate::overlay::SwitcherFilter,
     /// While the theme picker previews: what to go back to on esc.
@@ -433,6 +437,8 @@ impl Workspace {
             helper: Default::default(),
             turns_done: Vec::new(),
             sidebar_scroll: gpui::ScrollHandle::new(),
+            drag_scroll: 0.,
+            drag_scroll_task: None,
             switcher_filter: Default::default(),
             theme_before: None,
             settings_return: None,
@@ -1066,6 +1072,45 @@ impl Workspace {
         self.notice = Some((format!("Moved {what} to {name}"), Instant::now()));
         self.notice_undo = true;
         cx.notify();
+    }
+
+    /// Dragging near the sidebar list's top or bottom edge scrolls it, faster the closer to
+    /// the edge (and at full speed past it), for as long as the drag stays there.
+    pub fn drag_near_edge(&mut self, y: f32, top: f32, bottom: f32, cx: &mut Context<Self>) {
+        const ZONE: f32 = 40.;
+        const MAX: f32 = 14.;
+        let speed = if y < top + ZONE {
+            -MAX * ((top + ZONE - y) / ZONE).min(1.)
+        } else if y > bottom - ZONE {
+            MAX * ((y - (bottom - ZONE)) / ZONE).min(1.)
+        } else {
+            0.
+        };
+        self.drag_scroll = speed;
+        if speed == 0. || self.drag_scroll_task.is_some() {
+            return;
+        }
+        self.drag_scroll_task = Some(cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(Duration::from_millis(16)).await;
+            let go = this.update(cx, |ws, cx| {
+                if ws.drag_scroll == 0. || !cx.has_active_drag() {
+                    ws.drag_scroll = 0.;
+                    ws.drag_scroll_task = None;
+                    return false;
+                }
+                let h = &ws.sidebar_scroll;
+                let max = f32::from(h.max_offset().height);
+                let mut o = h.offset();
+                // Offsets run negative as the list scrolls down.
+                o.y = px((f32::from(o.y) - ws.drag_scroll).clamp(-max, 0.));
+                h.set_offset(o);
+                cx.notify();
+                true
+            });
+            if !go.unwrap_or(false) {
+                break;
+            }
+        }));
     }
 
     /// Put the last moved tabs back where they were (⌘Z, or Undo on the notice).
