@@ -8,6 +8,7 @@ mod cli;
 mod config;
 mod input;
 mod links;
+mod markdown;
 mod menus;
 mod outputs_panel;
 mod overlay;
@@ -23,6 +24,7 @@ mod strip;
 mod sidebar;
 mod title;
 mod tooltip;
+mod viewer;
 mod workspace;
 
 use gpui::{prelude::*, px, size, App, Application, Bounds, KeyBinding, WindowBounds, WindowOptions};

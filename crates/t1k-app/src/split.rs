@@ -64,7 +64,7 @@ impl Workspace {
                 TerminalEvent::Exited => this.close_split(ix, window, cx),
                 TerminalEvent::OpenLink(link) => this.open_link(ix, link, cx),
                 TerminalEvent::ContextMenu { at, link, has_selection } => {
-                    let o = crate::overlay::Overlay::TerminalMenu { tab: ix, split: true, at: *at, link: link.clone(), has_selection: *has_selection };
+                    let o = crate::overlay::Overlay::TerminalMenu { tab: ix, split: true, at: *at, link: link.clone(), has_selection: *has_selection, apps: crate::overlay::file_apps(link) };
                     this.open_overlay(o, window, cx);
                 }
                 TerminalEvent::TitleChanged(_) | TerminalEvent::Bell => {}

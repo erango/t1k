@@ -33,7 +33,15 @@ pub enum Overlay {
     Menu { tab: usize, at: Point<Pixels> },
     GroupMenu { key: std::path::PathBuf, at: Point<Pixels> },
     /// Right-click in a terminal pane (`split`: the tab's split pane rather than its main one).
-    TerminalMenu { tab: usize, split: bool, at: Point<Pixels>, link: Option<t1k_terminal::links::Link>, has_selection: bool },
+    TerminalMenu {
+        tab: usize,
+        split: bool,
+        at: Point<Pixels>,
+        link: Option<t1k_terminal::links::Link>,
+        has_selection: bool,
+        /// For a file link: the apps macOS offers under Open With (looked up when the menu opens).
+        apps: Vec<(String, std::path::PathBuf)>,
+    },
     Settings { section: crate::settings::Section },
 }
 
@@ -565,10 +573,18 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
             let m = group_menu(ws, key.clone(), *at, window, cx);
             Some(scrim(ws, true, cx).child(m).into_any_element())
         }
-        Overlay::TerminalMenu { tab, split, at, link, has_selection } => {
-            let m = terminal_menu(ws, *tab, *split, *at, link.clone(), *has_selection, window, cx);
+        Overlay::TerminalMenu { tab, split, at, link, has_selection, apps } => {
+            let m = terminal_menu(ws, *tab, *split, *at, link.clone(), *has_selection, apps.clone(), window, cx);
             Some(scrim(ws, true, cx).child(m).into_any_element())
         }
+    }
+}
+
+/// Apps for a file link's Open With section (empty for other links).
+pub fn file_apps(link: &Option<t1k_terminal::links::Link>) -> Vec<(String, std::path::PathBuf)> {
+    match link {
+        Some(t1k_terminal::links::Link::File { path, .. }) if path.is_file() => crate::platform::apps_for(path),
+        _ => Vec::new(),
     }
 }
 
@@ -1090,6 +1106,7 @@ fn terminal_menu(
     at: Point<Pixels>,
     link: Option<t1k_terminal::links::Link>,
     has_selection: bool,
+    apps: Vec<(String, std::path::PathBuf)>,
     window: &Window,
     cx: &mut Context<Workspace>,
 ) -> AnyElement {
@@ -1138,23 +1155,67 @@ fn terminal_menu(
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
 
     if let Some(link) = link {
-        let label = match &link {
-            t1k_terminal::links::Link::Url(_) => "Open link",
-            t1k_terminal::links::Link::File { .. } => "Open file",
-            t1k_terminal::links::Link::Pr(_) => "Open PR",
-            t1k_terminal::links::Link::Ticket(_) => "Open ticket",
-        };
-        let open = link.clone();
-        m = m.child(item("open", label, "⌘click", true).on_click(cx.listener(move |this, _, window, cx| {
-            this.close_overlay(window, cx);
-            this.open_link(tab, &open, cx);
-        })));
-        let text = link.label();
-        m = m.child(item("copy-link", "Copy link", "", true).on_click(cx.listener(move |this, _, window, cx| {
-            cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
-            this.close_overlay(window, cx);
-        })));
-        m = m.child(sep());
+        if let t1k_terminal::links::Link::File { path, line, .. } = &link {
+            // A file: open it (side panel for text), in the editor, with another app, or show it.
+            let text = crate::viewer::is_text(path);
+            let open = link.clone();
+            m = m.child(item("open", if text { "Open" } else { "Open in default app" }, "⌘click", true).on_click(cx.listener(move |this, _, window, cx| {
+                this.close_overlay(window, cx);
+                this.open_link(tab, &open, cx);
+            })));
+            if text {
+                let ed = link.clone();
+                m = m.child(item("open-editor", "Open in editor", "", true).on_click(cx.listener(move |this, _, window, cx| {
+                    this.close_overlay(window, cx);
+                    this.open_link_in_editor(tab, &ed, cx);
+                })));
+            }
+            if !apps.is_empty() {
+                m = m.child(sep()).child(div().px(px(10.)).pt(px(2.)).pb(px(2.)).text_size(px(11.)).text_color(ui.text_tertiary).child("Open with"));
+                for (n, (name, app)) in apps.into_iter().take(8).enumerate() {
+                    let file = path.clone();
+                    let label: &'static str = Box::leak(if n == 0 { format!("{name} (default)") } else { name }.into_boxed_str());
+                    let id: &'static str = Box::leak(format!("with-{n}").into_boxed_str());
+                    m = m.child(item(id, label, "", true).on_click(cx.listener(move |this, _, window, cx| {
+                        this.close_overlay(window, cx);
+                        crate::platform::open_with(&app, &file);
+                    })));
+                }
+            }
+            m = m.child(sep());
+            let rev = path.clone();
+            m = m.child(item("reveal", "Reveal in Finder", "", true).on_click(cx.listener(move |this, _, window, cx| {
+                this.close_overlay(window, cx);
+                cx.reveal_path(&rev);
+            })));
+            let copy_path = match line {
+                Some(l) => format!("{}:{l}", path.display()),
+                None => path.display().to_string(),
+            };
+            m = m.child(item("copy-path", "Copy path", "", true).on_click(cx.listener(move |this, _, window, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(copy_path.clone()));
+                this.close_overlay(window, cx);
+            })));
+            m = m.child(sep());
+        } else {
+            let label = match &link {
+                t1k_terminal::links::Link::Url(_) => "Open link",
+                t1k_terminal::links::Link::Pr(_) => "Open PR",
+                t1k_terminal::links::Link::Ticket(_) => "Open ticket",
+                t1k_terminal::links::Link::File { .. } => "Open file",
+            };
+            let open = link.clone();
+            m = m.child(item("open", label, "⌘click", true).on_click(cx.listener(move |this, _, window, cx| {
+                this.close_overlay(window, cx);
+                this.open_link(tab, &open, cx);
+            })));
+            let text = link.label();
+            m = m.child(item("copy-link", "Copy link", "", true).on_click(cx.listener(move |this, _, window, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
+                this.close_overlay(window, cx);
+            })));
+            m = m.child(sep());
+        }
     }
     let copy = item("copy", "Copy", "⌘C", has_selection);
     m = m.child(if has_selection { copy.on_click(act(|v, cx| v.copy_selection(cx))) } else { copy });

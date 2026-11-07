@@ -58,6 +58,9 @@ hover_card = true
 # ⌘-click a file path to open it. Empty picks the first of Zed, Cursor, VS Code, else the
 # default app. Otherwise a command, with {path}, {line} and {col}: "code -g {path}:{line}:{col}".
 editor = ""
+# Text files (code, Markdown, logs...): "panel" opens them in T1K's side panel (Markdown
+# rendered), "editor" in the editor above. Other files open in their default app.
+text_files = "panel"
 # Where ticket keys like ENG-42 open, with {key}: "https://acme.atlassian.net/browse/{key}".
 # Empty learns it from ticket links your Claude sessions mention.
 tickets = ""
@@ -94,6 +97,12 @@ pub struct InterfaceCfg {
 impl Default for InterfaceCfg {
     fn default() -> Self {
         Self { density: "comfortable".into(), text_size: 13. }
+    }
+}
+
+impl Default for LinksCfg {
+    fn default() -> Self {
+        Self { editor: String::new(), tickets: String::new(), text_files: "panel".into() }
     }
 }
 
@@ -134,11 +143,12 @@ impl InterfaceCfg {
     }
 }
 
-#[derive(Deserialize, Debug, Clone, PartialEq, Default)]
+#[derive(Deserialize, Debug, Clone, PartialEq)]
 #[serde(default)]
 pub struct LinksCfg {
     pub editor: String,
     pub tickets: String,
+    pub text_files: String,
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]

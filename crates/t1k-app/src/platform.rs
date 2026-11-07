@@ -196,3 +196,58 @@ pub fn notify_tab(tab: &str, title: &str, subtitle: &str, body: &str) {
     }
     notify(title, subtitle, body);
 }
+
+/// Apps that can open a file, default first, as (display name, app path): what Finder lists
+/// under "Open With".
+#[cfg(target_os = "macos")]
+pub fn apps_for(path: &std::path::Path) -> Vec<(String, std::path::PathBuf)> {
+    use cocoa::base::{id, nil};
+    use cocoa::foundation::NSString;
+    use objc::{class, msg_send, sel, sel_impl};
+    let to_string = |s: id| -> Option<String> {
+        if s == nil {
+            return None;
+        }
+        let p: *const std::os::raw::c_char = unsafe { msg_send![s, UTF8String] };
+        (!p.is_null()).then(|| unsafe { std::ffi::CStr::from_ptr(p) }.to_string_lossy().into_owned())
+    };
+    let mut out: Vec<(String, std::path::PathBuf)> = Vec::new();
+    unsafe {
+        let ws: id = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let fm: id = msg_send![class!(NSFileManager), defaultManager];
+        let p = NSString::alloc(nil).init_str(&path.display().to_string());
+        let url: id = msg_send![class!(NSURL), fileURLWithPath: p];
+        let default: id = msg_send![ws, URLForApplicationToOpenURL: url];
+        let all: id = msg_send![ws, URLsForApplicationsToOpenURL: url];
+        let mut urls: Vec<id> = Vec::new();
+        if default != nil {
+            urls.push(default);
+        }
+        if all != nil {
+            let n: usize = msg_send![all, count];
+            for i in 0..n {
+                urls.push(msg_send![all, objectAtIndex: i]);
+            }
+        }
+        for u in urls {
+            let Some(app) = to_string(msg_send![u, path]) else { continue };
+            if out.iter().any(|(_, p)| p.to_str() == Some(app.as_str())) {
+                continue;
+            }
+            let app_ns = NSString::alloc(nil).init_str(&app);
+            let name = to_string(msg_send![fm, displayNameAtPath: app_ns]).unwrap_or_else(|| app.clone());
+            out.push((name.trim_end_matches(".app").to_string(), std::path::PathBuf::from(app)));
+        }
+    }
+    out
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn apps_for(_: &std::path::Path) -> Vec<(String, std::path::PathBuf)> {
+    Vec::new()
+}
+
+/// Open a file with a specific app (`open -a`).
+pub fn open_with(app: &std::path::Path, file: &std::path::Path) {
+    let _ = std::process::Command::new("/usr/bin/open").arg("-a").arg(app).arg(file).spawn().map(|mut c| std::thread::spawn(move || c.wait()));
+}

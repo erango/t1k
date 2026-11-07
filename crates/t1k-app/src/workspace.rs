@@ -179,6 +179,8 @@ pub struct Workspace {
     /// The window's frame, kept current as it moves and resizes; saved with the session.
     window_frame: Option<session::SavedWindow>,
     saved_frame: Option<session::SavedWindow>,
+    /// The file open in the side panel, if any.
+    pub viewer: Option<crate::viewer::Viewer>,
     /// Text typed into Settings' search.
     pub settings_query: String,
     pub back: Vec<String>,
@@ -290,6 +292,7 @@ impl Workspace {
             overlay: Overlay::None,
             hooks_installed: crate::settings::claude_hooks_installed(),
             settings_query: String::new(),
+            viewer: None,
             window_frame: None,
             saved_frame: None,
             back: Vec::new(),
@@ -380,6 +383,14 @@ impl Workspace {
                 t.agent = Some(a);
             }
         }
+        // Debug aid: T1K_DEBUG_VIEW=<path>[:line] opens a file in the side panel.
+        if let Ok(spec) = std::env::var("T1K_DEBUG_VIEW") {
+            let (p, line) = match spec.rsplit_once(':') {
+                Some((p, l)) if l.parse::<u32>().is_ok() => (p.to_string(), l.parse().ok()),
+                _ => (spec.clone(), None),
+            };
+            this.view_file(std::path::Path::new(&p), line, cx);
+        }
         // Debug aid for screenshots without a keyboard: T1K_DEBUG_OVERLAY=palette|switcher|
         // overview|settings|menu|groupmenu|termmenu|card opens that surface at launch.
         if let Ok(which) = std::env::var("T1K_DEBUG_OVERLAY") {
@@ -400,7 +411,7 @@ impl Workspace {
                 }
                 "menu" => Some(Overlay::Menu { tab: this.active, at }),
                 "groupmenu" => this.tabs.get(this.active).map(|t| Overlay::GroupMenu { key: t.group.clone(), at }),
-                "termmenu" => Some(Overlay::TerminalMenu { tab: this.active, split: false, at: gpui::point(px(600.), px(200.)), link: None, has_selection: false }),
+                "termmenu" => Some(Overlay::TerminalMenu { tab: this.active, split: false, at: gpui::point(px(600.), px(200.)), link: None, has_selection: false, apps: Vec::new() }),
                 "card" => {
                     this.card = this.tabs.get(this.active).map(|t| t.id.clone());
                     None
@@ -449,7 +460,7 @@ impl Workspace {
                 TerminalEvent::Bell => {}
                 TerminalEvent::OpenLink(link) => this.open_link(ix, link, cx),
                 TerminalEvent::ContextMenu { at, link, has_selection } => {
-                    let o = Overlay::TerminalMenu { tab: ix, split: false, at: *at, link: link.clone(), has_selection: *has_selection };
+                    let o = Overlay::TerminalMenu { tab: ix, split: false, at: *at, link: link.clone(), has_selection: *has_selection, apps: crate::overlay::file_apps(link) };
                     this.open_overlay(o, window, cx);
                 }
             }
@@ -533,7 +544,24 @@ impl Workspace {
         }
     }
 
+    /// Open a link: text files go to the viewer panel (links.text_files = "panel"), everything
+    /// else to the browser, editor or default app.
     pub fn open_link(&mut self, ix: usize, link: &t1k_terminal::links::Link, cx: &mut Context<Self>) {
+        if let t1k_terminal::links::Link::File { path, line, .. } = link {
+            if self.config.links.text_files != "editor" && self.view_file(path, *line, cx) {
+                return;
+            }
+            if !crate::viewer::is_text(path) && !path.is_dir() {
+                // Images, PDFs and other documents: the default app.
+                cx.open_with_system(path);
+                return;
+            }
+        }
+        self.open_link_in_editor(ix, link, cx);
+    }
+
+    /// Open a link the classic way: browser, configured editor, PR or tracker.
+    pub fn open_link_in_editor(&mut self, ix: usize, link: &t1k_terminal::links::Link, cx: &mut Context<Self>) {
         let group = self.tabs.get(ix).map(|t| t.group.clone()).unwrap_or_default();
         let repo = self.repo_for(&group);
         let tickets = crate::links::ticket_template(&self.config.links.tickets, &self.tabs);
@@ -1314,7 +1342,11 @@ impl Render for Workspace {
 
         let sidebar = self.sidebar_open.then(|| crate::sidebar::render(self, cx));
         let overlay = crate::overlay::render(self, window, cx);
-        let panel = self.panel.open.then(|| crate::outputs_panel::render(self, cx));
+        // The file viewer and the outputs panel share the right side; the viewer wins.
+        let panel = match &self.viewer {
+            Some(v) => Some(crate::viewer::render(self, v, cx)),
+            None => self.panel.open.then(|| crate::outputs_panel::render(self, cx)),
+        };
         root.relative().children(sidebar).child(
             div()
                 .flex_1()

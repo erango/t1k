@@ -45,6 +45,7 @@ Debug environment variables (all read at launch):
 | `T1K_DEBUG_OVERLAY=palette\|switcher\|overview\|settings\|settings-interface\|settings-search\|menu\|groupmenu\|termmenu\|sidebarview\|more\|card\|about\|welcome` | Opens that surface |
 | `T1K_DEBUG_AGENT=working\|needs\|error\|done` | Fakes an agent session on the active tab |
 | `T1K_DEBUG_PROGRAM=<name>` | Shows that program's icon on every tab |
+| `T1K_DEBUG_VIEW=<path>[:line]` | Opens that file in the side panel |
 | `T1K_DEBUG_HINTS=1`, `T1K_DEBUG_FIND=<query>` | Starts terminals in hint mode / with the find bar open |
 | `T1K_DEBUG_DUMP=<file>` | Writes the sidebar model as text on changes |
 | `T1K_PROFILE=1` | Logs frame build/paint times |
