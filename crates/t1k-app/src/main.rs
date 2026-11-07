@@ -17,6 +17,7 @@ mod platform;
 mod groups;
 mod helper;
 mod helper_cli;
+mod group_icons;
 mod icons;
 mod rail;
 mod reminders;

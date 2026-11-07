@@ -49,6 +49,8 @@ pub const ALL: &[Bind] = &[
     b!("jump_to_needs", "Next tab needing you", "Agents", ["cmd-j"], JumpToNeeds),
     b!("jump_to_needs_back", "Previous tab needing you", "Agents", ["cmd-shift-j"], JumpToNeedsBack),
     b!("find_tab", "Find tab", "Agents", ["cmd-p"], ToggleSwitcher),
+    b!("move_group_up", "Move group up", "Tabs", ["cmd-ctrl-up"], MoveGroupUp),
+    b!("move_group_down", "Move group down", "Tabs", ["cmd-ctrl-down"], MoveGroupDown),
     b!("overview", "Overview", "Agents", ["cmd-o"], ToggleOverview),
     b!("outputs", "Outputs panel", "Agents", ["cmd-shift-o"], ToggleOutputs),
     b!("command_palette", "Command palette", "Window", ["cmd-shift-p"], ToggleCommandPalette),

@@ -42,7 +42,7 @@ Debug environment variables (all read at launch):
 
 | Variable | Effect |
 |---|---|
-| `T1K_DEBUG_OVERLAY=palette\|switcher\|overview\|settings\|settings-interface\|settings-search\|settings-keys\|themes\|remind\|menu\|groupmenu\|termmenu\|sidebarview\|more\|card\|about\|welcome\|settings-advanced\|update\|update-background\|quit` | Opens that surface (`update` also starts a check) |
+| `T1K_DEBUG_OVERLAY=palette\|switcher\|overview\|settings\|settings-interface\|settings-search\|settings-keys\|themes\|remind\|icons\|icons-search\|menu\|groupmenu\|termmenu\|sidebarview\|more\|card\|about\|welcome\|settings-advanced\|update\|update-background\|quit` | Opens that surface (`update` also starts a check) |
 | `T1K_DEBUG_UPDATE=install` | Presses Restart now as soon as an update is ready (with `T1K_DEBUG_OVERLAY=update-background`) |
 | `T1K_DEBUG_CRASH=error\|panic` | Sends a test error report / crashes on purpose (needs a DSN) |
 | `T1K_DEBUG_AGENT=working\|needs\|error\|done\|helper` | Fakes an agent session on the active tab (`helper`: an untitled Codex turn that just finished, for the helper) |
@@ -53,6 +53,7 @@ Debug environment variables (all read at launch):
 | `T1K_PROFILE=1` | Logs frame build/paint times |
 | `T1K_DEBUG_SIDEBAR=rail\|hidden\|peek\|drag:<x>` | Starts with the sidebar collapsed, peeking from the rail, or mid-drag with the pointer at x |
 | `T1K_FRESH=1` | Ignores the saved tabs |
+| `T1K_DEBUG_BACKGROUND=1` | Opens the window without taking focus, so screenshots don't steal your typing; capture it by window id (`screencapture -l <id>`) |
 
 Run against an isolated HOME so your real session and config stay untouched, e.g.
 `HOME=$PWD/target/home SHELL=/bin/zsh T1K_DEBUG_OVERLAY=settings ./target/debug/t1k`, then

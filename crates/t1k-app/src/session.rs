@@ -110,6 +110,11 @@ pub struct Session {
     /// Sidebar order of groups (fixed; changed only by hand). Groups not listed go last.
     #[serde(default)]
     pub group_order: Vec<PathBuf>,
+    #[serde(default)]
+    pub group_icons: Vec<(PathBuf, String)>,
+    /// Icon suggestions per group, worked out ahead of time (helper or keywords).
+    #[serde(default)]
+    pub icon_suggestions: Vec<(PathBuf, Vec<String>)>,
 }
 
 /// How tabs are ordered within a group.

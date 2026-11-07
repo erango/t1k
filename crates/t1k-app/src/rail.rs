@@ -212,14 +212,18 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         .gap(px(12.))
         .pb(px(12.));
     for (key, tabs) in ws.grouped() {
-        let mut g = div().w_full().flex().flex_col().items_center();
-        g = g.child(
-            div()
-                .h(px(14.))
-                .flex()
-                .items_center()
-                .child(div().size(px(7.)).rounded_full().bg(ws.group_color(&key).unwrap_or(ui.text_disabled))),
-        );
+        let color = ws.group_color(&key);
+        let mut g = div().relative().w_full().flex().flex_col().items_center();
+        // The group's icon, or a short bar in its color; the same line as the sidebar runs
+        // down its tabs.
+        g = g.child(div().h(px(16.)).flex().items_center().map(|d| match ws.group_icons.get(&key) {
+            Some(e) => d.text_size(px(13.)).child(e.clone()),
+            None => d.child(div().w(px(12.)).h(px(2.)).rounded(px(1.)).bg(color.unwrap_or(ui.text_disabled))),
+        }));
+        if let Some(c) = color {
+            let a = if ws.theme.is_dark() { 0.5 } else { 0.55 };
+            g = g.child(div().absolute().left(px(3.)).top(px(18.)).bottom_0().w(px(2.)).rounded(px(1.)).bg(c.opacity(a)));
+        }
         for i in tabs {
             let t = &ws.tabs[i];
             let selected = i == ws.active;

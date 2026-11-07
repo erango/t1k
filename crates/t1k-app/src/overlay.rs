@@ -36,6 +36,8 @@ pub enum Overlay {
     RenameGroup { key: std::path::PathBuf, text: String },
     Menu { tab: usize, at: Point<Pixels> },
     GroupMenu { key: std::path::PathBuf, at: Point<Pixels> },
+    /// Group icon picker: suggestions, search and the emoji palette (`cat` is the category).
+    IconPicker { key: std::path::PathBuf, at: Point<Pixels>, query: String, selected: usize, cat: usize },
     /// Right-click in a terminal pane (`split`: the tab's split pane rather than its main one).
     TerminalMenu {
         tab: usize,
@@ -344,6 +346,7 @@ impl Workspace {
             },
             Overlay::Menu { tab, at } => (ev.keystroke.key != "escape").then_some(Overlay::Menu { tab, at }),
             Overlay::GroupMenu { key, at } => (ev.keystroke.key != "escape").then_some(Overlay::GroupMenu { key, at }),
+            Overlay::IconPicker { key, at, query, selected, cat } => self.icon_picker_key(key, at, query, selected, cat, ev, cx),
             o @ Overlay::TerminalMenu { .. } => (ev.keystroke.key != "escape").then_some(o),
             o @ Overlay::SidebarView { .. } => (ev.keystroke.key != "escape").then_some(o),
             o @ Overlay::MoreMenu { .. } => (ev.keystroke.key != "escape").then_some(o),
@@ -794,6 +797,10 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
             let m = menu(ws, *tab, *at, window, cx);
             Some(scrim(ws, true, cx).child(m).into_any_element())
         }
+        Overlay::IconPicker { key, at, query, selected, cat } => {
+            let p = crate::group_icons::render(ws, key, *at, query, *selected, *cat, window, cx);
+            Some(scrim(ws, true, cx).child(p).into_any_element())
+        }
         Overlay::GroupMenu { key, at } => {
             let m = group_menu(ws, key.clone(), *at, window, cx);
             Some(scrim(ws, true, cx).child(m).into_any_element())
@@ -1217,6 +1224,11 @@ fn group_menu(ws: &Workspace, key: std::path::PathBuf, at: Point<Pixels>, window
     m = m.child(item("new", "New tab here".into()).on_click(cx.listener(move |this, _, window, cx| {
         this.close_overlay(window, cx);
         this.new_tab_in_group(k.clone(), window, cx);
+    })));
+    let k = key.clone();
+    let has_icon = ws.group_icons.contains_key(&key);
+    m = m.child(item("icon", if has_icon { "Change icon…".into() } else { "Choose icon…".into() }).on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
+        this.open_icon_picker(k.clone(), ev.position(), window, cx);
     })));
     let k = key.clone();
     m = m.child(item("rename", "Rename…".into()).on_click(cx.listener(move |this, _, window, cx| {

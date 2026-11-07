@@ -53,7 +53,13 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         let all_quiet = !has_active && tabs.iter().all(|&i| ws.is_quiet(i));
         let folded = ws.collapsed.contains(&key) || (all_quiet && !ws.show_quiet.contains(&key));
         let _ = &tally;
-        let mut group = div().flex().flex_col();
+        let mut group = div().relative().flex().flex_col();
+        // Design v3-n2: a 2 px line in the group's color down its rows, from just under the
+        // header to the last row, outside the hover fill.
+        if let Some(c) = ws.group_color(&key).filter(|_| !folded) {
+            let a = if ws.theme.is_dark() { 0.5 } else { 0.55 };
+            group = group.child(div().absolute().left(px(3.)).top(px(28.)).bottom_0().w(px(2.)).rounded(px(1.)).bg(c.opacity(a)));
+        }
         group = group.child(group_header(ws, &key, &tabs, false, cx));
         if !folded {
             // Mixed groups fold their quiet tabs into one "+N quiet" row.
@@ -249,8 +255,14 @@ fn group_header(ws: &Workspace, key: &std::path::Path, tabs: &[usize], sticky: b
     let renamed = ws.group_names.contains_key(&key) && !crate::groups::is_custom(&key);
     let folder = crate::groups::label(&key);
     let click_key = key.clone();
+    let (drag_key, drop_key) = (key.clone(), key.clone());
+    let ghost_label = label.clone();
     div()
         .id(SharedString::from(format!("group-{}{}", if sticky { "s-" } else { "" }, key.display())))
+        // Drag a header to reorder groups; a line shows where it will land.
+        .on_drag(GroupDrag(drag_key), move |_, _, _, cx| cx.new(|_| GroupGhost { label: ghost_label.clone().into(), ui }))
+        .drag_over::<GroupDrag>(move |s, _, _, _| s.border_t_2().border_color(ui.accent))
+        .on_drop(cx.listener(move |this, d: &GroupDrag, _, cx| this.reorder_group(&d.0, &drop_key, cx)))
         .group(SharedString::from(format!("gh-{}", key.display())))
         .relative()
         .h(px(26.))
@@ -261,7 +273,7 @@ fn group_header(ws: &Workspace, key: &std::path::Path, tabs: &[usize], sticky: b
         .rounded(px(6.))
         .flex()
         .items_center()
-        .gap(px(8.))
+        .gap(px(9.))
         .hover(move |d| d.bg(ui.sidebar_hover))
         .when(auto_folded, |d| d.tooltip(crate::tooltip::text(ui, QUIET_HELP)))
         .on_mouse_down(MouseButton::Right, cx.listener({
@@ -286,7 +298,7 @@ fn group_header(ws: &Workspace, key: &std::path::Path, tabs: &[usize], sticky: b
                 this.toggle_group(click_key.clone(), cx);
             }
         }))
-        .child(group_dot(ws.group_color(&key), ui))
+        .child(icon_slot(ws, &key, sticky, cx))
         .child(
             div()
                 .min_w_0()
@@ -412,12 +424,48 @@ fn quiet_row(ui: UiColors, k: f32, id: String) -> gpui::Stateful<Div> {
 }
 
 /// Group marker: filled with the group's color, else an outline ring.
-fn group_dot(color: Option<gpui::Hsla>, ui: UiColors) -> Div {
-    let d = div().size(px(7.)).flex_none().rounded_full();
-    match color {
-        Some(c) => d.bg(c),
-        None => d.border_1().border_color(ui.text_disabled),
-    }
+/// The group's icon (an emoji you chose), or an empty slot the width of a tab's app icon so
+/// group names line up with tab titles. Hovering the header shows a dashed placeholder;
+/// clicking it opens the icon picker (design v3-n2).
+fn icon_slot(ws: &Workspace, key: &std::path::Path, sticky: bool, cx: &mut Context<Workspace>) -> impl IntoElement {
+    let ui = ws.ui;
+    let size = ws.config.interface.icon_size(false);
+    let gid = SharedString::from(format!("gh-{}", key.display()));
+    let k = key.to_path_buf();
+    let icon = ws.group_icons.get(key).cloned();
+    let has = icon.is_some();
+    div()
+        .id(SharedString::from(format!("gicon-{}{}", if sticky { "s-" } else { "" }, key.display())))
+        .size(px(size))
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .cursor_pointer()
+        .tooltip(crate::tooltip::text(ui, if has { "Change icon" } else { "Choose an icon" }))
+        .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
+            cx.stop_propagation();
+            this.open_icon_picker(k.clone(), ev.position(), window, cx);
+        }))
+        .map(|d| match icon {
+            Some(e) => d.text_size(px(size.min(18.) - 3.)).child(e),
+            None => d.child(
+                div()
+                    .size(px(16.))
+                    .rounded(px(4.))
+                    .border_1()
+                    .border_dashed()
+                    .border_color(ui.text_disabled)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_size(px(11.))
+                    .text_color(ui.text_tertiary)
+                    .invisible()
+                    .group_hover(gid, |s| s.visible())
+                    .child("+"),
+            ),
+        })
 }
 
 fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
@@ -551,7 +599,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
             .rounded_l(px(R))
             .child(fillet(true))
             .child(fillet(false))
-            .child(div().absolute().left_0().top(px(7.)).bottom(px(7.)).w(px(3.)).rounded(px(2.)).bg(ws.group_color(&tab.group).unwrap_or(ui.accent)));
+            .child(div().absolute().left_0().top(px(7.)).bottom(px(7.)).w(px(3.)).rounded(px(2.)).bg(ui.accent));
     } else {
         el = el.mr(px(INSET)).rounded(px(6.)).hover(move |d| d.bg(ui.sidebar_hover));
     }
@@ -1061,4 +1109,34 @@ fn needs_area(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement>
         );
     }
     Some(area.into_any_element())
+}
+
+/// A group header being dragged to a new place.
+#[derive(Clone)]
+pub struct GroupDrag(pub std::path::PathBuf);
+
+/// What follows the pointer while dragging a group: its name, lifted.
+pub struct GroupGhost {
+    label: SharedString,
+    ui: UiColors,
+}
+
+impl gpui::Render for GroupGhost {
+    fn render(&mut self, _: &mut gpui::Window, _: &mut Context<Self>) -> impl IntoElement {
+        let ui = self.ui;
+        div()
+            .h(px(26.))
+            .px(px(12.))
+            .flex()
+            .items_center()
+            .rounded(px(6.))
+            .bg(ui.bg_raised)
+            .border_1()
+            .border_color(ui.border)
+            .shadow_lg()
+            .text_size(px(12.))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(ui.text_primary)
+            .child(self.label.clone())
+    }
 }

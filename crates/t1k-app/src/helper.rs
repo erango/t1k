@@ -20,6 +20,8 @@ pub enum JobKind {
     Recap,
     /// Rank tabs for a switcher query; `ids` maps the numbers offered to tab ids.
     Search { query: String, ids: Vec<String> },
+    /// Emoji suggestions for a group's icon.
+    Icon { key: std::path::PathBuf },
 }
 
 #[derive(Clone, Debug)]
@@ -107,6 +109,18 @@ impl Workspace {
         cx.notify();
     }
 
+    /// Ask the helper for a group's icon suggestions (once; the answer is saved).
+    pub fn helper_icon(&mut self, key: &std::path::Path, label: &str, titles: &[String], cx: &mut Context<Self>) {
+        if self.helper_backend().is_none() {
+            return;
+        }
+        let readme = key.is_dir().then(|| std::fs::read_to_string(key.join("README.md")).ok()).flatten();
+        let heading = readme.as_deref().and_then(|r| r.lines().find(|l| l.starts_with('#'))).map(|h| h.trim_start_matches('#').trim().to_string());
+        let prompt = crate::group_icons::icon_prompt(label, heading.as_deref(), titles);
+        self.helper.queue.push_back(Job { tab_id: String::new(), session_id: String::new(), kind: JobKind::Icon { key: key.to_path_buf() }, prompt });
+        self.pump_helper(cx);
+    }
+
     pub fn pump_helper(&mut self, cx: &mut Context<Self>) {
         let Some(backend) = self.helper_backend() else {
             self.helper.queue.clear();
@@ -129,6 +143,7 @@ impl Workspace {
                 JobKind::Title => "title",
                 JobKind::Recap => "recap",
                 JobKind::Search { .. } => "search",
+                JobKind::Icon { .. } => "icon",
             };
             let prompt = job.prompt.clone();
             let task = cx.background_executor().spawn(async move { helper::ask(backend, &model, name, &prompt, Duration::from_secs(60)) });
@@ -161,6 +176,13 @@ impl Workspace {
                     if let crate::overlay::Overlay::Switcher { selected, .. } = &mut self.overlay {
                         *selected = 0;
                     }
+                }
+            }
+            JobKind::Icon { key } => {
+                let picks = crate::group_icons::parse_emoji(&text);
+                if picks.len() >= 3 {
+                    self.icon_suggestions.insert(key, picks);
+                    self.save();
                 }
             }
             kind if !text.is_empty() => {

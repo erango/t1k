@@ -113,6 +113,13 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
             d.bg(gpui::Hsla::blend(ui.bg_terminal, c.opacity(0.06)))
                 .child(div().absolute().top_0().left_0().right_0().h(px(2.)).bg(c))
         })
+        // Design v3-n2: otherwise a 2 px line in the active tab's group color, so you know
+        // which project you're typing in without looking at the sidebar.
+        .when(alarm.is_none(), |d| {
+            let c = ws.tabs.get(ws.active).and_then(|t| ws.group_color(&t.group));
+            let a = if ws.theme.is_dark() { 0.85 } else { 0.9 };
+            d.children(c.map(|c| div().absolute().top_0().left_0().right_0().h(px(2.)).bg(c.opacity(a))))
+        })
         .border_b_1()
         .border_color(ui.border)
         .on_mouse_down(MouseButton::Left, |ev, window, _| {

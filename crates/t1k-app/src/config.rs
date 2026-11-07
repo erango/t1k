@@ -68,6 +68,9 @@ hover_card = true
 collapsed = "rail"
 # Rest the pointer on the rail this long to see the full sidebar over the terminal. 0: never.
 peek_ms = 400
+# Group colors (the line down a group's tabs and along the top of the title bar):
+# "auto" (blue, magenta or cyan by name; neighbors differ) or "manual" (only colors you pick).
+group_colors = "auto"
 
 [links]
 # ⌘-click a file path to open it. Empty picks the first of Zed, Cursor, VS Code, else the
@@ -311,6 +314,7 @@ pub struct SidebarCfg {
     pub hover_card: bool,
     pub collapsed: String,
     pub peek_ms: u64,
+    pub group_colors: String,
 }
 
 impl Default for Config {
@@ -363,6 +367,7 @@ impl Default for SidebarCfg {
             hover_card: true,
             collapsed: "rail".into(),
             peek_ms: 400,
+            group_colors: "auto".into(),
         }
     }
 }

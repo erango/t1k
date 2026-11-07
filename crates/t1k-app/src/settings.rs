@@ -412,6 +412,8 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
             toggle(ui, "n-badge", n.dock_badge, &["notify", "dock_badge"], cx).into_any_element()),
         e(Interface, "Sidebar", "When collapsed", "What ⌘\\ and dragging the edge to the window's side do. The strip still shows what needs you.", "sidebar.collapsed", "rail strip hide collapse sliver narrow",
             seg(ui, "collapsed", &c.sidebar.collapsed, &[("rail", "Strip of icons"), ("hidden", "Hide")], &["sidebar", "collapsed"], cx)),
+        e(Interface, "Sidebar", "Group colors", "A line down each group's tabs and along the top of the title bar", "sidebar.group_colors", "color project group hue line",
+            seg(ui, "gcolors", &c.sidebar.group_colors, &[("auto", "Automatic"), ("manual", "Only when I pick")], &["sidebar", "group_colors"], cx)),
         e(Agents, "Helper", "Cheap-model helper", "Titles, recaps and ⌘↵ search for agents that don't write their own, through a CLI you already use", "helper.backend", "llm haiku gemini flash summary recap title search ai model cheap",
             {
                 let mut opts: Vec<(&'static str, &'static str)> = vec![("off", "Off")];

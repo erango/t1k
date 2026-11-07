@@ -171,6 +171,12 @@ pub struct Workspace {
     pub group_sort: HashMap<PathBuf, session::GroupSort>,
     /// Fixed group order; new groups join at the end.
     pub group_order: Vec<PathBuf>,
+    pub group_icons: HashMap<PathBuf, String>,
+    pub icon_suggestions: HashMap<PathBuf, Vec<String>>,
+    /// Automatic group hue (ANSI 4-6), by name, bumped so neighbors differ.
+    auto_hues: HashMap<PathBuf, u8>,
+    /// The order the hues were last worked out for; they change only when it does.
+    hues_for: Vec<PathBuf>,
     /// When a listed group lost its last tab; it keeps its slot for a while in case it returns.
     group_emptied: HashMap<PathBuf, Instant>,
     pub sidebar_open: bool,
@@ -326,6 +332,10 @@ impl Workspace {
             group_colors: saved.group_colors.iter().cloned().collect(),
             group_sort: saved.group_sort.iter().cloned().collect(),
             group_order: saved.group_order.clone(),
+            group_icons: saved.group_icons.iter().cloned().collect(),
+            icon_suggestions: saved.icon_suggestions.iter().cloned().collect(),
+            auto_hues: HashMap::new(),
+            hues_for: Vec::new(),
             group_emptied: HashMap::new(),
             sidebar_open: saved.sidebar_open.unwrap_or(true),
             sidebar_drag: None,
@@ -541,6 +551,12 @@ impl Workspace {
                     Some(Overlay::ThemePicker { query: String::new(), selected: 0, dark })
                 }
                 "remind" => Some(Overlay::RemindCustom { tab: this.active, text: "tomorrow 9:15".into() }),
+                "icons" | "icons-search" => {
+                    let key = this.tabs[this.active].group.clone();
+                    this.ensure_icon_suggestions(&key, cx);
+                    let query = if which == "icons-search" { "rocket".to_string() } else { String::new() };
+                    Some(Overlay::IconPicker { key, at: gpui::point(px(60.), px(130.)), query, selected: 0, cat: 0 })
+                }
                 "settings-keys" => Some(Overlay::Settings { section: crate::settings::Section::Keybindings }),
                 "settings-search" => {
                     this.settings_query = "font".into();
@@ -836,7 +852,9 @@ impl Workspace {
 
     /// The group's color, if the user picked one: one of the theme's six ANSI hues.
     pub fn group_color(&self, key: &PathBuf) -> Option<gpui::Hsla> {
-        let i = *self.group_colors.get(key)? as usize;
+        let picked = self.group_colors.get(key).copied();
+        let auto = (self.config.sidebar.group_colors != "manual").then(|| self.auto_hues.get(key).copied()).flatten();
+        let i = picked.or(auto)? as usize;
         let c = self.theme.ansi.get(i.clamp(1, 6))?;
         Some(gpui::rgb(*c).into())
     }
@@ -919,6 +937,65 @@ impl Workspace {
             self.group_emptied.retain(|g, _| order.contains(g));
             self.save();
         }
+    }
+
+    /// Automatic hues: blue, magenta or cyan by a hash of the group's key (never the status
+    /// colors), stepping to the next hue when the group above has the same one. Worked out
+    /// again only when the order changes, so colors don't shuffle while you work.
+    fn update_hues(&mut self) {
+        let order: Vec<PathBuf> = self.grouped().into_iter().map(|(g, _)| g).collect();
+        if order == self.hues_for {
+            return;
+        }
+        const HUES: [u8; 3] = [4, 5, 6];
+        let mut prev: Option<u8> = None;
+        self.auto_hues.clear();
+        for g in &order {
+            let hue = match self.group_colors.get(g) {
+                Some(&c) => c,
+                None => {
+                    let h = g.to_string_lossy().bytes().fold(2166136261u32, |h, b| (h ^ b as u32).wrapping_mul(16777619));
+                    let mut i = (h % 3) as usize;
+                    if prev == Some(HUES[i]) {
+                        i = (i + 1) % 3;
+                    }
+                    HUES[i]
+                }
+            };
+            self.auto_hues.insert(g.clone(), hue);
+            prev = Some(hue);
+        }
+        self.hues_for = order;
+    }
+
+    /// The icon suggestions for a group (worked out on first sight; see `ensure_icon_suggestions`).
+    pub fn icon_suggestions(&self, key: &std::path::Path) -> Vec<String> {
+        self.icon_suggestions.get(key).cloned().unwrap_or_default()
+    }
+
+    /// Work out a group's icon suggestions if it has none yet: keywords now, and the helper
+    /// (when it's on) replaces them in the background.
+    pub fn ensure_icon_suggestions(&mut self, key: &std::path::Path, cx: &mut Context<Self>) {
+        if self.icon_suggestions.contains_key(key) {
+            return;
+        }
+        let label = self.group_label(&key.to_path_buf());
+        let titles: Vec<String> = self.tabs.iter().filter(|t| t.group == key).map(|t| t.title()).take(5).collect();
+        self.icon_suggestions.insert(key.to_path_buf(), crate::group_icons::suggest_local(key, &label, &titles));
+        self.helper_icon(key, &label, &titles, cx);
+    }
+
+    /// Drop group `moved` just above group `before` (dragging a header).
+    pub fn reorder_group(&mut self, moved: &PathBuf, before: &PathBuf, cx: &mut Context<Self>) {
+        if moved == before {
+            return;
+        }
+        self.update_group_order();
+        self.group_order.retain(|g| g != moved);
+        let at = self.group_order.iter().position(|g| g == before).unwrap_or(self.group_order.len());
+        self.group_order.insert(at, moved.clone());
+        self.save();
+        cx.notify();
     }
 
     /// Move a group one place up (`-1`) or down (`1`) in the sidebar.
@@ -1043,6 +1120,12 @@ impl Workspace {
     /// Every 100 ms: apply agent messages; keep spinners moving while anything works.
     fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.update_group_order();
+        self.update_hues();
+        // Icon suggestions are ready before anyone opens the picker.
+        let missing: Vec<PathBuf> = self.group_order.iter().filter(|g| !self.icon_suggestions.contains_key(*g)).cloned().collect();
+        for g in missing {
+            self.ensure_icon_suggestions(&g, cx);
+        }
         // Outputs already there count as seen; new ones stay "new" until the panel shows them.
         for (i, t) in self.tabs.iter().enumerate() {
             let n = t.outputs_count();
@@ -1313,6 +1396,8 @@ impl Workspace {
             group_colors: self.group_colors.iter().map(|(k, v)| (k.clone(), *v)).collect(),
             group_sort: self.group_sort.iter().map(|(k, v)| (k.clone(), *v)).collect(),
             group_order: self.group_order.clone(),
+            group_icons: self.group_icons.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            icon_suggestions: self.icon_suggestions.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             ..Default::default()
         }
     }
@@ -1706,6 +1791,16 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::follow_system))
             .on_action(cx.listener(Self::select_theme))
             .on_action(cx.listener(|this, _: &ShowThemePicker, window, cx| this.open_theme_picker(window, cx)))
+            .on_action(cx.listener(|this, _: &MoveGroupUp, _, cx| {
+                if let Some(g) = this.tabs.get(this.active).map(|t| t.group.clone()) {
+                    this.move_group(&g, -1, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &MoveGroupDown, _, cx| {
+                if let Some(g) = this.tabs.get(this.active).map(|t| t.group.clone()) {
+                    this.move_group(&g, 1, cx);
+                }
+            }))
             .on_modifiers_changed(cx.listener(|this, ev: &gpui::ModifiersChangedEvent, _, cx| {
                 if this.alt_held != ev.modifiers.alt {
                     this.alt_held = ev.modifiers.alt;
