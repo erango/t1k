@@ -49,6 +49,9 @@ pub struct SpawnOptions {
     pub working_directory: Option<PathBuf>,
     pub env: HashMap<String, String>,
     pub tab_id: String,
+    /// Start with the cursor on the bottom row, so the first prompt sits at the bottom of the
+    /// pane ("prompt gravity: bottom").
+    pub start_at_bottom: bool,
 }
 
 pub struct Terminal {
@@ -107,6 +110,16 @@ impl Terminal {
 
         let config = Config { scrolling_history: 10_000, ..Config::default() };
         let term = Term::new(config, &TermSize::new(size.cols, size.rows), listener.clone());
+        let mut term = term;
+        if opts.start_at_bottom {
+            // Feed blank lines before the shell prints anything: the cursor reaches the last row
+            // and the rest scroll into history, so when the pane grows to its real height the
+            // resize pulls those blanks back down and the cursor stays on the bottom row.
+            use alacritty_terminal::vte::ansi::Handler;
+            for _ in 0..400 {
+                term.linefeed();
+            }
+        }
         let term = Arc::new(FairMutex::new(term));
 
         let event_loop = EventLoop::new(term.clone(), listener, pty, true, false)?;

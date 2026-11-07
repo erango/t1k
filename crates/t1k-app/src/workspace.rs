@@ -512,7 +512,7 @@ impl Workspace {
                 env.insert("ZDOTDIR".into(), dir.display().to_string());
             }
         }
-        let opts = SpawnOptions { working_directory: cwd, env, tab_id };
+        let opts = SpawnOptions { working_directory: cwd, env, tab_id, start_at_bottom: self.config.terminal.prompt_gravity != "top" };
         let palette = self.theme.palette();
         let style = self.terminal_style();
         cx.new(|cx| {

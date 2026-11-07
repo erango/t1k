@@ -351,6 +351,8 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
             toggle(ui, "meta", c.terminal.option_as_meta, &["terminal", "option_as_meta"], cx).into_any_element()),
         e(Terminal, "Behavior", "Copy on select", "", "terminal.copy_on_select", "clipboard",
             toggle(ui, "cos", c.terminal.copy_on_select, &["terminal", "copy_on_select"], cx).into_any_element()),
+        e(Terminal, "Behavior", "Prompt position", "Where a new tab's first prompt appears", "terminal.prompt_gravity", "gravity bottom top start",
+            seg(ui, "gravity", &c.terminal.prompt_gravity, &[("bottom", "Bottom"), ("top", "Top")], &["terminal", "prompt_gravity"], cx)),
         e(Terminal, "Behavior", "Shell integration", "zsh prompt marks for ⌘↑ / ⌘↓ (new tabs)", "terminal.shell_integration", "zsh prompt",
             toggle(ui, "shellint", c.terminal.shell_integration, &["terminal", "shell_integration"], cx).into_any_element()),
         e(Agents, "Notifications", "When a tab needs you", "", "notify.needs_input", "banner alert",
