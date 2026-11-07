@@ -16,12 +16,12 @@ pub enum Run {
 
 pub struct Command {
     pub label: String,
-    pub keys: &'static str,
+    pub keys: String,
     pub run: Run,
 }
 
 fn act(label: &str, keys: &'static str, a: impl Action) -> Command {
-    Command { label: label.into(), keys, run: Run::Action(Box::new(a)) }
+    Command { label: label.into(), keys: keys.into(), run: Run::Action(Box::new(a)) }
 }
 
 /// All commands, in a sensible browsing order.
@@ -60,11 +60,12 @@ pub fn commands(ws: &Workspace) -> Vec<Command> {
         act("Smaller Text", "⌘−", DecreaseFontSize),
         act("Actual Size", "⌘0", ResetFontSize),
         act("Settings", "⌘,", OpenSettings),
+        act("Choose Theme…", "", ShowThemePicker),
         act("Check for Updates…", "", CheckForUpdates),
         act("Report a Bug…", "", ReportBug),
     ];
     for s in Section::ALL {
-        v.push(Command { label: format!("Settings: {}", s.label()), keys: "", run: Run::Settings(s) });
+        v.push(Command { label: format!("Settings: {}", s.label()), keys: String::new(), run: Run::Settings(s) });
     }
     let toggles: [(&str, &'static [&'static str], bool); 6] = [
         ("Copy on Select", &["terminal", "copy_on_select"], c.terminal.copy_on_select),
@@ -76,15 +77,23 @@ pub fn commands(ws: &Workspace) -> Vec<Command> {
     ];
     for (label, keys, on) in toggles {
         let verb = if on { "Turn Off" } else { "Turn On" };
-        v.push(Command { label: format!("{verb} {label}"), keys: "", run: Run::Toggle(keys, on) });
+        v.push(Command { label: format!("{verb} {label}"), keys: String::new(), run: Run::Toggle(keys, on) });
     }
     for t in t1k_themes::all() {
         let slot = if t.appearance == t1k_themes::Appearance::Light { "light" } else { "dark" };
         v.push(Command {
             label: format!("Theme: {} ({slot})", t.name),
-            keys: "",
+            keys: String::new(),
             run: Run::Action(Box::new(SelectTheme { name: t.name.to_string().into() })),
         });
+    }
+    // Show the shortcuts in effect (the literals above are only the defaults).
+    for cmd in &mut v {
+        if let Run::Action(a) = &cmd.run {
+            if crate::keymap::ALL.iter().any(|b| (b.action)().partial_eq(a.as_ref())) {
+                cmd.keys = crate::keymap::display_for(a.as_ref(), &c.keys);
+            }
+        }
     }
     v
 }
@@ -139,7 +148,7 @@ pub fn render(ws: &Workspace, query: &str, selected: usize, cx: &mut Context<Wor
                 }
             }))
             .child(div().flex_1().truncate().text_size(px(14.)).text_color(ui.text_primary).child(c.label.clone()))
-            .child(crate::overlay::shortcut(ui, c.keys))
+            .child(crate::overlay::shortcut(ui, &c.keys))
     });
     let panel = div()
         .w(px(620.))
@@ -175,7 +184,7 @@ mod tests {
     use super::*;
 
     fn cmd(label: &str) -> Command {
-        Command { label: label.into(), keys: "", run: Run::Toggle(&["x"], false) }
+        Command { label: label.into(), keys: String::new(), run: Run::Toggle(&["x"], false) }
     }
 
     #[test]

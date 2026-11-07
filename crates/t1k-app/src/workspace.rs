@@ -183,6 +183,11 @@ pub struct Workspace {
     pub viewer: Option<crate::viewer::Viewer>,
     /// Text typed into Settings' search.
     pub settings_query: String,
+    /// Settings › Keybindings: the action waiting for a new shortcut.
+    pub key_recording: Option<&'static str>,
+    /// The last shortcut change, shown under its row ("Was on Find tab").
+    pub key_note: Option<(&'static str, String)>,
+    _key_interceptor: gpui::Subscription,
     pub back: Vec<String>,
     pub forward: Vec<String>,
     navigating: bool,
@@ -296,6 +301,22 @@ impl Workspace {
             overlay: Overlay::None,
             hooks_installed: crate::settings::claude_hooks_installed(),
             settings_query: String::new(),
+            key_recording: None,
+            key_note: None,
+            _key_interceptor: {
+                // Recording a shortcut must see keys before any binding fires (⌘P would
+                // otherwise open the switcher instead of being recorded).
+                let weak = cx.entity().downgrade();
+                cx.intercept_keystrokes(move |ev, _window, cx| {
+                    let Some(ws) = weak.upgrade() else { return };
+                    if ws.read(cx).key_recording.is_none() {
+                        return;
+                    }
+                    let ks = ev.keystroke.clone();
+                    ws.update(cx, |ws, cx| ws.record_key(&ks, cx));
+                    cx.stop_propagation();
+                })
+            },
             viewer: None,
             window_frame: None,
             saved_frame: None,
@@ -423,6 +444,7 @@ impl Workspace {
                     None
                 }
                 "quit" => Some(Overlay::QuitUpdate),
+                "settings-keys" => Some(Overlay::Settings { section: crate::settings::Section::Keybindings }),
                 "settings-search" => {
                     this.settings_query = "font".into();
                     Some(Overlay::Settings { section: crate::settings::Section::Appearance })
@@ -1216,6 +1238,7 @@ impl Workspace {
                 cx.notify();
             });
         }
+        crate::keymap::install(cx, &self.config.keys);
         crate::menus::install(cx);
         self.debug_dump();
     }

@@ -93,6 +93,12 @@ feed = ""
 # Send crash reports and errors to T1K's developers (Sentry). Never terminal contents;
 # paths are shortened to ~ and email addresses removed. Applies at the next launch.
 crash_reports = true
+
+[keys]
+# Shortcut overrides, by action (Settings › Keybindings writes these). Several shortcuts are
+# separated by commas; "" turns one off. For example:
+# find_tab = "cmd-p, cmd-e"
+# overview = ""
 "#;
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
@@ -107,6 +113,8 @@ pub struct Config {
     pub notify: NotifyCfg,
     pub updates: UpdatesCfg,
     pub privacy: PrivacyCfg,
+    /// Shortcut overrides by `keymap::Bind::id`.
+    pub keys: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
@@ -267,6 +275,7 @@ impl Default for Config {
             notify: NotifyCfg::default(),
             updates: UpdatesCfg::default(),
             privacy: PrivacyCfg::default(),
+            keys: Default::default(),
         }
     }
 }
@@ -362,6 +371,22 @@ pub fn set_value(keys: &[&str], value: toml_edit::Value) {
     let text = std::fs::read_to_string(&p).unwrap_or_else(|_| TEMPLATE.into());
     if let Some(out) = edit(&text, keys, value) {
         let _ = std::fs::write(&p, out);
+    }
+}
+
+/// Remove a key from config.toml (it falls back to its default).
+pub fn remove(keys: &[&str]) {
+    let Some(p) = path() else { return };
+    let Ok(text) = std::fs::read_to_string(&p) else { return };
+    let Ok(mut doc) = text.parse::<toml_edit::DocumentMut>() else { return };
+    let Some((last, parents)) = keys.split_last() else { return };
+    let mut table = doc.as_table_mut();
+    for k in parents {
+        let Some(t) = table.get_mut(k).and_then(|i| i.as_table_mut()) else { return };
+        table = t;
+    }
+    if table.remove(last).is_some() {
+        let _ = std::fs::write(&p, doc.to_string());
     }
 }
 

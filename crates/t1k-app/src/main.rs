@@ -23,6 +23,7 @@ mod split;
 mod strip;
 mod sidebar;
 mod title;
+mod keymap;
 mod telemetry;
 mod tooltip;
 mod update_ui;
@@ -30,8 +31,7 @@ mod updater;
 mod viewer;
 mod workspace;
 
-use gpui::{prelude::*, px, size, App, Application, Bounds, KeyBinding, WindowBounds, WindowOptions};
-use t1k_terminal::view::{ClearScrollback, Copy, Find, FindNext, FindPrevious, NextPrompt, Paste, PreviousPrompt, ScrollPageDown, ScrollPageUp, ShowLinkHints};
+use gpui::{prelude::*, px, size, App, Application, Bounds, WindowBounds, WindowOptions};
 
 use actions::*;
 use workspace::Workspace;
@@ -76,57 +76,7 @@ fn main() {
         _ => {}
     }
     Application::new().run(|cx: &mut App| {
-        cx.bind_keys([
-            KeyBinding::new("cmd-q", Quit, None),
-            KeyBinding::new("cmd-t", NewTab, None),
-            KeyBinding::new("cmd-w", CloseTab, None),
-            KeyBinding::new("cmd-shift-]", NextTab, None),
-            KeyBinding::new("cmd-shift-[", PrevTab, None),
-            KeyBinding::new("ctrl-tab", NextTab, None),
-            KeyBinding::new("ctrl-shift-tab", PrevTab, None),
-            KeyBinding::new("cmd-1", SelectTab1, None),
-            KeyBinding::new("cmd-2", SelectTab2, None),
-            KeyBinding::new("cmd-3", SelectTab3, None),
-            KeyBinding::new("cmd-4", SelectTab4, None),
-            KeyBinding::new("cmd-5", SelectTab5, None),
-            KeyBinding::new("cmd-6", SelectTab6, None),
-            KeyBinding::new("cmd-7", SelectTab7, None),
-            KeyBinding::new("cmd-8", SelectTab8, None),
-            KeyBinding::new("cmd-9", SelectTab9, None),
-            KeyBinding::new("cmd-shift-l", ToggleAppearance, None),
-            KeyBinding::new("cmd-\\", ToggleSidebar, None),
-            KeyBinding::new("cmd-j", JumpToNeeds, None),
-            KeyBinding::new("cmd-shift-j", JumpToNeedsBack, None),
-            KeyBinding::new("cmd-p", ToggleSwitcher, None),
-            KeyBinding::new("cmd-o", ToggleOverview, None),
-            KeyBinding::new("cmd-shift-r", RenameTab, None),
-            KeyBinding::new("cmd-shift-o", ToggleOutputs, None),
-            KeyBinding::new("cmd-,", OpenSettings, None),
-            KeyBinding::new("cmd-shift-p", ToggleCommandPalette, None),
-            KeyBinding::new("cmd-d", SplitRight, None),
-            KeyBinding::new("cmd-shift-d", SplitDown, None),
-            KeyBinding::new("cmd-[", GoBack, None),
-            KeyBinding::new("cmd-]", GoForward, None),
-            KeyBinding::new("cmd-alt-left", FocusOtherPane, None),
-            KeyBinding::new("cmd-alt-right", FocusOtherPane, None),
-            KeyBinding::new("cmd-alt-up", FocusOtherPane, None),
-            KeyBinding::new("cmd-alt-down", FocusOtherPane, None),
-            KeyBinding::new("cmd-=", IncreaseFontSize, None),
-            KeyBinding::new("cmd-+", IncreaseFontSize, None),
-            KeyBinding::new("cmd--", DecreaseFontSize, None),
-            KeyBinding::new("cmd-0", ResetFontSize, None),
-            KeyBinding::new("cmd-c", Copy, Some("Terminal")),
-            KeyBinding::new("cmd-v", Paste, Some("Terminal")),
-            KeyBinding::new("cmd-k", ClearScrollback, Some("Terminal")),
-            KeyBinding::new("cmd-shift-u", ShowLinkHints, Some("Terminal")),
-            KeyBinding::new("cmd-f", Find, Some("Terminal")),
-            KeyBinding::new("cmd-up", PreviousPrompt, Some("Terminal")),
-            KeyBinding::new("cmd-down", NextPrompt, Some("Terminal")),
-            KeyBinding::new("cmd-g", FindNext, Some("Terminal")),
-            KeyBinding::new("cmd-shift-g", FindPrevious, Some("Terminal")),
-            KeyBinding::new("shift-pageup", ScrollPageUp, Some("Terminal")),
-            KeyBinding::new("shift-pagedown", ScrollPageDown, Some("Terminal")),
-        ]);
+        keymap::install(cx, &config::load().keys);
         cx.on_action(|_: &Quit, cx| {
             // With an update waiting, ⌘Q asks once (it installs as T1K quits).
             if Workspace::should_confirm_quit() {

@@ -516,33 +516,93 @@ fn page(ws: &Workspace, section: Section, query: &str, window: &mut Window, cx: 
             );
         }
         Section::Keybindings => {
-            let cmds = crate::palette::commands(ws);
-            let rows: Vec<AnyElement> = cmds
-                .iter()
-                .filter(|c| !c.keys.is_empty())
-                .map(|c| {
-                    div()
-                        .min_h(px(34.))
-                        .px(px(14.))
-                        .flex()
-                        .items_center()
-                        .border_b_1()
-                        .border_color(ui.border)
-                        .child(div().flex_1().text_size(px(13.)).text_color(ui.text_primary).child(c.label.clone()))
-                        .child(
-                            div().h(px(22.)).px(px(7.)).flex().items_center().rounded(px(5.)).bg(ui.bg_sidebar).border_1().border_color(ui.border)
-                                .text_size(px(12.)).font_family("JetBrains Mono").text_color(ui.text_secondary).child(c.keys),
-                        )
-                        .into_any_element()
-                })
-                .collect();
-            body = body
-                .child(div().text_size(px(12.)).text_color(ui.text_tertiary).child("Shortcuts can't be changed yet. ⌘⇧P lists every action."))
-                .child(card(ui, "", rows));
+            body = body.child(
+                div().text_size(px(12.)).text_color(ui.text_tertiary).child(
+                    "Click a shortcut, then press the new keys. ⌫ removes it, esc cancels. A shortcut taken from another action leaves that one.",
+                ),
+            );
+            for group in ["Tabs", "Agents", "Window", "Terminal"] {
+                let rows: Vec<AnyElement> =
+                    crate::keymap::ALL.iter().filter(|b| b.group == group).map(|b| key_row(ws, b, cx)).collect();
+                body = body.child(card(ui, group, rows));
+            }
         }
         _ => {}
     }
     body.into_any_element()
+}
+
+/// One action in Settings › Keybindings: its label, its shortcuts (click to record), reset.
+fn key_row(ws: &Workspace, b: &'static crate::keymap::Bind, cx: &mut Context<Workspace>) -> AnyElement {
+    use crate::keymap;
+    let ui = ws.ui;
+    let keys = keymap::keys_for(b, &ws.config.keys);
+    let changed = ws.config.keys.contains_key(b.id);
+    let recording = ws.key_recording == Some(b.id);
+    let note = ws.key_note.as_ref().filter(|(id, _)| *id == b.id).map(|(_, n)| n.clone());
+    let chip = |text: String, on: bool| {
+        div()
+            .h(px(22.))
+            .px(px(7.))
+            .flex()
+            .items_center()
+            .rounded(px(5.))
+            .bg(ui.bg_sidebar)
+            .border_1()
+            .border_color(if on { ui.accent } else { ui.border })
+            .text_size(px(12.))
+            .text_color(if on { ui.accent } else { ui.text_secondary })
+            .child(text)
+    };
+    let id = b.id;
+    let shortcuts = div()
+        .id(SharedString::from(format!("keys-{id}")))
+        .flex()
+        .gap(px(4.))
+        .rounded(px(6.))
+        .p(px(2.))
+        .cursor_pointer()
+        .hover(move |d| d.bg(ui.bg_hover))
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.key_recording = if this.key_recording == Some(id) { None } else { Some(id) };
+            this.key_note = None;
+            cx.notify();
+        }))
+        .when(recording, |d| d.child(chip("Press keys…".into(), true)))
+        .when(!recording && keys.is_empty(), |d| d.child(div().h(px(22.)).px(px(7.)).flex().items_center().text_size(px(12.)).text_color(ui.text_disabled).child("None")))
+        .when(!recording, |d| d.children(keys.iter().map(|k| chip(keymap::display(k), false))));
+    div()
+        .min_h(px(36.))
+        .px(px(14.))
+        .py(px(4.))
+        .flex()
+        .items_center()
+        .gap(px(10.))
+        .border_b_1()
+        .border_color(ui.border)
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .child(div().text_size(px(13.)).text_color(ui.text_primary).child(b.label))
+                .children(note.map(|n| div().text_size(px(11.5)).text_color(ui.text_tertiary).child(n))),
+        )
+        .when(changed && !recording, |d| {
+            d.child(
+                div()
+                    .id(SharedString::from(format!("reset-{id}")))
+                    .text_size(px(12.))
+                    .text_color(ui.text_tertiary)
+                    .cursor_pointer()
+                    .hover(move |d| d.text_color(ui.text_primary))
+                    .on_click(cx.listener(move |this, _, _, cx| this.reset_key(id, cx)))
+                    .child("Reset"),
+            )
+        })
+        .child(shortcuts)
+        .into_any_element()
 }
 
 /// Installed font families that look monospaced (by name), with the configured one first.
