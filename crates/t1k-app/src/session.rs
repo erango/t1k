@@ -107,6 +107,9 @@ pub struct Session {
     pub group_colors: Vec<(PathBuf, u8)>,
     #[serde(default)]
     pub group_sort: Vec<(PathBuf, GroupSort)>,
+    /// Sidebar order of groups (fixed; changed only by hand). Groups not listed go last.
+    #[serde(default)]
+    pub group_order: Vec<PathBuf>,
 }
 
 /// How tabs are ordered within a group.

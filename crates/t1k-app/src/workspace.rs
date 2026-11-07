@@ -169,6 +169,10 @@ pub struct Workspace {
     pub group_names: HashMap<PathBuf, String>,
     pub group_colors: HashMap<PathBuf, u8>,
     pub group_sort: HashMap<PathBuf, session::GroupSort>,
+    /// Fixed group order; new groups join at the end.
+    pub group_order: Vec<PathBuf>,
+    /// When a listed group lost its last tab; it keeps its slot for a while in case it returns.
+    group_emptied: HashMap<PathBuf, Instant>,
     pub sidebar_open: bool,
     /// Live sidebar-edge drag: what releasing would do.
     pub sidebar_drag: Option<crate::rail::DragPreview>,
@@ -321,6 +325,8 @@ impl Workspace {
             group_names: saved.group_names.iter().cloned().collect(),
             group_colors: saved.group_colors.iter().cloned().collect(),
             group_sort: saved.group_sort.iter().cloned().collect(),
+            group_order: saved.group_order.clone(),
+            group_emptied: HashMap::new(),
             sidebar_open: saved.sidebar_open.unwrap_or(true),
             sidebar_drag: None,
             peek: false,
@@ -809,6 +815,8 @@ impl Workspace {
                 None => out.push((t.group.clone(), vec![i])),
             }
         }
+        // Groups keep their place: the saved order, then any new ones in the order they appeared.
+        out.sort_by_key(|(g, _)| self.group_order.iter().position(|o| o == g).unwrap_or(usize::MAX));
         // Within a group: by the group's sort mode; attention by default (needs-you first, then
         // unread, working, the rest).
         for (g, v) in &mut out {
@@ -883,6 +891,53 @@ impl Workspace {
         self.group_names.remove(key);
         self.group_colors.remove(key);
         self.save();
+    }
+
+    /// New groups join the end of the order; a group with no tabs keeps its slot 10 minutes.
+    fn update_group_order(&mut self) {
+        let live: HashSet<&PathBuf> = self.tabs.iter().map(|t| &t.group).collect();
+        let mut changed = false;
+        for t in &self.tabs {
+            if !self.group_order.contains(&t.group) {
+                self.group_order.push(t.group.clone());
+                changed = true;
+            }
+        }
+        let now = Instant::now();
+        for g in &self.group_order {
+            if live.contains(g) {
+                self.group_emptied.remove(g);
+            } else {
+                self.group_emptied.entry(g.clone()).or_insert(now);
+            }
+        }
+        let before = self.group_order.len();
+        let emptied = &self.group_emptied;
+        self.group_order.retain(|g| live.contains(g) || emptied.get(g).is_none_or(|t| now.duration_since(*t) < Duration::from_secs(600)));
+        if changed || self.group_order.len() != before {
+            let order = &self.group_order;
+            self.group_emptied.retain(|g, _| order.contains(g));
+            self.save();
+        }
+    }
+
+    /// Move a group one place up (`-1`) or down (`1`) in the sidebar.
+    pub fn move_group(&mut self, key: &PathBuf, delta: isize, cx: &mut Context<Self>) {
+        self.update_group_order();
+        // Step over groups that aren't on screen (kept slots of closed groups).
+        let shown: Vec<PathBuf> = self.grouped().into_iter().map(|(g, _)| g).collect();
+        let Some(pos) = shown.iter().position(|g| g == key) else { return };
+        let target = pos as isize + delta;
+        if target < 0 || target as usize >= shown.len() {
+            return;
+        }
+        let other = &shown[target as usize];
+        let (a, b) = (self.group_order.iter().position(|g| g == key), self.group_order.iter().position(|g| g == other));
+        if let (Some(a), Some(b)) = (a, b) {
+            self.group_order.swap(a, b);
+            self.save();
+            cx.notify();
+        }
     }
 
     /// Write every tab's scrollback to `scrollback/<tab id>.ansi` (at quit). Owner-only, since
@@ -987,6 +1042,7 @@ impl Workspace {
 
     /// Every 100 ms: apply agent messages; keep spinners moving while anything works.
     fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.update_group_order();
         // Outputs already there count as seen; new ones stay "new" until the panel shows them.
         for (i, t) in self.tabs.iter().enumerate() {
             let n = t.outputs_count();
@@ -1256,6 +1312,7 @@ impl Workspace {
             welcomed: true,
             group_colors: self.group_colors.iter().map(|(k, v)| (k.clone(), *v)).collect(),
             group_sort: self.group_sort.iter().map(|(k, v)| (k.clone(), *v)).collect(),
+            group_order: self.group_order.clone(),
             ..Default::default()
         }
     }

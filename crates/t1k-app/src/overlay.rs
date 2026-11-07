@@ -1238,6 +1238,22 @@ fn group_menu(ws: &Workspace, key: std::path::PathBuf, at: Point<Pixels>, window
             this.close_overlay(window, cx);
         })));
     }
+    let order: Vec<std::path::PathBuf> = ws.grouped().into_iter().map(|(g, _)| g).collect();
+    let pos = order.iter().position(|g| *g == key);
+    if pos.is_some_and(|p| p > 0) {
+        let k = key.clone();
+        m = m.child(item("up", "Move up".into()).on_click(cx.listener(move |this, _, window, cx| {
+            this.move_group(&k, -1, cx);
+            this.close_overlay(window, cx);
+        })));
+    }
+    if pos.is_some_and(|p| p + 1 < order.len()) {
+        let k = key.clone();
+        m = m.child(item("down", "Move down".into()).on_click(cx.listener(move |this, _, window, cx| {
+            this.move_group(&k, 1, cx);
+            this.close_overlay(window, cx);
+        })));
+    }
     let collapsed = ws.collapsed.contains(&key);
     let k = key.clone();
     m = m.child(item("collapse", if collapsed { "Expand".into() } else { "Collapse".into() }).on_click(cx.listener(move |this, _, window, cx| {
