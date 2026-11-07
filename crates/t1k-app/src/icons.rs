@@ -76,6 +76,23 @@ pub fn caret(color: Hsla, open: bool) -> impl IntoElement {
     .flex_none()
 }
 
+/// A window with its left panel marked: show the sidebar.
+pub fn sidebar(color: Hsla) -> impl IntoElement {
+    icon(move |b, window| {
+        let o = b.origin;
+        let pt = |x: f32, y: f32| point(o.x + px(x), o.y + px(y));
+        stroke(window, color, |p| {
+            p.move_to(pt(2., 3.));
+            p.line_to(pt(12., 3.));
+            p.line_to(pt(12., 11.));
+            p.line_to(pt(2., 11.));
+            p.close();
+            p.move_to(pt(5.5, 3.));
+            p.line_to(pt(5.5, 11.));
+        })
+    })
+}
+
 /// Two right chevrons: fold a right-hand panel away.
 pub fn collapse_right(color: Hsla) -> impl IntoElement {
     icon(move |b, window| {

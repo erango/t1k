@@ -144,6 +144,24 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
                 window.start_window_move();
             }
         })
+        // Collapsed by dragging (maybe by mistake): an obvious way back, beside the traffic lights.
+        .when(!matches!(ws.sidebar_shown(), crate::rail::Shown::Full(_)), |d| {
+            d.child(
+                div()
+                    .id("show-sidebar")
+                    .flex_none()
+                    .size(px(26.))
+                    .rounded(px(6.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .hover(move |d| d.bg(ui.bg_hover))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(|_, window, cx| window.dispatch_action(Box::new(crate::actions::ToggleSidebar), cx))
+                    .tooltip(crate::tooltip::text(ui, format!("Show sidebar  {}", crate::keymap::display_for(&crate::actions::ToggleSidebar, &ws.config.keys))))
+                    .child(crate::icons::sidebar(ui.text_secondary)),
+            )
+        })
         .children(chip)
         .when(agent.is_none(), |d| d.children(crate::import_ui::was_running(ws, cx)))
         .child(div().flex_none().max_w(px(360.)).truncate().text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).child(title.clone()))
