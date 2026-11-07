@@ -52,6 +52,22 @@ pub fn filter_lines(color: Hsla) -> impl IntoElement {
     })
 }
 
+/// Two right chevrons: fold a right-hand panel away.
+pub fn collapse_right(color: Hsla) -> impl IntoElement {
+    icon(move |b, window| {
+        let o = b.origin;
+        let pt = |x: f32, y: f32| point(o.x + px(x), o.y + px(y));
+        stroke(window, color, |p| {
+            p.move_to(pt(3.5, 3.5));
+            p.line_to(pt(7., 7.));
+            p.line_to(pt(3.5, 10.5));
+            p.move_to(pt(7.5, 3.5));
+            p.line_to(pt(11., 7.));
+            p.line_to(pt(7.5, 10.5));
+        })
+    })
+}
+
 /// A tray (outputs).
 pub fn tray(color: Hsla) -> impl IntoElement {
     icon(move |b, window| {

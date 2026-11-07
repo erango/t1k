@@ -190,11 +190,26 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
     let header = div()
         .h(px(38.))
         .flex_none()
-        .px(px(14.))
+        .pl(px(8.))
+        .pr(px(14.))
         .flex()
         .items_center()
         .gap(px(4.))
-        .child(div().flex_1().text_size(px(13. * k)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).child("Outputs"))
+        .child(
+            div()
+                .id("outputs-hide")
+                .size(px(24.))
+                .flex_none()
+                .rounded(px(5.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .hover(move |d| d.bg(ui.bg_hover))
+                .tooltip(crate::tooltip::text(ui, format!("Hide outputs  {}", crate::keymap::display_for(&crate::actions::ToggleOutputs, &ws.config.keys))))
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_outputs(cx)))
+                .child(crate::icons::collapse_right(ui.text_tertiary)),
+        )
+        .child(div().flex_1().ml(px(2.)).text_size(px(13. * k)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).child("Outputs"))
         .child(seg("tab", "Tab", scope == Scope::Tab).on_click(cx.listener(|this, _, _, cx| {
             this.panel.scope = Scope::Tab;
             this.refresh_prs(cx);
@@ -323,11 +338,8 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             if o.kind == Kind::Pr {
                 // PR card: number, state, CI summary, tab and age.
                 let pr = ws.panel.prs.get(&o.target).cloned().flatten();
-                let (state, state_color) = match pr.as_ref().map(|p| (p.state.as_str(), p.draft)) {
-                    Some(("MERGED", _)) => ("Merged", ui.accent),
-                    Some(("CLOSED", _)) => ("Closed", ui.text_tertiary),
-                    Some((_, true)) => ("Draft", ui.text_tertiary),
-                    Some(_) => ("Open", ui.link),
+                let (state, state_color) = match pr.as_ref() {
+                    Some(p) => crate::github::pr_state(&p.state, p.draft),
                     None => ("…", ui.text_disabled),
                 };
                 let checks = pr.map(|p| p.checks).unwrap_or((0, 0, 0));
@@ -354,7 +366,8 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                                 .gap(px(8.))
                                 .child(div().text_size(px(13. * k)).font_family("JetBrains Mono").font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).child(o.label.clone()))
                                 .child(
-                                    div().px(px(7.)).h(px(18.)).flex().items_center().rounded(px(9.)).bg(state_color.opacity(0.15)).text_size(px(10.5)).font_weight(FontWeight::SEMIBOLD).text_color(state_color).child(state),
+                                    // GitHub's solid state pill, white on the state color, in every theme.
+                                    div().px(px(7.)).h(px(18.)).flex().items_center().rounded(px(9.)).bg(state_color).text_size(px(10.5)).font_weight(FontWeight::SEMIBOLD).text_color(gpui::white()).child(state),
                                 )
                                 .child(div().flex_1())
                                 .child(hover_buttons),
@@ -364,9 +377,9 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                                 .flex()
                                 .gap(px(10.))
                                 .text_size(px(11.5 * k))
-                                .when(checks.0 > 0, |d| d.child(div().text_color(ui.status_done).child(format!("✓ {} passed", checks.0))))
-                                .when(checks.1 > 0, |d| d.child(div().text_color(ui.status_error).child(format!("✗ {} failed", checks.1))))
-                                .when(checks.2 > 0, |d| d.child(div().text_color(ui.status_needs).child(format!("● {} running", checks.2))))
+                                .when(checks.0 > 0, |d| d.child(div().text_color(crate::github::open()).child(format!("✓ {} passed", checks.0))))
+                                .when(checks.1 > 0, |d| d.child(div().text_color(crate::github::closed()).child(format!("✗ {} failed", checks.1))))
+                                .when(checks.2 > 0, |d| d.child(div().text_color(crate::github::pending()).child(format!("● {} running", checks.2))))
                                 .when(checks == (0, 0, 0), |d| d.child(div().text_color(ui.text_tertiary).child("No checks"))),
                         )
                         .child(div().truncate().text_size(px(11. * k)).text_color(ui.text_tertiary).child(format!("{tab_title} · {}", age(o.at)))),

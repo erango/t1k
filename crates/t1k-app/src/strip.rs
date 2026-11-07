@@ -214,6 +214,8 @@ pub struct TopOutput {
     label: String,
     url: String,
     tooltip: String,
+    /// PRs: GitHub's color for the PR's state, on the "PR" label.
+    state: Option<gpui::Hsla>,
 }
 
 fn top_output(ws: &Workspace, a: &t1k_agent::AgentState) -> Option<TopOutput> {
@@ -226,20 +228,21 @@ fn top_output(ws: &Workspace, a: &t1k_agent::AgentState) -> Option<TopOutput> {
             if closed || merged != merged_wanted {
                 return None;
             }
+            let gh = crate::github::pr_state(info.as_ref().map(|i| i.state.as_str()).unwrap_or("OPEN"), info.as_ref().is_some_and(|i| i.draft)).1;
             let (glyph, tip) = match info.as_ref().map(|i| i.checks) {
-                _ if merged => (("✓", ui.accent), "merged".to_string()),
-                Some((_, bad, _)) if bad > 0 => (("✗", ui.text_tertiary), format!("{bad} checks failing")),
-                Some((_, _, wait)) if wait > 0 => (("●", ui.text_tertiary), "checks running".into()),
-                Some((ok, _, _)) if ok > 0 => (("✓", ui.status_done), "checks passed".into()),
+                _ if merged => (("✓", crate::github::merged()), "merged".to_string()),
+                Some((_, bad, _)) if bad > 0 => (("✗", crate::github::closed()), format!("{bad} checks failing")),
+                Some((_, _, wait)) if wait > 0 => (("●", crate::github::pending()), "checks running".into()),
+                Some((ok, _, _)) if ok > 0 => (("✓", crate::github::open()), "checks passed".into()),
                 _ => (("●", ui.text_disabled), "no checks yet".into()),
             };
-            Some(TopOutput { glyph: Some(glyph), kind: "PR", label: format!("#{n}"), url: url.clone(), tooltip: format!("Open PR #{n} · {tip}") })
+            Some(TopOutput { glyph: Some(glyph), kind: "PR", label: format!("#{n}"), url: url.clone(), tooltip: format!("Open PR #{n} · {tip}"), state: Some(gh) })
         })
     };
     let other = |kinds: &[Kind], name: &'static str| {
         a.outputs.iter().rev().find(|o| kinds.contains(&o.kind)).map(|o| {
             let label: String = o.label.chars().take(22).collect();
-            TopOutput { glyph: None, kind: name, label, url: o.target.clone(), tooltip: format!("Open {}", o.label) }
+            TopOutput { glyph: None, kind: name, label, url: o.target.clone(), tooltip: format!("Open {}", o.label), state: None }
         })
     };
     pr(false).or_else(|| pr(true)).or_else(|| other(&[Kind::Artifact, Kind::Doc], "")).or_else(|| other(&[Kind::Ticket], ""))
@@ -304,7 +307,7 @@ fn outputs_button(ws: &Workspace, n: usize, fresh: bool, top: Option<TopOutput>,
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .on_click(move |_, _, cx| cx.open_url(&url))
                         .children(t.glyph.map(|(g, c)| div().text_size(px(10.)).text_color(c).child(g)))
-                        .when(!t.kind.is_empty(), |d| d.child(t.kind))
+                        .when(!t.kind.is_empty(), |d| d.child(div().when_some(t.state, |d, c| d.text_color(c).font_weight(FontWeight::SEMIBOLD)).child(t.kind)))
                         .child(div().font_family(if t.kind == "PR" { "JetBrains Mono" } else { ".SystemUIFont" }).when(t.kind == "PR", |d| d.text_size(px(11.5)).font_weight(FontWeight::SEMIBOLD)).child(t.label)),
                 )
         }))

@@ -17,6 +17,7 @@ mod platform;
 mod groups;
 mod helper;
 mod helper_cli;
+mod github;
 mod group_icons;
 mod quit;
 mod icons;
