@@ -161,10 +161,11 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         // The edge hairline is drawn first and under everything, so the selected row (and its
         // curves) can paint over it where it joins the terminal; a border can't be covered.
         .child(div().absolute().top_0().bottom_0().right_0().w(px(1.)).bg(ui.sidebar_edge))
-        // Title-bar strip: traffic lights, then back / forward; drags the window.
+        // Title-bar strip: traffic lights, then back / forward; drags the window. 44 tall like
+        // the title bar, so lights, icons and the title share one center (22).
         .child(
             div()
-                .h(px(38.))
+                .h(px(44.))
                 .flex_none()
                 .flex()
                 .items_center()
@@ -211,7 +212,9 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 .flex()
                 .gap(px(6.))
                 .px(px(10.))
-                .pt(px(2.))
+                // Canvas v3-x A: the field's top border sits on the title bar's hairline (y 43),
+                // so the two read as one line.
+                .mt(px(-1.))
                 .pb(px(10.))
                 .child(
                     field("find")

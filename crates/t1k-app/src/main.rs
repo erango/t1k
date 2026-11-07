@@ -133,7 +133,7 @@ fn main() {
                 titlebar: Some(gpui::TitlebarOptions {
                     title: Some("T1K".into()),
                     appears_transparent: true,
-                    traffic_light_position: Some(gpui::point(px(12.), px(11.))),
+                    traffic_light_position: Some(gpui::point(px(12.), px(15.))),
                 }),
                 focus: !background,
                 ..Default::default()

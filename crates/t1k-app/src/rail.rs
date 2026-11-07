@@ -123,7 +123,7 @@ pub fn edge(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
     div()
         .id("sidebar-edge")
         .absolute()
-        .top(px(38.))
+        .top(px(44.))
         .bottom_0()
         .right(px(-4.))
         .w(px(8.))
