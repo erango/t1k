@@ -51,10 +51,13 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
         .flex_none();
         // A: plain dot and words, no box (a pill read as a search field); a hairline before
         // the title.
+        // Only the step text gives way when space runs out; the rest is clipped, never drawn
+        // over the title.
         div()
             .flex_shrink()
-            .min_w(px(90.))
+            .min_w(px(140.))
             .max_w(px(440.))
+            .overflow_hidden()
             .flex()
             .items_center()
             .gap(px(7.))

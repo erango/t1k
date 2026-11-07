@@ -792,6 +792,8 @@ impl Workspace {
         if self.badge != Some(needs) {
             self.badge = Some(needs);
             crate::platform::set_dock_badge(if self.config.notify.dock_badge { needs } else { 0 });
+            // The face opens its eyes (red) while anything needs you.
+            crate::platform::set_dock_alert(self.config.notify.dock_badge && needs > 0);
         }
         let working = self.tabs.iter().any(|t| t.status() == Some(&Status::Working));
         if changed || working {

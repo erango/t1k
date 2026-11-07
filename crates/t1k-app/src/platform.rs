@@ -17,6 +17,36 @@ pub fn set_dock_badge(n: usize) {
 #[cfg(not(target_os = "macos"))]
 pub fn set_dock_badge(_: usize) {}
 
+/// The Dock icon while a tab needs you: the face with its eyes open in red.
+#[cfg(target_os = "macos")]
+const ALERT_ICON: &[u8] = include_bytes!("../../../resources/icon-alert.png");
+
+/// Swap the Dock icon to the alert face (true) or back to the app icon (false).
+/// Must run on the main thread.
+#[cfg(target_os = "macos")]
+pub fn set_dock_alert(on: bool) {
+    use cocoa::base::{id, nil};
+    use objc::{class, msg_send, sel, sel_impl};
+    unsafe {
+        let app: id = msg_send![class!(NSApplication), sharedApplication];
+        if !on {
+            // nil restores the bundle's icon.
+            let _: () = msg_send![app, setApplicationIconImage: nil];
+            return;
+        }
+        let data: id = msg_send![class!(NSData), dataWithBytes: ALERT_ICON.as_ptr() length: ALERT_ICON.len()];
+        let image: id = msg_send![class!(NSImage), alloc];
+        let image: id = msg_send![image, initWithData: data];
+        if image != nil {
+            let _: () = msg_send![app, setApplicationIconImage: image];
+            let _: () = msg_send![image, release];
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn set_dock_alert(_: bool) {}
+
 /// Post a notification banner. Uses `osascript` until T1K ships a signed bundle with its own
 /// notification permission; clicking it opens Script Editor's context, not the tab (yet).
 pub fn notify(title: &str, subtitle: &str, body: &str) {
