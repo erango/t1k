@@ -26,6 +26,8 @@ pub enum Overlay {
     Update,
     /// ⌘Q while an update waits.
     QuitUpdate,
+    /// ⌘Q with programs still running.
+    QuitRunning,
     /// The session strip's ⋯ menu.
     MoreMenu { at: Point<Pixels> },
     /// Command palette (⌘⇧P).
@@ -360,6 +362,15 @@ impl Workspace {
                 Some(Overlay::Update)
             }
             Overlay::QuitUpdate => (ev.keystroke.key != "escape").then_some(Overlay::QuitUpdate),
+            Overlay::QuitRunning if self.quitting.is_some() => Some(Overlay::QuitRunning),
+            Overlay::QuitRunning => match ev.keystroke.key.as_str() {
+                "escape" => None,
+                "enter" => {
+                    self.quit_gracefully(cx);
+                    Some(Overlay::QuitRunning)
+                }
+                _ => Some(Overlay::QuitRunning),
+            },
             Overlay::ThemePicker { query, selected, dark } => self.theme_picker_key(query, selected, dark, ev, window, cx),
             // Typing searches; Esc clears the search, then closes.
             Overlay::Settings { section } => match input::handle(&mut self.settings_query, ev) {
@@ -648,6 +659,10 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
         Overlay::Update => {
             let c = crate::update_ui::dialog(ws, cx);
             Some(scrim(ws, false, cx).bg(gpui::black().opacity(0.35)).flex().justify_center().items_start().child(c).into_any_element())
+        }
+        Overlay::QuitRunning => {
+            let p = crate::quit::render(ws, cx);
+            Some(scrim(ws, false, cx).bg(gpui::black().opacity(0.3)).flex().justify_center().items_start().child(div().mt(px(140.)).child(p)).into_any_element())
         }
         Overlay::QuitUpdate => {
             let c = crate::update_ui::quit_prompt(ws, cx);

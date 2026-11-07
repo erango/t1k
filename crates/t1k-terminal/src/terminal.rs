@@ -136,6 +136,15 @@ impl Terminal {
         Ok((Self { term, notifier, size, title: None, exited: false, pty_fd, shell_pid }, rx))
     }
 
+    /// Hang up the foreground program, as closing a terminal window does (SIGHUP to its
+    /// process group). Never the shell's own group.
+    pub fn hangup_foreground(&self) {
+        let pgid = unsafe { libc::tcgetpgrp(self.pty_fd) };
+        if pgid > 0 && pgid != self.shell_pid && unsafe { libc::getpgid(self.shell_pid) } != pgid {
+            unsafe { libc::killpg(pgid, libc::SIGHUP) };
+        }
+    }
+
     /// Pid of the foreground process (falls back to the shell).
     pub fn foreground_pid(&self) -> i32 {
         crate::process::foreground_pid(self.pty_fd).unwrap_or(self.shell_pid)

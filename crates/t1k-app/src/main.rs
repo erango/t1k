@@ -18,6 +18,7 @@ mod groups;
 mod helper;
 mod helper_cli;
 mod group_icons;
+mod quit;
 mod icons;
 mod rail;
 mod reminders;
@@ -90,6 +91,12 @@ fn main() {
                     if w.update(cx, |ws, window, cx| ws.open_overlay(overlay::Overlay::QuitUpdate, window, cx)).is_ok() {
                         return;
                     }
+                }
+            }
+            // Programs still running: ask first, then close them gently.
+            if let Some(w) = cx.windows().first().and_then(|w| w.downcast::<Workspace>()) {
+                if w.update(cx, |ws, window, cx| ws.request_quit(window, cx)).is_ok() {
+                    return;
                 }
             }
             cx.quit()

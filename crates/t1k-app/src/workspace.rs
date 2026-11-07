@@ -223,6 +223,10 @@ pub struct Workspace {
     pub settings_return: Option<crate::settings::Section>,
     /// Outputs count per tab id when the user last saw them (panel open on that tab).
     pub outputs_seen: HashMap<String, usize>,
+    /// Set once Quit anyway was pressed: programs are being closed.
+    pub quitting: Option<Instant>,
+    /// Claude sessions running when the quit began (they exit, but resume next launch).
+    pub resume_after_quit: HashSet<String>,
     /// Scrollback files were written for every tab (at quit); the session points at them.
     scrollback_saved: bool,
     /// Scrollback to replay into the next terminal `open_tab` spawns (session restore).
@@ -361,6 +365,8 @@ impl Workspace {
             theme_before: None,
             settings_return: None,
             outputs_seen: HashMap::new(),
+            quitting: None,
+            resume_after_quit: HashSet::new(),
             scrollback_saved: false,
             restore_next: None,
             key_note: None,
@@ -403,6 +409,19 @@ impl Workspace {
         crate::updater::start(&this.config.updates);
         // Remember where the window is; saved with the session (debounced through `poll`).
         cx.observe_window_bounds(window, |this, window, _| this.window_frame = Some(frame_of(window))).detach();
+        // The window's close button quits T1K (one window), so it asks the same question.
+        let handle = cx.entity().downgrade();
+        window.on_window_should_close(cx, move |window, cx| {
+            handle
+                .update(cx, |ws, cx| {
+                    if ws.quitting.is_some() || ws.running_programs(cx).is_empty() {
+                        return true;
+                    }
+                    ws.open_overlay(crate::overlay::Overlay::QuitRunning, window, cx);
+                    false
+                })
+                .unwrap_or(true)
+        });
         cx.on_app_quit(|this, cx| {
             this.save_scrollback(cx);
             this.save();
@@ -546,6 +565,7 @@ impl Workspace {
                     None
                 }
                 "quit" => Some(Overlay::QuitUpdate),
+                "quit-running" => Some(Overlay::QuitRunning),
                 "themes" => {
                     let dark = this.theme.is_dark();
                     Some(Overlay::ThemePicker { query: String::new(), selected: 0, dark })
@@ -985,6 +1005,13 @@ impl Workspace {
         self.helper_icon(key, &label, &titles, cx);
     }
 
+    /// Quit dialog › Show running. Until the canvas design (v3-p) is built: the switcher,
+    /// showing working agents.
+    pub fn show_running(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.switcher_filter = crate::overlay::SwitcherFilter::Working;
+        self.open_overlay(crate::overlay::Overlay::Switcher { query: String::new(), selected: 0 }, window, cx);
+    }
+
     /// Drop group `moved` just above group `before` (dragging a header).
     pub fn reorder_group(&mut self, moved: &PathBuf, before: &PathBuf, cx: &mut Context<Self>) {
         if moved == before {
@@ -1380,9 +1407,10 @@ impl Workspace {
                     pinned_group: t.pinned_group.clone(),
                     split: t.split.as_ref().map(|s| (s.cwd.clone(), s.vertical)),
                     scrollback: self.scrollback_saved.then(|| format!("{}.ansi", t.id)),
-                    agent_live: t.agent.as_ref().is_some_and(|a| {
-                        a.kind == t1k_agent::agents::AgentKind::Claude && !a.session_id.is_empty() && !matches!(a.status, Status::Ended)
-                    }) && t.program.is_some(),
+                    agent_live: self.resume_after_quit.contains(&t.id)
+                        || t.agent.as_ref().is_some_and(|a| {
+                            a.kind == t1k_agent::agents::AgentKind::Claude && !a.session_id.is_empty() && !matches!(a.status, Status::Ended)
+                        }) && t.program.is_some(),
                 }
             }).collect(),
             active: self.visual_order().iter().position(|&i| i == self.active).unwrap_or(0),

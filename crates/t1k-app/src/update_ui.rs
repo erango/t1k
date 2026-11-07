@@ -138,7 +138,7 @@ pub fn pill(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement> {
     )
 }
 
-fn button(ws: &Workspace, id: &'static str, label: &str, primary: bool) -> gpui::Stateful<gpui::Div> {
+pub(crate) fn button(ws: &Workspace, id: &'static str, label: &str, primary: bool) -> gpui::Stateful<gpui::Div> {
     let ui = ws.ui;
     div()
         .id(id)
@@ -154,7 +154,7 @@ fn button(ws: &Workspace, id: &'static str, label: &str, primary: bool) -> gpui:
         .child(label.to_string())
 }
 
-fn card(ws: &Workspace) -> gpui::Div {
+pub(crate) fn card(ws: &Workspace) -> gpui::Div {
     let ui = ws.ui;
     div()
         .w(px(440.))
@@ -171,7 +171,7 @@ fn card(ws: &Workspace) -> gpui::Div {
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
 }
 
-fn heading(ws: &Workspace, title: String, sub: Option<String>) -> gpui::Div {
+pub(crate) fn heading(ws: &Workspace, title: String, sub: Option<String>) -> gpui::Div {
     let ui = ws.ui;
     div()
         .flex()
@@ -195,7 +195,7 @@ fn img_face() -> impl IntoElement {
     gpui::img(FACE.clone()).size(px(40.)).flex_none()
 }
 
-fn row() -> gpui::Div {
+pub(crate) fn row() -> gpui::Div {
     div().pt(px(6.)).flex().items_center().gap(px(8.))
 }
 
@@ -345,7 +345,7 @@ pub fn quit_prompt(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             row()
                 .justify_end()
                 .child(button(ws, "quit-cancel", "Cancel", false).on_click(cx.listener(|this, _, window, cx| this.close_overlay(window, cx))))
-                .child(button(ws, "quit-update", "Quit and update", true).on_click(|_, _, cx| cx.quit())),
+                .child(button(ws, "quit-update", "Quit and update", true).on_click(cx.listener(|this, _, _, cx| this.quit_gracefully(cx)))),
         )
         .into_any_element()
 }
