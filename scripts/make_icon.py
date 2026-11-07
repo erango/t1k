@@ -55,13 +55,14 @@ CHROME = """<linearGradient id="chrome" x1="0" y1="0" x2="0" y2="1"><stop offset
 
 
 def svg(rows):
-    # Tile 884/1024 (70 px margin), matching the visual size of current macOS app icons.
-    cell = 44
+    # Apple's icon grid: an 824 tile at 100 px, so the Dock draws it at the same size as
+    # every other app (the bundle itself uses resources/T1K.icon, see below).
+    cell = 40
     origin = (1024 - 16 * cell) // 2
     return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <defs>{TILE}</defs>
-  <rect x="70" y="70" width="884" height="884" rx="198" fill="url(#tile)"/>
-  <rect x="74" y="74" width="876" height="876" rx="194" fill="none" stroke="#2A2E35" stroke-width="8"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#tile)"/>
+  <rect x="103" y="103" width="818" height="818" rx="182" fill="none" stroke="#2A2E35" stroke-width="6"/>
   <g shape-rendering="crispEdges">
     {face_rects(rows, cell, origin, origin)}
   </g>
@@ -72,8 +73,8 @@ def svg(rows):
 def tile(body, defs=""):
     return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <defs>{TILE}{defs}</defs>
-  <rect x="70" y="70" width="884" height="884" rx="198" fill="url(#tile)"/>
-  <rect x="74" y="74" width="876" height="876" rx="194" fill="none" stroke="#2A2E35" stroke-width="8"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#tile)"/>
+  <rect x="103" y="103" width="818" height="818" rx="182" fill="none" stroke="#2A2E35" stroke-width="6"/>
   {body}
 </svg>
 """
@@ -95,6 +96,55 @@ def wordmark_svg(alert=False):
     one = '<tspan fill="#FF4A4F">1</tspan>' if alert else "1"
     return tile(f"""<text x="512" y="620" text-anchor="middle" font-family="JetBrains Mono" font-weight="800" font-size="320" letter-spacing="6" fill="url(#chrome)">T{one}K</text>""",
                 CHROME_TILE.replace('y1="330" x2="0" y2="700"', 'y1="400" x2="0" y2="620"'))
+
+
+ICON_JSON = """{
+  "fill" : {
+    "linear-gradient" : [
+      "srgb:0.10588,0.11765,0.13725,1.00000",
+      "srgb:0.04314,0.04706,0.05490,1.00000"
+    ]
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "image-name" : "face.svg",
+          "name" : "face"
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}
+"""
+
+
+def write_icon_composer(res):
+    """resources/T1K.icon: the app icon as an Icon Composer document (dark gradient fill, the
+    face as its one layer). bundle.sh compiles it with actool into Assets.car + T1K.icns.
+    macOS 26 draws only compiled icons at full size; a bare .icns gets shrunk onto a platter."""
+    d = res / "T1K.icon"
+    (d / "Assets").mkdir(parents=True, exist_ok=True)
+    (d / "icon.json").write_text(ICON_JSON)
+    cell = 42
+    o = (1024 - 16 * cell) // 2
+    (d / "Assets" / "face.svg").write_text(
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024"><g shape-rendering="crispEdges">{face_rects(FACE, cell, o, o)}</g></svg>\n'
+    )
 
 
 def lockup(width, height, cell, text_px, bg=True, tagline=""):
@@ -121,6 +171,7 @@ def lockup(width, height, cell, text_px, bg=True, tagline=""):
 def main():
     res = Path(__file__).resolve().parent.parent / "resources"
     (res / "icon.svg").write_text(svg(FACE))
+    write_icon_composer(res)
     (res / "icon-alert.svg").write_text(svg(ALERT))
     subprocess.run(["rsvg-convert", "-w", "512", "-h", "512", str(res / "icon-alert.svg"), "-o", str(res / "icon-alert.png")], check=True)
     subprocess.run(["rsvg-convert", "-w", "256", "-h", "256", str(res / "icon.svg"), "-o", str(res / "icon-256.png")], check=True)

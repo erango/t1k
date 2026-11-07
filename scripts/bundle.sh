@@ -12,14 +12,26 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp target/release/t1k "$APP/Contents/MacOS/t1k"
 
-# Icon: SVG -> iconset -> icns.
-ICONSET=target/release/T1K.iconset
-rm -rf "$ICONSET" && mkdir -p "$ICONSET"
-for s in 16 32 128 256 512; do
-  rsvg-convert -w $s -h $s resources/icon.svg -o "$ICONSET/icon_${s}x${s}.png"
-  rsvg-convert -w $((s*2)) -h $((s*2)) resources/icon.svg -o "$ICONSET/icon_${s}x${s}@2x.png"
-done
-iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/T1K.icns"
+# Icon. With Xcode, compile resources/T1K.icon (Icon Composer) into Assets.car + T1K.icns:
+# macOS 26 draws only compiled icons at full size and shrinks a bare .icns onto a platter.
+# Without Xcode, fall back to an .icns from the SVG.
+if xcrun --find actool >/dev/null 2>&1; then
+  ICONOUT="$PWD/target/release/icon-out"
+  rm -rf "$ICONOUT" && mkdir -p "$ICONOUT"
+  # actool resolves relative paths oddly; give it absolute ones.
+  xcrun actool "$PWD/resources/T1K.icon" --compile "$ICONOUT" --app-icon T1K --enable-on-demand-resources NO \
+    --development-region en --target-device mac --platform macosx --minimum-deployment-target 13.0 \
+    --output-partial-info-plist "$ICONOUT/partial.plist" >/dev/null
+  cp "$ICONOUT/Assets.car" "$ICONOUT/T1K.icns" "$APP/Contents/Resources/"
+else
+  ICONSET=target/release/T1K.iconset
+  rm -rf "$ICONSET" && mkdir -p "$ICONSET"
+  for s in 16 32 128 256 512; do
+    rsvg-convert -w $s -h $s resources/icon.svg -o "$ICONSET/icon_${s}x${s}.png"
+    rsvg-convert -w $((s*2)) -h $((s*2)) resources/icon.svg -o "$ICONSET/icon_${s}x${s}@2x.png"
+  done
+  iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/T1K.icns"
+fi
 
 # Sparkle (auto-update), pinned and cached in target/sparkle. T1K loads it at runtime and
 # draws its own update UI (crates/t1k-app/src/updater.rs).
@@ -46,6 +58,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleIdentifier</key><string>com.erango.t1k</string>
   <key>CFBundleExecutable</key><string>t1k</string>
   <key>CFBundleIconFile</key><string>T1K</string>
+  <key>CFBundleIconName</key><string>T1K</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$VERSION</string>
