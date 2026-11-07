@@ -123,7 +123,7 @@ cargo clippy
 
 [`CLAUDE.md`](CLAUDE.md) has the working notes: how config and session state flow, debug environment variables for opening any screen at launch, and conventions. The design spec is [`docs/design.md`](docs/design.md).
 
-Bugs and ideas go in [Issues](https://github.com/erango/t1k/issues). Pull requests are welcome; for anything bigger than a fix, open an issue first so we can agree on the shape. Keep the product rule in mind: T1K stays quiet until something needs a person.
+Bugs and ideas go in [Issues](https://github.com/erango/t1k/issues). Pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). For anything bigger than a fix, open an issue first so we can agree on the shape. Keep the product rule in mind: T1K stays quiet until something needs a person.
 
 ## Thanks
 
