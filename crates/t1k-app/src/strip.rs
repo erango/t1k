@@ -214,12 +214,15 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
                 .rounded(px(6.))
                 .bg(if ws.panel.open { ui.bg_selected } else { ui.bg_hover })
                 .text_size(px(12.))
+                // One line box for both labels: mixing the mono face for the count with the UI
+                // face put them on different baselines and pushed the label off center.
+                .line_height(px(14.))
                 .text_color(ui.text_secondary)
                 .hover(move |d| d.text_color(ui.text_primary))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(cx.listener(|this, _, _, cx| this.toggle_outputs(cx)))
                 .child("Outputs")
-                .when(outputs > 0, |d| d.child(mono(outputs.to_string(), ui.text_tertiary))),
+                .when(outputs > 0, |d| d.child(div().text_color(ui.text_tertiary).child(outputs.to_string()))),
         )
         .child(
             div()
