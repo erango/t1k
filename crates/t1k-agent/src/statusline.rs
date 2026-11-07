@@ -82,6 +82,45 @@ pub fn parse(v: &Value) -> Option<Usage> {
     (!windows.is_empty()).then(|| Usage { windows, at: now() })
 }
 
+/// Codex has no status-line command, but its rollout file (`transcript_path` in its hooks)
+/// records a `token_count` event with `rate_limits` after each reply. The newest one wins.
+/// Windows are told apart by length, not position (Codex's own TUI does the same), and only
+/// the account-wide `codex` limit counts (other ids are per-model quotas).
+pub fn codex_rollout(tail: &str) -> Option<Usage> {
+    for line in tail.lines().rev() {
+        if !line.contains("\"token_count\"") || !line.contains("rate_limits") {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
+        let Some(r) = v.pointer("/payload/rate_limits").filter(|r| r.is_object()) else { continue };
+        if r.get("limit_id").and_then(Value::as_str).is_some_and(|id| id != "codex") {
+            continue;
+        }
+        let mut windows: Vec<(i64, Window)> = ["primary", "secondary"]
+            .iter()
+            .filter_map(|k| {
+                let w = r.get(*k)?;
+                let used = w.get("used_percent")?.as_f64()? as f32;
+                let mins = int(w.get("window_minutes")).unwrap_or(0);
+                let name = match mins {
+                    300 => "5h".to_string(),
+                    10080 => "7d".to_string(),
+                    m if m > 0 && m % 1440 == 0 => format!("{}d", m / 1440),
+                    m if m > 0 && m % 60 == 0 => format!("{}h", m / 60),
+                    m => format!("{m}m"),
+                };
+                Some((mins, Window { name, used: used.clamp(0.0, 100.0), resets_at: int(w.get("resets_at")) }))
+            })
+            .collect();
+        if windows.is_empty() {
+            continue;
+        }
+        windows.sort_by_key(|(m, _)| *m);
+        return Some(Usage { windows: windows.into_iter().map(|(_, w)| w).collect(), at: now() });
+    }
+    None
+}
+
 /// What `t1k statusline` sends to the app: only the limits, nothing about the session.
 pub fn forward_payload(kind: AgentKind, statusline_json: &Value) -> Option<Value> {
     let mut out = json!({ "hook_event_name": EVENT, "t1k_agent": kind.id() });
@@ -202,6 +241,20 @@ mod tests {
         assert!(u.windows[0].resets_at.unwrap() - now() <= 60);
         let f = forward_payload(AgentKind::Antigravity, &json!({"email": "x", "quota": v["quota"]})).unwrap();
         assert!(f.get("email").is_none() && f["t1k_agent"] == "antigravity");
+    }
+
+    #[test]
+    fn reads_codex_rollout_limits() {
+        let tail = concat!(
+            r#"{"type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":{"limit_id":null,"secondary":{"used_percent":12.5,"window_minutes":10080,"resets_at":1800100000},"primary":{"used_percent":3.0,"window_minutes":300,"resets_at":1800000000}}}}"#,
+            "\n",
+            r#"{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"gpt-x","primary":{"used_percent":99.0,"window_minutes":300}}}}"#,
+            "\n",
+            r#"{"type":"response_item","payload":{}}"#,
+        );
+        let u = codex_rollout(tail).unwrap();
+        assert_eq!(u.windows.iter().map(|w| (w.name.as_str(), w.used)).collect::<Vec<_>>(), vec![("5h", 3.0), ("7d", 12.5)]);
+        assert!(codex_rollout("{}").is_none());
     }
 
     /// The wrapper must keep the original status line working byte for byte, in and out of T1K.

@@ -1339,8 +1339,20 @@ impl Workspace {
             self.usage.insert(kind, usage);
             return changed;
         }
-        let Some(ix) = self.tabs.iter().position(|t| t.id == env.tab_id) else { return false };
-        let Some((hook, session_id)) = Hook::parse(&env.payload) else { return false };
+        // Codex writes its limits into its rollout file after each reply.
+        let mut usage_changed = false;
+        if let Some(path) = env.payload.get("codex_rollout").and_then(|v| v.as_str()) {
+            let event = env.payload.get("hook_event_name").and_then(|v| v.as_str()).unwrap_or_default();
+            if matches!(event, "Stop" | "SessionStart" | "UserPromptSubmit") {
+                if let Some(usage) = read_tail(std::path::Path::new(path), 256 << 10).as_deref().and_then(t1k_agent::statusline::codex_rollout) {
+                    let kind = t1k_agent::agents::AgentKind::Codex;
+                    usage_changed = self.usage.get(&kind).is_none_or(|u| u.windows != usage.windows);
+                    self.usage.insert(kind, usage);
+                }
+            }
+        }
+        let Some(ix) = self.tabs.iter().position(|t| t.id == env.tab_id) else { return usage_changed };
+        let Some((hook, session_id)) = Hook::parse(&env.payload) else { return usage_changed };
         let visible = ix == self.active && window.is_window_active();
         let tab = &mut self.tabs[ix];
         let sid = session_id.unwrap_or_default();
@@ -2013,4 +2025,16 @@ fn restored_banner(mut bytes: Vec<u8>) -> Vec<u8> {
     }
     bytes.extend_from_slice(format!("\x1b[0m\x1b[2m{}\x1b[0m\r\n", t1k_terminal::terminal::RESTORED_BANNER).as_bytes());
     bytes
+}
+
+/// The last `max` bytes of a file, from the first whole line.
+fn read_tail(path: &std::path::Path, max: u64) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(path).ok()?;
+    let len = f.metadata().ok()?.len();
+    f.seek(SeekFrom::Start(len.saturating_sub(max))).ok()?;
+    let mut buf = Vec::new();
+    f.read_to_end(&mut buf).ok()?;
+    let text = String::from_utf8_lossy(&buf).into_owned();
+    Some(if len > max { text.split_once('\n').map(|(_, r)| r.to_string()).unwrap_or_default() } else { text })
 }

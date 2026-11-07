@@ -150,7 +150,11 @@ pub fn normalize(kind: AgentKind, event: &str, payload: Value) -> Option<Value> 
     }
     // Only Claude's transcripts are read (other agents log in other formats).
     if kind != AgentKind::Claude {
-        v.remove("transcript_path");
+        let path = v.remove("transcript_path");
+        // Codex's rollout file holds its plan usage limits (see statusline::codex_rollout).
+        if let (AgentKind::Codex, Some(p)) = (kind, path) {
+            v.insert("codex_rollout".into(), p);
+        }
     }
     v.insert("t1k_agent".into(), json!(kind.id()));
     Some(Value::Object(v))
