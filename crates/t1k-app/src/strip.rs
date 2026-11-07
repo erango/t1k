@@ -166,6 +166,8 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
                     .child("Open prompt"),
             )
         })
+        // With the sidebar hidden, the usage meter moves here.
+        .children((!matches!(ws.sidebar_shown(), crate::rail::Shown::Full(_))).then(|| crate::usage::meter(ws, "usage-strip", cx)).flatten())
         .child(outputs_button(ws, outputs, fresh, top, cx))
         .child(
             div()

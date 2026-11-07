@@ -24,6 +24,7 @@ mod quit;
 mod icons;
 mod rail;
 mod reminders;
+mod usage;
 mod session;
 mod settings;
 mod shell;

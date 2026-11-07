@@ -192,6 +192,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                         .child(crate::icons::plus(ui.text_secondary)),
                 )
                 .child(div().w(px(1.)).h(px(14.)).mx(px(4.)).bg(ui.border))
+                .children(crate::usage::meter(ws, "usage-meter", cx))
                 .child(nav_button(ws, true, cx))
                 .child(nav_button(ws, false, cx)),
         )

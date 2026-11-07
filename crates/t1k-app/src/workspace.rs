@@ -265,6 +265,7 @@ pub struct Workspace {
     /// Each agent's plan usage limits (Claude's 5-hour and weekly, Antigravity's buckets), from
     /// the status-line wrapper. Per account, so one per agent, not per tab.
     pub usage: std::collections::HashMap<t1k_agent::agents::AgentKind, t1k_agent::statusline::Usage>,
+    usage_minute: i64,
     next_created: usize,
     pub started: Instant,
     /// Last Dock badge value we set (None = never).
@@ -430,7 +431,8 @@ impl Workspace {
             watcher,
             socket,
             agent_rx,
-            usage: Default::default(),
+            usage_minute: 0,
+            usage: saved.usage.iter().filter_map(|(k, u)| Some((t1k_agent::agents::AgentKind::from_id(k)?, u.clone()))).collect(),
             next_created: 0,
             started: Instant::now(),
             badge: None,
@@ -533,6 +535,24 @@ impl Workspace {
             }
             _ => {}
         }
+        // Debug aid: T1K_DEBUG_USAGE=low|high5|high7|limit|stale|multi fakes plan usage limits.
+        if let Ok(which) = std::env::var("T1K_DEBUG_USAGE") {
+            use t1k_agent::{agents::AgentKind, statusline::{Usage, Window}};
+            let t = crate::usage::now();
+            let w = |name: &str, used: f32, mins: i64| Window { name: name.into(), used, resets_at: Some(t + mins * 60) };
+            let (five, seven) = match which.as_str() {
+                "high5" => (86., 41.),
+                "high7" => (35., 91.),
+                "limit" => (100., 72.),
+                _ => (42., 18.),
+            };
+            let at = if which == "stale" { t - 25 * 60 } else { t - 60 };
+            this.usage.insert(AgentKind::Claude, Usage { windows: vec![w("5h", five, 125), w("7d", seven, 3 * 1440 + 300)], at });
+            if which == "multi" {
+                this.usage.insert(AgentKind::Codex, Usage { windows: vec![w("5h", 12., 200), w("7d", 64., 5000)], at });
+                this.usage.insert(AgentKind::Antigravity, Usage { windows: vec![w("gemini-weekly", 83., 9000), w("3p-weekly", 0., 10000)], at });
+            }
+        }
         // Debug aid: T1K_DEBUG_AGENT=working|needs|error|done fakes a Claude session on the
         // active tab, for screenshots of the strip, sidebar and card.
         if let Ok(state) = std::env::var("T1K_DEBUG_AGENT") {
@@ -585,6 +605,7 @@ impl Workspace {
                 "welcome" => Some(Overlay::Welcome),
                 "more" => Some(Overlay::MoreMenu { at: gpui::point(px(480.), px(44.)) }),
                 "sidebarview" => Some(Overlay::SidebarView { at: gpui::point(px(90.), px(44.)) }),
+                "usage" => Some(Overlay::Usage { at: gpui::point(px(60.), px(40.)) }),
                 "switcher" => Some(Overlay::Switcher { query: String::new(), selected: 0 }),
                 "overview" => Some(Overlay::Overview { selected: 0 }),
                 "settings" => Some(Overlay::Settings { section: crate::settings::Section::Appearance }),
@@ -1325,7 +1346,10 @@ impl Workspace {
             self.dock_icon = Some(icon);
         }
         let working = self.tabs.iter().any(|t| t.status() == Some(&Status::Working));
-        if changed || working {
+        // The usage meter's countdowns and staleness move with the clock.
+        let minute = crate::usage::now() / 60;
+        let tick = !self.usage.is_empty() && std::mem::replace(&mut self.usage_minute, minute) != minute;
+        if changed || working || tick {
             cx.notify();
         }
     }
@@ -1538,6 +1562,7 @@ impl Workspace {
             group_order: self.group_order.clone(),
             group_icons: self.group_icons.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             icon_suggestions: self.icon_suggestions.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            usage: self.usage.iter().map(|(k, u)| (k.id().to_string(), u.clone())).collect(),
             ..Default::default()
         }
     }

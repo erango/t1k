@@ -18,6 +18,8 @@ pub enum Overlay {
     None,
     /// Sidebar view options (button in the sidebar's top strip).
     SidebarView { at: Point<Pixels> },
+    /// The plan usage popover, pinned by clicking the meter.
+    Usage { at: Point<Pixels> },
     /// T1K menu ▸ About T1K.
     About,
     /// First launch.
@@ -355,6 +357,7 @@ impl Workspace {
             Overlay::IconPicker { key, at, query, selected, cat } => self.icon_picker_key(key, at, query, selected, cat, ev, cx),
             o @ Overlay::TerminalMenu { .. } => (ev.keystroke.key != "escape").then_some(o),
             o @ Overlay::SidebarView { .. } => (ev.keystroke.key != "escape").then_some(o),
+            o @ Overlay::Usage { .. } => (ev.keystroke.key != "escape").then_some(o),
             o @ Overlay::MoreMenu { .. } => (ev.keystroke.key != "escape").then_some(o),
             Overlay::About => (!matches!(ev.keystroke.key.as_str(), "escape" | "enter")).then_some(Overlay::About),
             Overlay::Welcome => (!matches!(ev.keystroke.key.as_str(), "escape" | "enter")).then_some(Overlay::Welcome),
@@ -667,6 +670,10 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
         Overlay::MoreMenu { at } => {
             let m = more_menu(ws, *at, cx);
             Some(scrim(ws, true, cx).child(m).into_any_element())
+        }
+        Overlay::Usage { at } => {
+            let c = crate::usage::card_for(ws).on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
+            Some(scrim(ws, true, cx).child(div().absolute().left(at.x.max(px(8.))).top(at.y).child(c)).into_any_element())
         }
         Overlay::SidebarView { at } => {
             let m = sidebar_view_menu(ws, *at, cx);

@@ -54,6 +54,7 @@ Debug environment variables (all read at launch):
 | `T1K_DEBUG_SIDEBAR=rail\|hidden\|peek\|drag:<x>` | Starts with the sidebar collapsed, peeking from the rail, or mid-drag with the pointer at x |
 | `T1K_FRESH=1` | Ignores the saved tabs |
 | `T1K_DEBUG_OVERLAY=rename\|quit-running\|quit-list` | The rename field / the quit warning / its running list. For something to be running, add `[ -n "$T1K_TEST_RUN" ] && sleep 300` to `$HOME/.zshrc` of the test HOME and launch with `T1K_TEST_RUN=1 ZDOTDIR=$HOME` (login resets HOME, so ZDOTDIR is what reaches the shell) |
+| `T1K_DEBUG_USAGE=low\|high5\|high7\|limit\|stale\|multi` | Fakes plan usage limits for the meter (`multi`: Claude, Codex and Antigravity); `T1K_DEBUG_OVERLAY=usage` pins its popover |
 | `T1K_DEBUG_BACKGROUND=1` | Opens the window without taking focus, so screenshots don't steal your typing; capture it by window id (`screencapture -l <id>`) |
 
 Run against an isolated HOME so your real session and config stay untouched, e.g.

@@ -116,6 +116,9 @@ pub struct Session {
     // Renamed from `icon_suggestions` when local suggestions improved, so they're redone.
     #[serde(default, rename = "icon_suggestions_v2")]
     pub icon_suggestions: Vec<(PathBuf, Vec<String>)>,
+    /// Last reported plan usage limits per agent id, so the meter shows (as stale) after a restart.
+    #[serde(default)]
+    pub usage: Vec<(String, t1k_agent::statusline::Usage)>,
 }
 
 /// How tabs are ordered within a group.
