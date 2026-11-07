@@ -29,7 +29,13 @@ pub fn results(query: &str, dark: bool) -> Vec<&'static Theme> {
 impl Workspace {
     pub fn open_theme_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let dark = self.theme.is_dark();
-        let selected = results("", dark).iter().position(|t| t.name == self.theme.name).unwrap_or(0);
+        self.open_theme_picker_for(dark, window, cx);
+    }
+
+    /// The picker for one slot (dark or light), with that slot's theme selected.
+    pub fn open_theme_picker_for(&mut self, dark: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let current = self.theme_slot(dark).name.clone();
+        let selected = results("", dark).iter().position(|t| t.name == current).unwrap_or(0);
         self.open_overlay(Overlay::ThemePicker { query: String::new(), selected, dark }, window, cx);
     }
 
