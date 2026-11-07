@@ -21,6 +21,12 @@ pub struct SavedTab {
     /// Split pane: its folder and whether it sits below the main pane.
     #[serde(default)]
     pub split: Option<(Option<PathBuf>, bool)>,
+    /// Name of this tab's saved scrollback in `scrollback/`, written at quit.
+    #[serde(default)]
+    pub scrollback: Option<String>,
+    /// A Claude session was still running in this tab when T1K quit.
+    #[serde(default)]
+    pub agent_live: bool,
 }
 
 /// A Claude session that no tab holds any more (tab closed, or replaced by a newer session).

@@ -52,6 +52,9 @@ pub struct SpawnOptions {
     /// Start with the cursor on the bottom row, so the first prompt sits at the bottom of the
     /// pane ("prompt gravity: bottom").
     pub start_at_bottom: bool,
+    /// Scrollback saved from the last run (`Terminal::snapshot`), replayed before the shell
+    /// prints anything.
+    pub restore: Option<Vec<u8>>,
 }
 
 pub struct Terminal {
@@ -119,6 +122,10 @@ impl Terminal {
             for _ in 0..400 {
                 term.linefeed();
             }
+        }
+        if let Some(bytes) = opts.restore.as_deref().filter(|b| !b.is_empty()) {
+            let mut p: alacritty_terminal::vte::ansi::Processor<alacritty_terminal::vte::ansi::StdSyncHandler> = Default::default();
+            p.advance(&mut term, bytes);
         }
         let term = Arc::new(FairMutex::new(term));
 
@@ -231,6 +238,14 @@ impl Terminal {
         term.selection = Some(sel);
     }
 
+    /// History and screen as text with colors (SGR), up to the cursor's line and at most
+    /// `max_lines` lines, for saving across restarts. Wrapped lines stay joined so the text
+    /// reflows to the next window's width. Empty when the screen is an alternate one (vim,
+    /// htop), whose contents mean nothing once the program is gone.
+    pub fn snapshot(&self, max_lines: usize) -> Vec<u8> {
+        snapshot_term(&self.term.lock(), max_lines)
+    }
+
     /// The last `n` non-blank lines of the screen (for previews), oldest first.
     pub fn last_lines(&self, n: usize) -> Vec<String> {
         use alacritty_terminal::grid::Dimensions;
@@ -270,5 +285,123 @@ impl Terminal {
 impl Drop for Terminal {
     fn drop(&mut self) {
         self.shutdown();
+    }
+}
+
+/// See `Terminal::snapshot`.
+pub fn snapshot_term<T>(term: &Term<T>, max_lines: usize) -> Vec<u8> {
+    use alacritty_terminal::grid::Dimensions;
+    use alacritty_terminal::index::{Column, Line};
+    use alacritty_terminal::term::cell::Flags;
+    use alacritty_terminal::term::TermMode;
+    use alacritty_terminal::vte::ansi::{Color, NamedColor};
+    use std::fmt::Write;
+    if term.mode().contains(TermMode::ALT_SCREEN) {
+        return Vec::new();
+    }
+    let grid = term.grid();
+    let cols = term.columns();
+    // Down to the last line with text (a TUI's status line can sit below the cursor).
+    let blank = |l: i32| (0..cols).all(|c| matches!(grid[Line(l)][Column(c)].c, ' ' | '\0'));
+    let mut last = term.bottommost_line().0;
+    while last > term.topmost_line().0 && blank(last) {
+        last -= 1;
+    }
+    let first = term.topmost_line().0.max(last - max_lines as i32 + 1);
+    let color = |c: Color, fg: bool| -> String {
+        let base = if fg { 30 } else { 40 };
+        match c {
+            Color::Named(n) if (n as usize) < 8 => format!("{}", base + n as usize),
+            Color::Named(n) if (n as usize) < 16 => format!("{}", base + 60 + n as usize - 8),
+            Color::Named(_) => format!("{}", base + 9),
+            Color::Indexed(i) => format!("{};5;{i}", base + 8),
+            Color::Spec(rgb) => format!("{};2;{};{};{}", base + 8, rgb.r, rgb.g, rgb.b),
+        }
+    };
+    let mut out = String::new();
+    let mut started = false;
+    let mut style = None;
+    for line in first..=last {
+        let row = &grid[Line(line)];
+        // Skip blank lines before the first text (prompt gravity pads with them).
+        let len = (0..cols).rposition(|c| {
+            let cell = &row[Column(c)];
+            cell.c != ' ' && cell.c != '\0' || !matches!(cell.bg, Color::Named(NamedColor::Background))
+        });
+        if !started && len.is_none() {
+            continue;
+        }
+        started = true;
+        let wrapped = row[Column(cols - 1)].flags.contains(Flags::WRAPLINE);
+        let end = if wrapped { cols } else { len.map_or(0, |l| l + 1) };
+        for c in 0..end {
+            let cell = &row[Column(c)];
+            if cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
+                continue;
+            }
+            let key = (cell.fg, cell.bg, cell.flags & (Flags::BOLD | Flags::ITALIC | Flags::UNDERLINE | Flags::DIM | Flags::INVERSE | Flags::STRIKEOUT));
+            if style != Some(key) {
+                let mut sgr = String::from("0");
+                let f = key.2;
+                for (flag, code) in [(Flags::BOLD, "1"), (Flags::DIM, "2"), (Flags::ITALIC, "3"), (Flags::UNDERLINE, "4"), (Flags::INVERSE, "7"), (Flags::STRIKEOUT, "9")] {
+                    if f.contains(flag) {
+                        sgr.push(';');
+                        sgr.push_str(code);
+                    }
+                }
+                if !matches!(cell.fg, Color::Named(NamedColor::Foreground)) {
+                    let _ = write!(sgr, ";{}", color(cell.fg, true));
+                }
+                if !matches!(cell.bg, Color::Named(NamedColor::Background)) {
+                    let _ = write!(sgr, ";{}", color(cell.bg, false));
+                }
+                let _ = write!(out, "\x1b[{sgr}m");
+                style = Some(key);
+            }
+            out.push(if cell.c == '\0' { ' ' } else { cell.c });
+            if let Some(extra) = cell.zerowidth() {
+                out.extend(extra.iter());
+            }
+        }
+        if !wrapped {
+            out.push_str("\x1b[0m\r\n");
+            style = None;
+        }
+    }
+    out.into_bytes()
+}
+
+#[cfg(test)]
+mod snapshot_tests {
+    use super::*;
+    use alacritty_terminal::event::VoidListener;
+    use alacritty_terminal::vte::ansi::{Processor, StdSyncHandler};
+
+    fn term_with(bytes: &[u8], cols: usize) -> Term<VoidListener> {
+        let mut t = Term::new(Config::default(), &TermSize::new(cols, 10), VoidListener);
+        let mut p: Processor<StdSyncHandler> = Default::default();
+        p.advance(&mut t, bytes);
+        t
+    }
+
+    #[test]
+    fn snapshot_round_trips_text_and_color() {
+        let src = term_with(b"plain\r\n\x1b[31mred\x1b[0m and \x1b[1mbold\x1b[0m\r\n$ ", 40);
+        let snap = snapshot_term(&src, 100);
+        let text = String::from_utf8(snap.clone()).unwrap();
+        assert!(text.contains("plain"));
+        assert!(text.contains("\x1b[0;31mred"), "{text:?}");
+        assert!(text.contains("\x1b[0;1mbold"), "{text:?}");
+        // Replaying the snapshot shows the same lines.
+        let again = term_with(&snap, 40);
+        assert_eq!(String::from_utf8(snapshot_term(&again, 100)).unwrap(), text);
+    }
+
+    #[test]
+    fn wrapped_lines_stay_joined() {
+        let long = "x".repeat(25);
+        let src = term_with(format!("{long}\r\n").as_bytes(), 10);
+        let text = String::from_utf8(snapshot_term(&src, 100)).unwrap();
+        assert!(text.contains(&long), "{text:?}");
     }
 }

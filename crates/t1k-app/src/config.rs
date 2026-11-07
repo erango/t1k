@@ -27,6 +27,11 @@ copy_on_select = false
 shell_integration = true
 # Where a new tab's first prompt appears: "bottom" (input stays where your eyes are) or "top".
 prompt_gravity = "bottom"
+# Keep each tab's scrollback (text and colors) when T1K quits or restarts for an update.
+# Saved in ~/Library/Application Support/t1k/scrollback, readable only by you.
+restore_scrollback = true
+# Claude Code sessions still running when T1K quits resume in their tabs on the next launch.
+resume_agents = true
 
 [terminal.font]
 family = "JetBrains Mono"
@@ -279,6 +284,8 @@ pub struct TerminalCfg {
     pub padding: f32,
     pub option_as_meta: bool,
     pub copy_on_select: bool,
+    pub restore_scrollback: bool,
+    pub resume_agents: bool,
     pub shell_integration: bool,
     pub prompt_gravity: String,
     pub font: FontCfg,
@@ -330,7 +337,7 @@ impl Default for ThemeCfg {
 }
 impl Default for TerminalCfg {
     fn default() -> Self {
-        Self { padding: 14., option_as_meta: false, copy_on_select: false, shell_integration: true, prompt_gravity: "bottom".into(), font: FontCfg::default() }
+        Self { padding: 14., option_as_meta: false, copy_on_select: false, restore_scrollback: true, resume_agents: true, shell_integration: true, prompt_gravity: "bottom".into(), font: FontCfg::default() }
     }
 }
 impl Default for FontCfg {

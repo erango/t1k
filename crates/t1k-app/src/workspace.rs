@@ -213,6 +213,10 @@ pub struct Workspace {
     pub settings_return: Option<crate::settings::Section>,
     /// Outputs count per tab id when the user last saw them (panel open on that tab).
     pub outputs_seen: HashMap<String, usize>,
+    /// Scrollback files were written for every tab (at quit); the session points at them.
+    scrollback_saved: bool,
+    /// Scrollback to replay into the next terminal `open_tab` spawns (session restore).
+    restore_next: Option<Vec<u8>>,
     /// The last shortcut change, shown under its row ("Was on Find tab").
     pub key_note: Option<(&'static str, String)>,
     _key_interceptor: gpui::Subscription,
@@ -341,6 +345,8 @@ impl Workspace {
             theme_before: None,
             settings_return: None,
             outputs_seen: HashMap::new(),
+            scrollback_saved: false,
+            restore_next: None,
             key_note: None,
             _key_interceptor: {
                 // Recording a shortcut must see keys before any binding fires (⌘P would
@@ -381,7 +387,8 @@ impl Workspace {
         crate::updater::start(&this.config.updates);
         // Remember where the window is; saved with the session (debounced through `poll`).
         cx.observe_window_bounds(window, |this, window, _| this.window_frame = Some(frame_of(window))).detach();
-        cx.on_app_quit(|this, _| {
+        cx.on_app_quit(|this, cx| {
+            this.save_scrollback(cx);
             this.save();
             async {}
         })
@@ -396,7 +403,11 @@ impl Workspace {
         if restore.is_empty() || std::env::var_os("T1K_FRESH").is_some() {
             this.open_tab(None, None, window, cx);
         } else {
+            let dir = session::support_dir().map(|d| d.join("scrollback"));
             for t in restore {
+                if this.config.terminal.restore_scrollback {
+                    this.restore_next = t.scrollback.as_ref().zip(dir.as_ref()).and_then(|(f, d)| std::fs::read(d.join(f)).ok()).map(restored_banner);
+                }
                 this.open_tab(t.cwd, t.manual_title, window, cx);
                 let tab = this.tabs.last_mut().unwrap();
                 tab.reminder_at = t.reminder_at.map(|s| UNIX_EPOCH + Duration::from_secs(s));
@@ -404,6 +415,12 @@ impl Workspace {
                 if let Some(sid) = &t.last_session {
                     if let Some(path) = session::find_transcript(sid) {
                         tab.agent = Some(AgentState::restored(sid.clone(), path));
+                    }
+                }
+                // Claude was mid-session when T1K quit: pick it back up.
+                if t.agent_live && this.config.terminal.resume_agents {
+                    if let Some(sid) = &t.last_session {
+                        tab.view.read(cx).terminal.write(format!("claude --resume {sid}\r").into_bytes());
                     }
                 }
                 tab.last_session = t.last_session;
@@ -415,6 +432,10 @@ impl Workspace {
                     let ix = this.tabs.len() - 1;
                     this.open_split_in(ix, cwd, vertical, window, cx);
                 }
+            }
+            // Read once: the next quit writes fresh files.
+            if let Some(d) = &dir {
+                let _ = std::fs::remove_dir_all(d);
             }
             let active = saved.active.min(this.tabs.len() - 1);
             this.activate(active, window, cx);
@@ -604,7 +625,8 @@ impl Workspace {
     }
 
     /// A new terminal (shell in a pty) with the app's env, theme and style.
-    pub fn spawn_view(&self, cwd: Option<PathBuf>, tab_id: String, window: &mut Window, cx: &mut Context<Self>) -> Entity<TerminalView> {
+    pub fn spawn_view(&mut self, cwd: Option<PathBuf>, tab_id: String, window: &mut Window, cx: &mut Context<Self>) -> Entity<TerminalView> {
+        let restore = self.restore_next.take();
         let mut env = HashMap::new();
         if let Some(sock) = &self.socket {
             env.insert("T1K_SOCKET".into(), sock.display().to_string());
@@ -622,7 +644,7 @@ impl Workspace {
                 env.insert("ZDOTDIR".into(), dir.display().to_string());
             }
         }
-        let opts = SpawnOptions { working_directory: cwd, env, tab_id, start_at_bottom: self.config.terminal.prompt_gravity != "top" };
+        let opts = SpawnOptions { working_directory: cwd, env, tab_id, start_at_bottom: self.config.terminal.prompt_gravity != "top", restore };
         let palette = self.theme.palette();
         let style = self.terminal_style();
         cx.new(|cx| {
@@ -861,6 +883,34 @@ impl Workspace {
         self.group_names.remove(key);
         self.group_colors.remove(key);
         self.save();
+    }
+
+    /// Write every tab's scrollback to `scrollback/<tab id>.ansi` (at quit). Owner-only, since
+    /// terminal output can hold secrets.
+    fn save_scrollback(&mut self, cx: &mut Context<Self>) {
+        self.scrollback_saved = false;
+        if !self.config.terminal.restore_scrollback {
+            return;
+        }
+        let Some(dir) = session::support_dir().map(|d| d.join("scrollback")) else { return };
+        let _ = std::fs::remove_dir_all(&dir);
+        if std::fs::create_dir_all(&dir).is_err() {
+            return;
+        }
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+        }
+        for t in &self.tabs {
+            let bytes = t.view.read(cx).terminal.snapshot(5_000);
+            let path = dir.join(format!("{}.ansi", t.id));
+            use std::io::Write;
+            use std::os::unix::fs::OpenOptionsExt;
+            if let Ok(mut f) = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&path) {
+                let _ = f.write_all(&bytes);
+            }
+        }
+        self.scrollback_saved = true;
     }
 
     /// Whether tab `ix` has outputs the user hasn't seen in the panel yet.
@@ -1190,6 +1240,10 @@ impl Workspace {
                         .or_else(|| t.last_session.clone()),
                     pinned_group: t.pinned_group.clone(),
                     split: t.split.as_ref().map(|s| (s.cwd.clone(), s.vertical)),
+                    scrollback: self.scrollback_saved.then(|| format!("{}.ansi", t.id)),
+                    agent_live: t.agent.as_ref().is_some_and(|a| {
+                        a.kind == t1k_agent::agents::AgentKind::Claude && !a.session_id.is_empty() && !matches!(a.status, Status::Ended)
+                    }) && t.program.is_some(),
                 }
             }).collect(),
             active: self.visual_order().iter().position(|&i| i == self.active).unwrap_or(0),
@@ -1669,4 +1723,13 @@ fn frame_of(window: &Window) -> session::SavedWindow {
         h: f32::from(b.size.height),
         state,
     }
+}
+
+/// Saved scrollback plus a quiet divider, so it's clear where the last run ended.
+fn restored_banner(mut bytes: Vec<u8>) -> Vec<u8> {
+    if bytes.is_empty() {
+        return bytes;
+    }
+    bytes.extend_from_slice(b"\x1b[0m\x1b[2m\xe2\x94\x80\xe2\x94\x80 restored from the last session \xe2\x94\x80\xe2\x94\x80\x1b[0m\r\n");
+    bytes
 }
