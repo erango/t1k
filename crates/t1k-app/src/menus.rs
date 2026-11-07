@@ -16,6 +16,8 @@ pub fn install(cx: &mut App) {
             Menu {
                 name: "T1K".into(),
                 items: vec![
+                    MenuItem::action("About T1K", ShowAbout),
+                    MenuItem::separator(),
                     MenuItem::action("Settings…", OpenSettings),
                     MenuItem::separator(),
                     MenuItem::action("New Tab", NewTab),

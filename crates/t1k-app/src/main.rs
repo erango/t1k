@@ -3,6 +3,7 @@
 mod actions;
 mod agent_setup;
 mod app_icon;
+mod brand;
 mod cli;
 mod config;
 mod input;

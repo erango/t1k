@@ -93,6 +93,9 @@ pub struct Session {
     pub recent: Vec<Recent>,
     #[serde(default)]
     pub window: Option<SavedWindow>,
+    /// The first-launch welcome has been shown.
+    #[serde(default)]
+    pub welcomed: bool,
     /// Group color: index 1-6 into the theme's ANSI colors.
     #[serde(default)]
     pub group_colors: Vec<(PathBuf, u8)>,

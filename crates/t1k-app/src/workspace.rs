@@ -320,6 +320,8 @@ impl Workspace {
 
         this.recent = saved.recent.clone();
         this.window_frame = Some(frame_of(window));
+        // First launch ever: no saved session and never welcomed.
+        let first_launch = !saved.welcomed && saved.tabs.is_empty();
         let restore: Vec<SavedTab> = saved.tabs.into_iter().filter(|t| t.cwd.as_ref().is_none_or(|p| p.is_dir())).collect();
         if restore.is_empty() || std::env::var_os("T1K_FRESH").is_some() {
             this.open_tab(None, None, window, cx);
@@ -349,6 +351,9 @@ impl Workspace {
             // Restoring opened every tab; that isn't history.
             this.back.clear();
             this.forward.clear();
+        }
+        if first_launch {
+            this.open_overlay(Overlay::Welcome, window, cx);
         }
         // Debug aid: T1K_DEBUG_AGENT=working|needs|error|done fakes a Claude session on the
         // active tab, for screenshots of the strip, sidebar and card.
@@ -381,7 +386,9 @@ impl Workspace {
             let at = gpui::point(px(120.), px(140.));
             let o = match which.as_str() {
                 "palette" => Some(Overlay::Palette { query: String::new(), selected: 0 }),
-                "more" => Some(Overlay::MoreMenu { at: gpui::point(px(900.), px(44.)) }),
+                "about" => Some(Overlay::About),
+                "welcome" => Some(Overlay::Welcome),
+                "more" => Some(Overlay::MoreMenu { at: gpui::point(px(480.), px(44.)) }),
                 "sidebarview" => Some(Overlay::SidebarView { at: gpui::point(px(90.), px(44.)) }),
                 "switcher" => Some(Overlay::Switcher { query: String::new(), selected: 0 }),
                 "overview" => Some(Overlay::Overview { selected: 0 }),
@@ -974,6 +981,7 @@ impl Workspace {
             outputs_open: self.panel.open,
             recent: self.recent.clone(),
             window: self.window_frame,
+            welcomed: true,
             group_colors: self.group_colors.iter().map(|(k, v)| (k.clone(), *v)).collect(),
             group_sort: self.group_sort.iter().map(|(k, v)| (k.clone(), *v)).collect(),
             ..Default::default()
@@ -1281,6 +1289,7 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &SplitDown, window, cx| this.open_split(this.active, true, window, cx)))
             .on_action(cx.listener(|this, _: &FocusOtherPane, window, cx| this.focus_other_pane(window, cx)))
             .on_action(cx.listener(|this, _: &GoBack, window, cx| this.navigate(true, window, cx)))
+            .on_action(cx.listener(|this, _: &ShowAbout, window, cx| this.open_overlay(Overlay::About, window, cx)))
             .on_action(cx.listener(|this, _: &ToggleCommandPalette, window, cx| {
                 if matches!(this.overlay, Overlay::Palette { .. }) {
                     this.close_overlay(window, cx);

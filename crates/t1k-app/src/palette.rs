@@ -137,7 +137,7 @@ pub fn render(ws: &Workspace, query: &str, selected: usize, cx: &mut Context<Wor
                 }
             }))
             .child(div().flex_1().truncate().text_size(px(14.)).text_color(ui.text_primary).child(c.label.clone()))
-            .child(div().flex_none().text_size(px(12.)).text_color(ui.text_tertiary).child(c.keys))
+            .child(crate::overlay::shortcut(ui, c.keys))
     });
     let panel = div()
         .w(px(620.))

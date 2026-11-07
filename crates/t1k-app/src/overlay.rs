@@ -18,6 +18,10 @@ pub enum Overlay {
     None,
     /// Sidebar view options (button in the sidebar's top strip).
     SidebarView { at: Point<Pixels> },
+    /// T1K menu ▸ About T1K.
+    About,
+    /// First launch.
+    Welcome,
     /// The session strip's ⋯ menu.
     MoreMenu { at: Point<Pixels> },
     /// Command palette (⌘⇧P).
@@ -232,6 +236,8 @@ impl Workspace {
             o @ Overlay::TerminalMenu { .. } => (ev.keystroke.key != "escape").then_some(o),
             o @ Overlay::SidebarView { .. } => (ev.keystroke.key != "escape").then_some(o),
             o @ Overlay::MoreMenu { .. } => (ev.keystroke.key != "escape").then_some(o),
+            Overlay::About => (!matches!(ev.keystroke.key.as_str(), "escape" | "enter")).then_some(Overlay::About),
+            Overlay::Welcome => (!matches!(ev.keystroke.key.as_str(), "escape" | "enter")).then_some(Overlay::Welcome),
             // Typing searches; Esc clears the search, then closes.
             Overlay::Settings { section } => match input::handle(&mut self.settings_query, ev) {
                 Key::Cancel if !self.settings_query.is_empty() => {
@@ -441,6 +447,14 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                 );
             Some(scrim(ws, true, cx).bg(gpui::black().opacity(0.25)).flex().justify_center().items_start().child(panel).into_any_element())
         }
+        Overlay::About => {
+            let c = crate::brand::about(ws, cx);
+            Some(scrim(ws, true, cx).bg(gpui::black().opacity(0.35)).flex().justify_center().items_start().child(c).into_any_element())
+        }
+        Overlay::Welcome => {
+            let c = crate::brand::welcome(ws, cx);
+            Some(scrim(ws, false, cx).bg(gpui::black().opacity(0.45)).flex().justify_center().items_start().child(c).into_any_element())
+        }
         Overlay::MoreMenu { at } => {
             let m = more_menu(ws, *at, cx);
             Some(scrim(ws, true, cx).child(m).into_any_element())
@@ -556,6 +570,22 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
             Some(scrim(ws, true, cx).child(m).into_any_element())
         }
     }
+}
+
+/// A shortcut label for menus and lists: the system font (its ⌘⇧⌥ glyphs are drawn for UI),
+/// each key a little apart so "⌘⇧R" doesn't run together, in a color that stays readable on a
+/// highlighted row.
+pub fn shortcut(ui: t1k_themes::UiColors, keys: &str) -> Div {
+    let mut d = div().flex_none().flex().items_center().gap(px(1.5)).text_size(px(12.5)).text_color(ui.text_secondary);
+    // Keep words ("click", "esc") whole; split symbol runs into keys.
+    if keys.chars().all(|c| !c.is_ascii_alphabetic()) || keys.chars().filter(|c| c.is_ascii_alphabetic()).count() <= 1 {
+        for ch in keys.chars().filter(|c| !c.is_whitespace()) {
+            d = d.child(div().min_w(px(9.)).flex().justify_center().child(ch.to_string()));
+        }
+    } else {
+        d = d.child(keys.to_string());
+    }
+    d
 }
 
 /// A small key label, e.g. "esc".
@@ -704,9 +734,9 @@ fn menu(ws: &Workspace, tab: usize, at: Point<Pixels>, window: &Window, cx: &mut
             .items_center()
             .text_size(px(13.))
             .text_color(ui.text_primary)
-            .hover(move |d| d.bg(ui.accent.opacity(0.25)))
+            .hover(move |d| d.bg(ui.bg_selected))
             .child(div().flex_1().child(label))
-            .child(div().text_size(px(11.5)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(keys))
+            .child(shortcut(ui, keys))
     };
     let sep = || div().h(px(1.)).my(px(4.)).mx(px(6.)).bg(ui.border);
     let session = t.agent.as_ref().map(|a| a.session_id.clone()).filter(|s| !s.is_empty()).or_else(|| t.last_session.clone());
@@ -876,7 +906,7 @@ fn group_menu(ws: &Workspace, key: std::path::PathBuf, at: Point<Pixels>, window
             .items_center()
             .text_size(px(13.))
             .text_color(ui.text_primary)
-            .hover(move |d| d.bg(ui.accent.opacity(0.25)))
+            .hover(move |d| d.bg(ui.bg_selected))
             .child(label)
     };
     let sep = || div().h(px(1.)).my(px(4.)).mx(px(6.)).bg(ui.border);
@@ -1078,9 +1108,9 @@ fn terminal_menu(
             .items_center()
             .text_size(px(13.))
             .text_color(if enabled { ui.text_primary } else { ui.text_disabled })
-            .when(enabled, |d| d.hover(move |d| d.bg(ui.accent.opacity(0.25))))
+            .when(enabled, |d| d.hover(move |d| d.bg(ui.bg_selected)))
             .child(div().flex_1().truncate().child(label.to_string()))
-            .child(div().text_size(px(11.)).text_color(ui.text_tertiary).child(keys.to_string()))
+            .child(shortcut(ui, keys))
     };
     let sep = || div().h(px(1.)).my(px(4.)).mx(px(6.)).bg(ui.border);
     // Run something on the pane, close the menu and give the pane focus back.
@@ -1180,7 +1210,7 @@ fn sidebar_view_menu(ws: &Workspace, at: Point<Pixels>, cx: &mut Context<Workspa
             .gap(px(8.))
             .text_size(px(13.))
             .text_color(ui.text_primary)
-            .hover(move |d| d.bg(ui.accent.opacity(0.25)))
+            .hover(move |d| d.bg(ui.bg_selected))
             .child(div().w(px(12.)).text_color(ui.accent).child(if on { "✓" } else { "" }))
             .child(label)
     };
@@ -1264,9 +1294,9 @@ fn more_menu(ws: &Workspace, at: Point<Pixels>, cx: &mut Context<Workspace>) -> 
             .items_center()
             .text_size(px(13.))
             .text_color(ui.text_primary)
-            .hover(move |d| d.bg(ui.accent.opacity(0.25)))
+            .hover(move |d| d.bg(ui.bg_selected))
             .child(div().flex_1().child(label))
-            .child(div().text_size(px(11.5)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(keys))
+            .child(shortcut(ui, keys))
     };
     let run = |a: Box<dyn gpui::Action>| {
         let a = std::cell::RefCell::new(Some(a));
