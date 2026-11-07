@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn classifies_known_hosts_only() {
-        assert_eq!(classify("https://bizzabo.atlassian.net/browse/HOPR-43").unwrap().2, "HOPR-43");
+        assert_eq!(classify("https://acme.atlassian.net/browse/ENG-43").unwrap().2, "ENG-43");
         assert_eq!(classify("https://linear.app/acme/issue/ENG-7/fix-it").unwrap().2, "ENG-7");
         assert_eq!(classify("https://docs.google.com/document/d/abc/edit").unwrap().0, Kind::Doc);
         assert_eq!(classify("https://my-app-git-x.vercel.app/").unwrap().0, Kind::Deploy);
