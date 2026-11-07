@@ -119,8 +119,18 @@ impl Theme {
         }
     }
 
+    /// Near-black on white or white on black (contrast 18:1 or more): the chrome then keeps
+    /// secondary text, borders and selection strong instead of fading them into the background.
+    pub fn is_high_contrast(&self) -> bool {
+        let (a, b) = (lum(self.fg), lum(self.bg));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05) >= 18.
+    }
+
     pub fn ui(&self) -> UiColors {
         let (bg, fg) = (self.bg, self.fg);
+        let hc = self.is_high_contrast();
+        // Text tiers and fills: (normal, high contrast).
+        let t = |n: f32, h: f32| if hc { h } else { n };
         let shade = if self.is_dark() { 0x000000 } else { 0x6b7280 };
         let accent = self.accent.unwrap_or(if self.is_dark() { self.ansi[12] } else { self.ansi[4] });
         UiColors {
@@ -128,18 +138,18 @@ impl Theme {
             bg_sidebar: hsla(mix(bg, shade, if self.is_dark() { 0.25 } else { 0.10 }), 1.),
             bg_terminal: hsla(bg, 1.),
             bg_raised: hsla(mix(bg, fg, 0.04), 1.),
-            bg_hover: hsla(mix(bg, fg, 0.06), 1.),
-            bg_selected: hsla(mix(bg, fg, 0.11), 1.),
-            bg_control: hsla(mix(bg, fg, 0.16), 1.),
-            border: hsla(fg, 0.10),
+            bg_hover: hsla(mix(bg, fg, t(0.06, 0.1)), 1.),
+            bg_selected: hsla(mix(bg, fg, t(0.11, 0.2)), 1.),
+            bg_control: hsla(mix(bg, fg, t(0.16, 0.22)), 1.),
+            border: hsla(fg, t(0.10, 0.45)),
             text_primary: hsla(fg, 1.),
-            text_secondary: hsla(mix(bg, fg, 0.72), 1.),
-            text_tertiary: hsla(mix(bg, fg, 0.52), 1.),
-            text_quiet: hsla(mix(bg, fg, 0.62), 1.),
-            text_disabled: hsla(mix(bg, fg, 0.36), 1.),
+            text_secondary: hsla(mix(bg, fg, t(0.72, 0.9)), 1.),
+            text_tertiary: hsla(mix(bg, fg, t(0.52, 0.78)), 1.),
+            text_quiet: hsla(mix(bg, fg, t(0.62, 0.84)), 1.),
+            text_disabled: hsla(mix(bg, fg, t(0.36, 0.62)), 1.),
             accent: hsla(accent, 1.),
             link: hsla(self.link_hex(), 1.),
-            status_working: hsla(mix(bg, fg, 0.52), 1.),
+            status_working: hsla(mix(bg, fg, t(0.52, 0.78)), 1.),
             status_needs: hsla(self.ansi[3], 1.),
             status_done: hsla(self.ansi[2], 1.),
             status_error: hsla(self.ansi[1], 1.),
@@ -207,6 +217,25 @@ mod tests {
     fn contrast(a: u32, b: u32) -> f32 {
         let (x, y) = (lum(a), lum(b));
         (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    }
+
+    #[test]
+    fn high_contrast_themes_meet_aaa() {
+        let ratio = |a: u32, b: u32| {
+            let (x, y) = (lum(a), lum(b));
+            (x.max(y) + 0.05) / (x.min(y) + 0.05)
+        };
+        for name in ["High Contrast Dark", "High Contrast Light"] {
+            let t = find(name).unwrap();
+            assert!(t.is_high_contrast(), "{name}");
+            // ANSI black is a background color on dark themes; everything else is text.
+            let skip = if t.is_dark() { 1 } else { 0 };
+            for (i, c) in t.ansi.iter().enumerate().skip(skip) {
+                assert!(ratio(*c, t.bg) >= 7., "{name} ansi {i}: {:.1}", ratio(*c, t.bg));
+            }
+        }
+        assert!(!find("Mercury Dark").unwrap().is_high_contrast());
+        assert!(!find("Mercury Light").unwrap().is_high_contrast());
     }
 
     #[test]

@@ -20,7 +20,7 @@ When you run ten or thirty agent sessions side by side (Claude Code, Codex, Anti
 - **A needs-you queue.** ⌘J jumps to the tab that has waited longest. The Dock shows a count, and the icon's eyes turn red while anything waits. Banners say which tab needs you; clicking one opens it.
 - **Find anything.** ⌘P finds a tab by title, project, branch, PR number, recap or path. ⌘O shows every agent as a card. ⌘⇧P runs any command.
 - **Outputs.** ⌘⇧O lists what each session produced: PRs with live state and CI, edited files, docs, tickets and deploys.
-- **A real terminal.** GPU-rendered with Zed's GPUI and alacritty's terminal core: truecolor, font fallbacks for Powerline and Nerd Font icons, splits, find, prompt jumping, clickable file paths, PRs and ticket keys, a Markdown viewer for files, 20 themes plus importers for Ghostty, iTerm2, Alacritty, Windows Terminal and base16.
+- **A real terminal.** GPU-rendered with Zed's GPUI and alacritty's terminal core: truecolor, font fallbacks for Powerline and Nerd Font icons, splits, find, prompt jumping, clickable file paths, PRs and ticket keys, a Markdown viewer for files, 22 themes (including high contrast dark and light) plus importers for Ghostty, iTerm2, Alacritty, Windows Terminal and base16.
 
 T1K is macOS only, written in Rust.
 
