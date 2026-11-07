@@ -27,6 +27,8 @@ pub enum Entry {
     Url(String),
     /// Tokens in the context window as of an assistant reply (input + cache), and the model.
     Usage { context_tokens: u64, model: Option<String> },
+    /// You pressed Esc (or rejected a tool): Claude fires no hook for that.
+    Interrupted,
 }
 
 pub struct Tail {
@@ -77,7 +79,7 @@ impl Tail {
 }
 
 const INTERESTING: &[&str] =
-    &["\"ai-title\"", "\"custom-title\"", "away_summary", "api_error", "pr-link", "turn_duration", "\"gitBranch\"", "\"usage\""];
+    &["\"ai-title\"", "\"custom-title\"", "away_summary", "api_error", "pr-link", "turn_duration", "\"gitBranch\"", "\"usage\"", "[Request interrupted by user"];
 
 /// Text that can mention session outputs: Claude's replies, the user's prompts, and tool
 /// results from tools like artifact publishing, but not file contents or shell output.
@@ -164,6 +166,9 @@ pub fn parse_line(line: &[u8]) -> Option<Vec<Entry>> {
             _ => {}
         },
         _ => {}
+    }
+    if v.get("type").and_then(Value::as_str) == Some("user") && s.contains("[Request interrupted by user") {
+        out.push(Entry::Interrupted);
     }
     if let Some(b) = str_of("gitBranch").filter(|b| !b.is_empty() && b != "HEAD") {
         out.push(Entry::Branch(b));

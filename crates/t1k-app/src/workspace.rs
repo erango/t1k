@@ -241,6 +241,8 @@ pub struct Workspace {
     pub toast_task: Option<gpui::Task<()>>,
     /// A tab whose × asked "Stop <program>?" in its row.
     pub confirm_close: Option<String>,
+    /// Polls in a row a Needs-you tab showed no question on screen.
+    needs_gone: HashMap<String, u8>,
     /// Scrollback files were written for every tab (at quit); the session points at them.
     scrollback_saved: bool,
     /// Scrollback to replay into the next terminal `open_tab` spawns (session restore).
@@ -390,6 +392,7 @@ impl Workspace {
             close_toast: None,
             toast_task: None,
             confirm_close: None,
+            needs_gone: HashMap::new(),
             scrollback_saved: false,
             restore_next: None,
             key_note: None,
@@ -1066,6 +1069,35 @@ impl Workspace {
         }
     }
 
+    /// Claude fires no hook when you answer or dismiss its question some other way (Esc,
+    /// rewind): a tab marked Needs you whose question is no longer on screen for two polls
+    /// in a row goes back to Idle.
+    fn clear_stale_needs(&mut self, cx: &mut Context<Self>) -> bool {
+        const ASKING: &[&str] = &["Do you want", "Would you like", "❯ 1.", "1. Yes", "Esc to cancel", "Enter to confirm", "Enter to select"];
+        let mut changed = false;
+        for t in &mut self.tabs {
+            let Some(a) = t.agent.as_mut().filter(|a| matches!(a.status, Status::NeedsInput { .. })) else {
+                self.needs_gone.remove(&t.id);
+                continue;
+            };
+            let lines = t.view.read(cx).terminal.last_lines(20);
+            if lines.iter().any(|l| ASKING.iter().any(|m| l.contains(m))) {
+                self.needs_gone.remove(&t.id);
+                continue;
+            }
+            let n = self.needs_gone.entry(t.id.clone()).or_insert(0);
+            *n += 1;
+            if *n >= 2 {
+                self.needs_gone.remove(&t.id);
+                a.now = None;
+                a.status = Status::Idle;
+                a.since = std::time::Instant::now();
+                changed = true;
+            }
+        }
+        changed
+    }
+
     /// Write every tab's scrollback to `scrollback/<tab id>.ansi` (at quit). Owner-only, since
     /// terminal output can hold secrets.
     fn save_scrollback(&mut self, cx: &mut Context<Self>) {
@@ -1105,7 +1137,7 @@ impl Workspace {
 
     /// Refresh each tab's cwd and foreground program; regroup tabs that changed project.
     fn poll(&mut self, cx: &mut Context<Self>) {
-        let mut changed = false;
+        let mut changed = self.clear_stale_needs(cx);
         let mut regrouped = false;
         for t in &mut self.tabs {
             if let Some(a) = t.agent.as_mut() {

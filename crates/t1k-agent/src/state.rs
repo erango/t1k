@@ -240,6 +240,13 @@ impl AgentState {
                     }
                 }
                 Entry::TurnDone { .. } => {}
+                // Esc on a permission prompt or mid-turn: Claude is back at its prompt.
+                Entry::Interrupted => {
+                    if matches!(self.status, Status::NeedsInput { .. } | Status::Working | Status::Error { .. }) {
+                        self.now = None;
+                        self.set_status(Status::Idle);
+                    }
+                }
             }
         }
         changed
@@ -268,5 +275,12 @@ mod tests {
         // The idle reminder after a finished turn doesn't turn it into NeedsInput.
         a.apply_hook(Hook::Notification { message: "Claude is waiting for your input".into() });
         assert_eq!(a.status, Status::Done);
+    }
+
+    #[test]
+    fn interrupt_clears_needs_you() {
+        let line = br#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user for tool use]"}]}}"#;
+        let entries = crate::transcript::parse_line(line).unwrap();
+        assert!(entries.iter().any(|e| matches!(e, crate::transcript::Entry::Interrupted)));
     }
 }
