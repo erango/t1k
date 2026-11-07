@@ -185,6 +185,8 @@ pub struct Workspace {
     pub settings_query: String,
     /// Settings › Keybindings: the action waiting for a new shortcut.
     pub key_recording: Option<&'static str>,
+    /// While the theme picker previews: what to go back to on esc.
+    theme_before: Option<(AppearanceMode, &'static Theme, &'static Theme)>,
     /// The last shortcut change, shown under its row ("Was on Find tab").
     pub key_note: Option<(&'static str, String)>,
     _key_interceptor: gpui::Subscription,
@@ -302,6 +304,7 @@ impl Workspace {
             hooks_installed: crate::settings::claude_hooks_installed(),
             settings_query: String::new(),
             key_recording: None,
+            theme_before: None,
             key_note: None,
             _key_interceptor: {
                 // Recording a shortcut must see keys before any binding fires (⌘P would
@@ -444,6 +447,10 @@ impl Workspace {
                     None
                 }
                 "quit" => Some(Overlay::QuitUpdate),
+                "themes" => {
+                    let dark = this.theme.is_dark();
+                    Some(Overlay::ThemePicker { query: String::new(), selected: 0, dark })
+                }
                 "settings-keys" => Some(Overlay::Settings { section: crate::settings::Section::Keybindings }),
                 "settings-search" => {
                     this.settings_query = "font".into();
@@ -1303,6 +1310,37 @@ impl Workspace {
         self.write_appearance();
     }
 
+    /// The theme in the dark or light slot.
+    pub fn theme_slot(&self, dark: bool) -> &'static Theme {
+        if dark { self.dark } else { self.light }
+    }
+
+    /// Show `name` across the window without saving it (theme picker).
+    pub fn preview_theme(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(t) = t1k_themes::find(name) else { return };
+        if self.theme_before.is_none() {
+            self.theme_before = Some((self.mode, self.dark, self.light));
+        }
+        if t.is_dark() { self.dark = t } else { self.light = t }
+        self.mode = if t.is_dark() { AppearanceMode::Dark } else { AppearanceMode::Light };
+        self.apply_theme(window, cx);
+    }
+
+    /// Leave the preview: keep `pick` (saved like any theme choice) or go back to before.
+    pub fn end_theme_preview(&mut self, pick: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((mode, dark, light)) = self.theme_before.take() else {
+            if let Some(name) = pick {
+                self.select_theme(&SelectTheme { name: name.to_string().into() }, window, cx);
+            }
+            return;
+        };
+        (self.mode, self.dark, self.light) = (mode, dark, light);
+        match pick {
+            Some(name) => self.select_theme(&SelectTheme { name: name.to_string().into() }, window, cx),
+            None => self.apply_theme(window, cx),
+        }
+    }
+
     fn render_titlebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         crate::strip::render(self, cx)
     }
@@ -1394,6 +1432,7 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &ResetFontSize, _, _| this.set_font_size(crate::config::FontCfg::default().size)))
             .on_action(cx.listener(Self::follow_system))
             .on_action(cx.listener(Self::select_theme))
+            .on_action(cx.listener(|this, _: &ShowThemePicker, window, cx| this.open_theme_picker(window, cx)))
             .on_modifiers_changed(cx.listener(|this, ev: &gpui::ModifiersChangedEvent, _, cx| {
                 if this.alt_held != ev.modifiers.alt {
                     this.alt_held = ev.modifiers.alt;

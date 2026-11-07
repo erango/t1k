@@ -25,6 +25,7 @@ mod sidebar;
 mod title;
 mod keymap;
 mod telemetry;
+mod theme_picker;
 mod tooltip;
 mod update_ui;
 mod updater;

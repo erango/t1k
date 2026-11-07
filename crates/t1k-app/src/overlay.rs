@@ -47,6 +47,8 @@ pub enum Overlay {
         apps: Vec<(String, std::path::PathBuf)>,
     },
     Settings { section: crate::settings::Section },
+    /// Theme picker: `dark` is the slot being chosen.
+    ThemePicker { query: String, selected: usize, dark: bool },
 }
 
 const CARD_W: f32 = 264.;
@@ -121,6 +123,9 @@ impl Workspace {
 
     pub fn close_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.overlay = Overlay::None;
+        // Closing the theme picker any way but ↵ goes back to the theme you had.
+        self.end_theme_preview(None, window, cx);
+        self.key_recording = None;
         self.settings_query.clear();
         if let Some(t) = self.tabs.get(self.active) {
             let h = gpui::Focusable::focus_handle(t.view.read(cx), cx);
@@ -258,6 +263,7 @@ impl Workspace {
                 Some(Overlay::Update)
             }
             Overlay::QuitUpdate => (ev.keystroke.key != "escape").then_some(Overlay::QuitUpdate),
+            Overlay::ThemePicker { query, selected, dark } => self.theme_picker_key(query, selected, dark, ev, window, cx),
             // Typing searches; Esc clears the search, then closes.
             Overlay::Settings { section } => match input::handle(&mut self.settings_query, ev) {
                 Key::Cancel if !self.settings_query.is_empty() => {
@@ -580,6 +586,10 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                 )
                 .child(div().text_size(px(11.)).text_color(ui.text_tertiary).child(hint));
             Some(scrim(ws, true, cx).flex().justify_center().child(panel).into_any_element())
+        }
+        Overlay::ThemePicker { query, selected, dark } => {
+            let panel = crate::theme_picker::render(ws, query, *selected, *dark, cx);
+            Some(scrim(ws, true, cx).bg(gpui::black().opacity(0.2)).flex().justify_center().items_start().child(panel).into_any_element())
         }
         Overlay::Settings { section } => {
             let panel = crate::settings::render(ws, *section, window, cx);

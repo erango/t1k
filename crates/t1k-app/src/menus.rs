@@ -53,6 +53,7 @@ pub fn install(cx: &mut App) {
                     MenuItem::action("Actual Size", ResetFontSize),
                     MenuItem::separator(),
                     MenuItem::action("Toggle Dark / Light", ToggleAppearance),
+                    MenuItem::action("Choose Theme…", ShowThemePicker),
                     MenuItem::action("Follow System Appearance", FollowSystemAppearance),
                     MenuItem::separator(),
                     MenuItem::submenu(Menu { name: "Dark Theme".into(), items: theme_items(true) }),

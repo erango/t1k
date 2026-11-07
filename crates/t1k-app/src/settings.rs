@@ -492,6 +492,25 @@ fn page(ws: &Workspace, section: Section, query: &str, window: &mut Window, cx: 
                 .child(div().flex().flex_col().gap(px(6.)).child(heading("Light theme")).child(theme_grid(ws, false, cx)))
                 .child(
                     div()
+                        .id("browse-themes")
+                        .h(px(28.))
+                        .px(px(12.))
+                        .flex()
+                        .items_center()
+                        .w(px(220.))
+                        .rounded(px(6.))
+                        .bg(ui.bg_control)
+                        .border_1()
+                        .border_color(ui.border)
+                        .text_size(px(12.5))
+                        .text_color(ui.text_primary)
+                        .cursor_pointer()
+                        .hover(move |d| d.bg(ui.bg_hover))
+                        .on_click(cx.listener(|this, _, window, cx| this.open_theme_picker(window, cx)))
+                        .child("Browse themes with preview…"),
+                )
+                .child(
+                    div()
                         .text_size(px(12.))
                         .text_color(ui.text_tertiary)
                         .child("Import more: drop a Ghostty, iTerm2, Alacritty, Windows Terminal or base16 file on the window, or run `t1k theme import <file>`."),
