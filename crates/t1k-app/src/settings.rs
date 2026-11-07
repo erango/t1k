@@ -693,7 +693,7 @@ pub fn render(ws: &Workspace, section: Section, window: &mut Window, cx: &mut Co
     } else {
         Vec::new()
     };
-    let mut nav = div().w(px(220.)).flex_none().px(px(10.)).py(px(12.)).flex().flex_col().gap(px(2.)).bg(ui.bg_sidebar).border_r_1().border_color(ui.border);
+    let mut nav = div().w(px(220.)).flex_none().rounded_l(px(11.)).px(px(10.)).py(px(12.)).flex().flex_col().gap(px(2.)).bg(ui.bg_sidebar).border_r_1().border_color(ui.border);
     nav = nav.child(
         div()
             .h(px(30.))
