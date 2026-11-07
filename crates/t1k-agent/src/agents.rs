@@ -221,7 +221,7 @@ fn install_antigravity(config: &mut Value) -> bool {
 pub fn install(kind: AgentKind, config: &mut Value) -> bool {
     match kind {
         // Claude also gets the status-line wrapper, the only source of its plan usage limits.
-        AgentKind::Claude => install_matcher_style(kind, config, "*") | crate::statusline::wrap(config),
+        AgentKind::Claude => install_matcher_style(kind, config, "*") | crate::statusline::wrap(kind, config),
         AgentKind::Codex => install_matcher_style(kind, config, "*"),
         // Gemini matchers are regular expressions.
         AgentKind::Gemini => install_matcher_style(kind, config, ".*"),

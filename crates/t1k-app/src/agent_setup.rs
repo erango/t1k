@@ -42,26 +42,51 @@ fn read(kind: AgentKind) -> Option<serde_json::Value> {
     serde_json::from_slice(&b).ok()
 }
 
-pub fn installed(kind: AgentKind) -> bool {
-    read(kind).is_some_and(|v| agents::installed(kind, &v))
+/// Antigravity keeps its status line apart from its hooks. (Claude's is in the hooks file and
+/// handled by `agents::install`.)
+fn statusline_path(kind: AgentKind) -> Option<PathBuf> {
+    (kind == AgentKind::Antigravity).then(|| home().map(|h| h.join(".gemini/antigravity-cli/settings.json")))?
 }
 
-/// Install T1K's hooks for one agent. Ok(true) if the file changed.
-pub fn install(kind: AgentKind) -> anyhow::Result<bool> {
-    let path = config_path(kind).ok_or_else(|| anyhow::anyhow!("HOME not set"))?;
-    let mut config: serde_json::Value = match std::fs::read(&path) {
+fn read_json(path: &std::path::Path) -> anyhow::Result<serde_json::Value> {
+    Ok(match std::fs::read(path) {
         Ok(b) => serde_json::from_slice(&b)?,
         Err(_) => serde_json::json!({}),
-    };
-    if !agents::install(kind, &mut config) {
-        return Ok(false);
-    }
+    })
+}
+
+fn write_json(path: &std::path::Path, v: &serde_json::Value) -> anyhow::Result<()> {
     if path.exists() {
-        std::fs::copy(&path, path.with_extension("json.t1k-backup"))?;
+        std::fs::copy(path, path.with_extension("json.t1k-backup"))?;
     }
     std::fs::create_dir_all(path.parent().unwrap())?;
-    std::fs::write(&path, serde_json::to_vec_pretty(&config)?)?;
-    Ok(true)
+    std::fs::write(path, serde_json::to_vec_pretty(v)?)?;
+    Ok(())
+}
+
+pub fn installed(kind: AgentKind) -> bool {
+    read(kind).is_some_and(|v| agents::installed(kind, &v))
+        && statusline_path(kind).is_none_or(|p| read_json(&p).is_ok_and(|v| t1k_agent::statusline::is_wrapped(&v)))
+}
+
+/// Install T1K's hooks (and, where the agent reports usage limits there, the status-line
+/// wrapper) for one agent. Ok(true) if a file changed.
+pub fn install(kind: AgentKind) -> anyhow::Result<bool> {
+    let path = config_path(kind).ok_or_else(|| anyhow::anyhow!("HOME not set"))?;
+    let mut config = read_json(&path)?;
+    let mut changed = false;
+    if agents::install(kind, &mut config) {
+        write_json(&path, &config)?;
+        changed = true;
+    }
+    if let Some(path) = statusline_path(kind) {
+        let mut settings = read_json(&path)?;
+        if t1k_agent::statusline::wrap(kind, &mut settings) {
+            write_json(&path, &settings)?;
+            changed = true;
+        }
+    }
+    Ok(changed)
 }
 
 /// Install for every detected agent; returns a line per agent for the CLI.

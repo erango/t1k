@@ -120,7 +120,7 @@ pub fn install_into(settings: &mut Value) -> bool {
         list.push(entry);
         changed = true;
     }
-    changed | crate::statusline::wrap(settings)
+    changed | crate::statusline::wrap(crate::agents::AgentKind::Claude, settings)
 }
 
 #[cfg(test)]

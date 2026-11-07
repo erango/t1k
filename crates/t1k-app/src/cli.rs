@@ -13,7 +13,7 @@ pub fn run(args: &[String]) -> bool {
             true
         }
         Some("statusline") => {
-            statusline();
+            statusline(&args[2..]);
             true
         }
         Some("theme") => {
@@ -78,9 +78,14 @@ fn hook(args: &[String]) {
     let _ = send(&PathBuf::from(socket), &Envelope { tab_id, payload });
 }
 
-/// Forward Claude's plan usage limits from its status-line input (stdin) to the T1K window that
+/// Forward an agent's plan usage limits from its status-line input (stdin) to the T1K window that
 /// owns this tab. Prints nothing: the wrapper runs the user's own status line after this.
-fn statusline() {
+fn statusline(args: &[String]) {
+    use t1k_agent::agents::AgentKind;
+    let kind = match args {
+        [flag, k, ..] if flag == "--agent" => AgentKind::from_id(k).unwrap_or(AgentKind::Claude),
+        _ => AgentKind::Claude,
+    };
     let (Some(tab_id), Some(socket)) = (std::env::var("T1K_TAB_ID").ok(), std::env::var_os("T1K_SOCKET")) else {
         return;
     };
@@ -89,7 +94,7 @@ fn statusline() {
         return;
     }
     let Ok(v) = serde_json::from_slice::<serde_json::Value>(&buf) else { return };
-    if let Some(payload) = t1k_agent::statusline::forward_payload(&v) {
+    if let Some(payload) = t1k_agent::statusline::forward_payload(kind, &v) {
         let _ = send(&PathBuf::from(socket), &Envelope { tab_id, payload });
     }
 }
