@@ -479,6 +479,10 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         Some(Status::NeedsInput { .. }) | Some(Status::Error { .. }) => tab.agent.as_ref().map(|a| elapsed(a.since)),
         _ => None,
     };
+    let working = match tab.status() {
+        Some(Status::Working) => tab.agent.as_ref().map(|a| elapsed(a.since)),
+        _ => None,
+    };
     let unseen = tab.unread || tab.reminder_due;
     // A pending reminder shows a quiet clock after the title.
     let pending = (tab.reminder_at.is_some() && !tab.reminder_due).then(|| {
@@ -520,7 +524,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         .gap(px(if two_lines { 11. } else { 9. }))
         // v3: the program icon carries status in its corner (and spans both lines when there's
         // a second one); without icons, the glyph slot sits on the title line.
-        .when(icons, |d| d.child(status_icon(tab, ui, ws.started, ws.ui.bg_sidebar, selected, icon_size)))
+        .when(icons, |d| d.child(status_icon(tab, ui, ws.ui.bg_sidebar, selected, icon_size)))
         .child(
             div()
                 .flex_1()
@@ -539,6 +543,17 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
                         .children(pending)
                         .children(waiting.map(|w| {
                             div().flex_none().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(w)
+                        }))
+                        // Design v3-q d: working tabs show a 12 px spinner and how long they've
+                        // been at it, in the slot where needs-you shows its wait.
+                        .children(working.map(|w| {
+                            div()
+                                .flex_none()
+                                .flex()
+                                .items_center()
+                                .gap(px(5.))
+                                .child(div().size(px(12.)).flex_none().child(spinner_sized(ui.status_working, ws.started, 4.75)))
+                                .child(div().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(w))
                         })),
                 )
                 .when(two_lines, |d| {
@@ -826,7 +841,7 @@ fn title_color(tab: &Tab, selected: bool, alt: bool, ui: UiColors) -> gpui::Hsla
 /// Program icon (18 px) with a status badge on its corner: turning ring while working,
 /// amber when it needs you, red on error, mercury when unread or a reminder is due. Ended and
 /// idle sessions fade the icon instead.
-fn status_icon(tab: &Tab, ui: UiColors, started: Instant, sidebar_bg: gpui::Hsla, selected: bool, size: f32) -> Div {
+fn status_icon(tab: &Tab, ui: UiColors, sidebar_bg: gpui::Hsla, selected: bool, size: f32) -> Div {
     let ring = if selected { ui.bg_terminal } else { sidebar_bg };
     // The status dot scales with the icon (never below 9 px, so small icons still show it).
     let d = (size * 0.42).round().max(9.);
@@ -835,7 +850,8 @@ fn status_icon(tab: &Tab, ui: UiColors, started: Instant, sidebar_bg: gpui::Hsla
         Some(Status::NeedsInput { .. }) => dot(ui.status_needs),
         Some(Status::Error { .. }) => dot(ui.status_error),
         _ if tab.reminder_due || tab.unread => dot(ui.accent),
-        Some(Status::Working) => Some(div().size(px(d + 1.)).rounded_full().bg(ring).flex().items_center().justify_center().child(spinner_sized(ui.status_working, started, (d - 2.) / 2.6))),
+        // Working shows at the row's right end instead (design v3-q d): a corner spinner
+        // this small couldn't be seen.
         _ => None,
     };
     let quiet = matches!(tab.status(), Some(Status::Ended) | Some(Status::Idle)) && !tab.unread;
