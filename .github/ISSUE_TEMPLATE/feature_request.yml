@@ -1,0 +1,19 @@
+name: Idea
+description: Something T1K should do
+labels: [idea]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What gets in your way today when running several agents? Describe the situation before the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you'd like
+  - type: textarea
+    id: else
+    attributes:
+      label: What you do now instead

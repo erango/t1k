@@ -1,0 +1,46 @@
+name: Bug report
+description: Something in T1K doesn't work the way it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead. A screenshot helps.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a tab in a git repo
+        2. Run claude and ask it something
+        3. ...
+  - type: input
+    id: version
+    attributes:
+      label: T1K version
+      description: T1K › About T1K
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "26.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Agent involved
+      multiple: true
+      options: [None, Claude Code, Codex, Antigravity CLI, Gemini CLI, Grok CLI]
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant config
+      description: Any lines from ~/.config/t1k/config.toml you changed that might matter.
+      render: toml
