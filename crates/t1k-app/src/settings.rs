@@ -233,6 +233,44 @@ fn theme_grid(ws: &Workspace, dark: bool, cx: &mut Context<Workspace>) -> impl I
     grid
 }
 
+/// Three icon tiles; the chosen one has an accent ring.
+fn icon_picker(ui: UiColors, current: &str, cx: &mut Context<Workspace>) -> AnyElement {
+    use std::sync::{Arc, LazyLock};
+    static ICONS: LazyLock<Vec<(&'static str, &'static str, Arc<gpui::Image>)>> = LazyLock::new(|| {
+        let img = |b: &'static [u8]| Arc::new(gpui::Image::from_bytes(gpui::ImageFormat::Png, b.to_vec()));
+        vec![
+            ("face", "Face", img(include_bytes!("../../../resources/icon-256.png"))),
+            ("prompt", "Prompt", img(crate::platform::dock_icon_png("prompt", false).unwrap())),
+            ("wordmark", "Wordmark", img(crate::platform::dock_icon_png("wordmark", false).unwrap())),
+        ]
+    });
+    let mut row = div().flex().gap(px(10.));
+    for (v, label, image) in ICONS.iter() {
+        let on = current == *v;
+        let v: &'static str = v;
+        row = row.child(
+            div()
+                .id(SharedString::from(format!("icon-{v}")))
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(px(4.))
+                .cursor_pointer()
+                .on_click(cx.listener(move |_, _, _, _| set(&["interface", "app_icon"], v)))
+                .child(
+                    div()
+                        .p(px(3.))
+                        .rounded(px(12.))
+                        .border_2()
+                        .border_color(if on { ui.accent } else { gpui::transparent_black() })
+                        .child(gpui::img(image.clone()).size(px(44.))),
+                )
+                .child(div().text_size(px(11.)).text_color(if on { ui.text_primary } else { ui.text_tertiary }).child(*label)),
+        );
+    }
+    row.into_any_element()
+}
+
 fn seg(
     ui: UiColors,
     id: &'static str,
@@ -320,6 +358,8 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
     let mut out = vec![
         e(Appearance, "Theme", "Mode", "System follows macOS; ⌘⇧L flips dark and light", "appearance", "dark light system theme",
             seg(ui, "mode", &c.appearance, &[("system", "System"), ("dark", "Dark"), ("light", "Light")], &["appearance"], cx)),
+        e(Appearance, "App", "App icon", "In the Dock; it turns red while a tab needs you", "interface.app_icon", "icon dock logo face prompt wordmark",
+            icon_picker(ui, &c.interface.app_icon, cx)),
         e(Interface, "Sidebar", "Density", "Row height: 28 / 32 / 36", "interface.density", "compact spacious rows",
             seg(ui, "density", &c.interface.density, &[("compact", "Compact"), ("comfortable", "Comfortable"), ("spacious", "Spacious")], &["interface", "density"], cx)),
         e(Interface, "Sidebar", "UI text size", "Sidebar and panels; the terminal has its own size", "interface.text_size", "font size scale",

@@ -41,6 +41,9 @@ fallbacks = ["Symbols Nerd Font Mono", "MesloLGS NF", "Meslo LG L DZ for Powerli
 density = "comfortable"
 # Text size of the sidebar and panels (the terminal font has its own size).
 text_size = 13
+# Dock icon: "face" (the android), "prompt" (>_) or "wordmark" (T1K). Each turns red
+# while a tab needs you. Finder keeps the face.
+app_icon = "face"
 
 [sidebar]
 width = 300
@@ -120,11 +123,12 @@ impl Default for UpdatesCfg {
 pub struct InterfaceCfg {
     pub density: String,
     pub text_size: f32,
+    pub app_icon: String,
 }
 
 impl Default for InterfaceCfg {
     fn default() -> Self {
-        Self { density: "comfortable".into(), text_size: 13. }
+        Self { density: "comfortable".into(), text_size: 13., app_icon: "face".into() }
     }
 }
 

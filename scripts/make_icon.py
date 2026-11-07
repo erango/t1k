@@ -69,6 +69,34 @@ def svg(rows):
 """
 
 
+def tile(body, defs=""):
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>{TILE}{defs}</defs>
+  <rect x="70" y="70" width="884" height="884" rx="198" fill="url(#tile)"/>
+  <rect x="74" y="74" width="876" height="876" rx="194" fill="none" stroke="#2A2E35" stroke-width="8"/>
+  {body}
+</svg>
+"""
+
+
+# One chrome band across the whole tile, so the chevron and the cursor share a horizon.
+CHROME_TILE = """<linearGradient id="chrome" gradientUnits="userSpaceOnUse" x1="0" y1="330" x2="0" y2="700"><stop offset="0" stop-color="#F7F9FC"/><stop offset=".45" stop-color="#B7C0CC"/><stop offset=".58" stop-color="#7E8896"/><stop offset="1" stop-color="#D4DAE2"/></linearGradient>"""
+
+
+def prompt_svg(alert=False):
+    """Alt icon 1: a shell prompt (>_) in the wordmark's chrome. Needs you: the cursor goes red."""
+    cursor = "#FF4A4F" if alert else "url(#chrome)"
+    return tile(f"""<path d="M314 352 L490 512 L314 672" fill="none" stroke="url(#chrome)" stroke-width="84" stroke-linecap="square" stroke-linejoin="miter"/>
+  <rect x="554" y="610" width="200" height="72" fill="{cursor}"/>""", CHROME_TILE)
+
+
+def wordmark_svg(alert=False):
+    """Alt icon 2: the chrome "T1K" wordmark. Needs you: the 1 goes red."""
+    one = '<tspan fill="#FF4A4F">1</tspan>' if alert else "1"
+    return tile(f"""<text x="512" y="620" text-anchor="middle" font-family="JetBrains Mono" font-weight="800" font-size="320" letter-spacing="6" fill="url(#chrome)">T{one}K</text>""",
+                CHROME_TILE.replace('y1="330" x2="0" y2="700"', 'y1="400" x2="0" y2="620"'))
+
+
 def lockup(width, height, cell, text_px, bg=True, tagline=""):
     """Face + chrome "T1K" wordmark side by side, centered (README header, social preview)."""
     face = 16 * cell
@@ -96,6 +124,14 @@ def main():
     (res / "icon-alert.svg").write_text(svg(ALERT))
     subprocess.run(["rsvg-convert", "-w", "512", "-h", "512", str(res / "icon-alert.svg"), "-o", str(res / "icon-alert.png")], check=True)
     subprocess.run(["rsvg-convert", "-w", "256", "-h", "256", str(res / "icon.svg"), "-o", str(res / "icon-256.png")], check=True)
+    # Alternative app icons (Settings › Appearance › App icon). The Dock shows them while T1K
+    # runs; each has a needs-you variant.
+    (res / "icons").mkdir(exist_ok=True)
+    for name, make in {"prompt": prompt_svg, "wordmark": wordmark_svg}.items():
+        for alert in (False, True):
+            path = res / "icons" / f"{name}{'-alert' if alert else ''}.svg"
+            path.write_text(make(alert))
+            subprocess.run(["rsvg-convert", "-w", "512", "-h", "512", str(path), "-o", str(path.with_suffix(".png"))], check=True)
     # Brand images: README header (transparent), GitHub social preview (1280x640), and the
     # lockup the app shows in About / Welcome (transparent).
     (res / "brand").mkdir(exist_ok=True)
@@ -107,7 +143,7 @@ def main():
         path = res / "brand" / f"{name}.svg"
         path.write_text(lockup(w, h, cell, text, bg, tag))
         subprocess.run(["rsvg-convert", "-w", str(w * 2 if name != "social-preview" else w), str(path), "-o", str(path.with_suffix(".png"))], check=True)
-    print("wrote resources/icon.svg, icon-alert.*, icon-256.png, brand/*")
+    print("wrote resources/icon.svg, icon-alert.*, icon-256.png, icons/*, brand/*")
 
 
 if __name__ == "__main__":

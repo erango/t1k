@@ -196,6 +196,8 @@ pub struct Workspace {
     pub started: Instant,
     /// Last Dock badge value we set (None = never).
     badge: Option<usize>,
+    /// Dock icon last set: (style, needs-you).
+    dock_icon: Option<(String, bool)>,
     /// Last `updater::rev()` drawn.
     update_rev: u64,
     /// GitHub `owner/repo` per project group, for `#123` links (None: no GitHub remote).
@@ -309,6 +311,7 @@ impl Workspace {
             next_created: 0,
             started: Instant::now(),
             badge: None,
+            dock_icon: None,
             update_rev: 0,
             repos: HashMap::new(),
             _poll: poll,
@@ -857,8 +860,12 @@ impl Workspace {
         if self.badge != Some(needs) {
             self.badge = Some(needs);
             crate::platform::set_dock_badge(if self.config.notify.dock_badge { needs } else { 0 });
-            // The face opens its eyes (red) while anything needs you.
-            crate::platform::set_dock_alert(self.config.notify.dock_badge && needs > 0);
+        }
+        // The chosen icon, in red while anything needs you.
+        let icon = (self.config.interface.app_icon.clone(), self.config.notify.dock_badge && needs > 0);
+        if self.dock_icon.as_ref() != Some(&icon) {
+            crate::platform::set_dock_icon(&icon.0, icon.1);
+            self.dock_icon = Some(icon);
         }
         let working = self.tabs.iter().any(|t| t.status() == Some(&Status::Working));
         if changed || working {

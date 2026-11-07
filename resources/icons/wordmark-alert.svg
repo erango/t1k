@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs><linearGradient id="tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1B1E23"/><stop offset="1" stop-color="#0B0C0E"/></linearGradient><linearGradient id="chrome" gradientUnits="userSpaceOnUse" x1="0" y1="400" x2="0" y2="620"><stop offset="0" stop-color="#F7F9FC"/><stop offset=".45" stop-color="#B7C0CC"/><stop offset=".58" stop-color="#7E8896"/><stop offset="1" stop-color="#D4DAE2"/></linearGradient></defs>
+  <rect x="70" y="70" width="884" height="884" rx="198" fill="url(#tile)"/>
+  <rect x="74" y="74" width="876" height="876" rx="194" fill="none" stroke="#2A2E35" stroke-width="8"/>
+  <text x="512" y="620" text-anchor="middle" font-family="JetBrains Mono" font-weight="800" font-size="320" letter-spacing="6" fill="url(#chrome)">T<tspan fill="#FF4A4F">1</tspan>K</text>
+</svg>

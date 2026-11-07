@@ -17,24 +17,33 @@ pub fn set_dock_badge(n: usize) {
 #[cfg(not(target_os = "macos"))]
 pub fn set_dock_badge(_: usize) {}
 
-/// The Dock icon while a tab needs you: the face with its eyes open in red.
-#[cfg(target_os = "macos")]
-const ALERT_ICON: &[u8] = include_bytes!("../../../resources/icon-alert.png");
+/// Dock icon artwork for `interface.app_icon`, plain and needs-you. None = the bundle's icon.
+pub fn dock_icon_png(style: &str, alert: bool) -> Option<&'static [u8]> {
+    match (style, alert) {
+        ("prompt", false) => Some(include_bytes!("../../../resources/icons/prompt.png")),
+        ("prompt", true) => Some(include_bytes!("../../../resources/icons/prompt-alert.png")),
+        ("wordmark", false) => Some(include_bytes!("../../../resources/icons/wordmark.png")),
+        ("wordmark", true) => Some(include_bytes!("../../../resources/icons/wordmark-alert.png")),
+        // The face opens its eyes in red.
+        (_, true) => Some(include_bytes!("../../../resources/icon-alert.png")),
+        (_, false) => None,
+    }
+}
 
-/// Swap the Dock icon to the alert face (true) or back to the app icon (false).
-/// Must run on the main thread.
+/// Set the Dock icon to `style` (face, prompt, wordmark), in its needs-you variant when
+/// `alert`. Must run on the main thread.
 #[cfg(target_os = "macos")]
-pub fn set_dock_alert(on: bool) {
+pub fn set_dock_icon(style: &str, alert: bool) {
     use cocoa::base::{id, nil};
     use objc::{class, msg_send, sel, sel_impl};
     unsafe {
         let app: id = msg_send![class!(NSApplication), sharedApplication];
-        if !on {
+        let Some(png) = dock_icon_png(style, alert) else {
             // nil restores the bundle's icon.
             let _: () = msg_send![app, setApplicationIconImage: nil];
             return;
-        }
-        let data: id = msg_send![class!(NSData), dataWithBytes: ALERT_ICON.as_ptr() length: ALERT_ICON.len()];
+        };
+        let data: id = msg_send![class!(NSData), dataWithBytes: png.as_ptr() length: png.len()];
         let image: id = msg_send![class!(NSImage), alloc];
         let image: id = msg_send![image, initWithData: data];
         if image != nil {
@@ -45,7 +54,7 @@ pub fn set_dock_alert(on: bool) {
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn set_dock_alert(_: bool) {}
+pub fn set_dock_icon(_: &str, _: bool) {}
 
 /// Post a notification banner. Uses `osascript` until T1K ships a signed bundle with its own
 /// notification permission; clicking it opens Script Editor's context, not the tab (yet).
