@@ -42,7 +42,8 @@ Debug environment variables (all read at launch):
 
 | Variable | Effect |
 |---|---|
-| `T1K_DEBUG_OVERLAY=palette\|switcher\|overview\|settings\|settings-interface\|settings-search\|menu\|groupmenu\|termmenu\|sidebarview\|more\|card\|about\|welcome\|settings-advanced\|update\|quit` | Opens that surface (`update` also starts a check) |
+| `T1K_DEBUG_OVERLAY=palette\|switcher\|overview\|settings\|settings-interface\|settings-search\|menu\|groupmenu\|termmenu\|sidebarview\|more\|card\|about\|welcome\|settings-advanced\|update\|update-background\|quit` | Opens that surface (`update` also starts a check) |
+| `T1K_DEBUG_UPDATE=install` | Presses Restart now as soon as an update is ready (with `T1K_DEBUG_OVERLAY=update-background`) |
 | `T1K_DEBUG_AGENT=working\|needs\|error\|done` | Fakes an agent session on the active tab |
 | `T1K_DEBUG_PROGRAM=<name>` | Shows that program's icon on every tab |
 | `T1K_DEBUG_VIEW=<path>[:line]` | Opens that file in the side panel |

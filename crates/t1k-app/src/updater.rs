@@ -459,6 +459,15 @@ mod mac {
         }
     }
 
+    /// What the daily check does: silent, and downloads when that's on.
+    pub fn check_background() {
+        if let Some(u) = updater() {
+            unsafe {
+                let _: () = msg_send![u, checkForUpdatesInBackground];
+            }
+        }
+    }
+
     fn answer(c: isize) -> bool {
         match PARKED.with(|p| p.borrow_mut().choice.take()) {
             Some(b) => {
@@ -527,7 +536,7 @@ mod mac {
 }
 
 #[cfg(target_os = "macos")]
-pub use mac::{acknowledge, apply, available, can_skip, cancel, check_now, download, install_now, install_on_quit, later, skip, start};
+pub use mac::{acknowledge, apply, available, can_skip, cancel, check_background, check_now, download, install_now, install_on_quit, later, skip, start};
 
 #[cfg(not(target_os = "macos"))]
 mod other {
@@ -536,6 +545,7 @@ mod other {
     pub fn available() -> bool { false }
     pub fn can_skip() -> bool { false }
     pub fn check_now() {}
+    pub fn check_background() {}
     pub fn download() {}
     pub fn install_now() {}
     pub fn install_on_quit() {}

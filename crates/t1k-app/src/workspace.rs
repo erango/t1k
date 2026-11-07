@@ -414,6 +414,11 @@ impl Workspace {
                     crate::updater::check_now();
                     Some(Overlay::Update)
                 }
+                // The daily background check, now (download + Ready, no dialog).
+                "update-background" => {
+                    crate::updater::check_background();
+                    None
+                }
                 "quit" => Some(Overlay::QuitUpdate),
                 "settings-search" => {
                     this.settings_query = "font".into();
@@ -806,6 +811,11 @@ impl Workspace {
             // something else (the pill and ⋯ menu still carry it).
             if crate::updater::take_dialog_request() && matches!(self.overlay, Overlay::None | Overlay::Update) {
                 self.open_overlay(Overlay::Update, window, cx);
+            }
+            // Debug aid: T1K_DEBUG_UPDATE=install presses Restart now once an update is ready.
+            if std::env::var("T1K_DEBUG_UPDATE").as_deref() == Ok("install") && crate::updater::snapshot().phase == crate::updater::Phase::Ready {
+                self.save();
+                crate::updater::install_now();
             }
             cx.notify();
         }
