@@ -6,6 +6,7 @@ resources/icon-alert.svg + icon-alert.png (the Dock icon while a tab needs you:
 eyes open wide in red). Design: canvas board "Logo · take 4", face A + D3.
 Run after editing the grids; bundle.sh turns icon.svg into the .icns.
 """
+import json
 import subprocess
 from pathlib import Path
 
@@ -54,15 +55,25 @@ TILE = """<linearGradient id="tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0"
 CHROME = """<linearGradient id="chrome" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F7F9FC"/><stop offset=".45" stop-color="#B7C0CC"/><stop offset=".58" stop-color="#7E8896"/><stop offset="1" stop-color="#D4DAE2"/></linearGradient>"""
 
 
+# The app icon's tile is mid-tone slate, not near-black: a black squircle vanishes on a dark
+# Dock and reads as a hole on a light one, so the icon looked smaller than its neighbours
+# (canvas board "v3-s · App icon presence").
+SLATE = (0x3B4A5E, 0x26303D)
+SLATE_DARK = (0x2A3442, 0x171D26)
+SLATE_TILE = """<linearGradient id="slate" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3B4A5E"/><stop offset="1" stop-color="#26303D"/></linearGradient><linearGradient id="toplight" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".14"/><stop offset=".45" stop-color="#FFFFFF" stop-opacity="0"/></linearGradient>"""
+# The face fills 75% of the tile's height (48 px cells), like the symbols on neighbouring icons.
+FACE_CELL = 48
+
+
 def svg(rows):
     # Apple's icon grid: an 824 tile at 100 px, so the Dock draws it at the same size as
     # every other app (the bundle itself uses resources/T1K.icon, see below).
-    cell = 40
+    cell = FACE_CELL * 824 // 1024
     origin = (1024 - 16 * cell) // 2
     return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <defs>{TILE}</defs>
-  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#tile)"/>
-  <rect x="103" y="103" width="818" height="818" rx="182" fill="none" stroke="#2A2E35" stroke-width="6"/>
+  <defs>{SLATE_TILE}</defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#slate)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#toplight)"/>
   <g shape-rendering="crispEdges">
     {face_rects(rows, cell, origin, origin)}
   </g>
@@ -98,39 +109,36 @@ def wordmark_svg(alert=False):
                 CHROME_TILE.replace('y1="330" x2="0" y2="700"', 'y1="400" x2="0" y2="620"'))
 
 
-ICON_JSON = """{
-  "fill" : {
-    "linear-gradient" : [
-      "srgb:0.10588,0.11765,0.13725,1.00000",
-      "srgb:0.04314,0.04706,0.05490,1.00000"
-    ]
-  },
-  "groups" : [
-    {
-      "layers" : [
-        {
-          "image-name" : "face.svg",
-          "name" : "face"
-        }
-      ],
-      "shadow" : {
-        "kind" : "neutral",
-        "opacity" : 0.5
-      },
-      "translucency" : {
-        "enabled" : false,
-        "value" : 0.5
-      }
-    }
-  ],
-  "supported-platforms" : {
-    "circles" : [
-      "watchOS"
+def srgb(hex_):
+    r, g, b = (hex_ >> 16) & 255, (hex_ >> 8) & 255, hex_ & 255
+    return f"srgb:{r / 255:.5f},{g / 255:.5f},{b / 255:.5f},1.00000"
+
+
+def gradient(stops):
+    return {"linear-gradient": [srgb(stops[0]), srgb(stops[1])]}
+
+
+# No rim layer: macOS 26 draws its own glass edge highlight on the icon.
+ICON_JSON = {
+    "fill-specializations": [
+        {"value": gradient(SLATE)},
+        {"appearance": "dark", "value": gradient(SLATE_DARK)},
     ],
-    "squares" : "shared"
-  }
+    "groups": [
+        {
+            "layers": [{"image-name": "face.svg", "name": "face"}],
+            "shadow": {"kind": "neutral", "opacity": 0.5},
+            "translucency": {"enabled": False, "value": 0.5},
+        },
+        {
+            "layers": [{"image-name": "toplight.svg", "name": "top light"}],
+            "shadow": {"kind": "none", "opacity": 0.5},
+            "translucency": {"enabled": False, "value": 0.5},
+            "specular": False,
+        },
+    ],
+    "supported-platforms": {"circles": ["watchOS"], "squares": "shared"},
 }
-"""
 
 
 def write_icon_composer(res):
@@ -139,11 +147,15 @@ def write_icon_composer(res):
     macOS 26 draws only compiled icons at full size; a bare .icns gets shrunk onto a platter."""
     d = res / "T1K.icon"
     (d / "Assets").mkdir(parents=True, exist_ok=True)
-    (d / "icon.json").write_text(ICON_JSON)
-    cell = 42
+    (d / "icon.json").write_text(json.dumps(ICON_JSON, indent=2) + "\n")
+    cell = FACE_CELL
     o = (1024 - 16 * cell) // 2
     (d / "Assets" / "face.svg").write_text(
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024"><g shape-rendering="crispEdges">{face_rects(FACE, cell, o, o)}</g></svg>\n'
+    )
+    # White 14% at the top, gone by 45% of the height: lifts the tile off a dark Dock.
+    (d / "Assets" / "toplight.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024"><defs><linearGradient id="l" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".14"/><stop offset=".45" stop-color="#FFFFFF" stop-opacity="0"/></linearGradient></defs><rect width="1024" height="1024" fill="url(#l)"/></svg>\n'
     )
 
 
