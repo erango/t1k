@@ -231,6 +231,10 @@ pub struct Workspace {
     pub edit_dragging: bool,
     /// Claude sessions running when the quit began (they exit, but resume next launch).
     pub resume_after_quit: HashSet<String>,
+    /// Programs asked to stop from the quit dialog, and when.
+    pub stopping: HashMap<String, Instant>,
+    /// Keeps the quit dialog's list live while it's open.
+    pub quit_ticker: Option<gpui::Task<()>>,
     /// Scrollback files were written for every tab (at quit); the session points at them.
     scrollback_saved: bool,
     /// Scrollback to replay into the next terminal `open_tab` spawns (session restore).
@@ -374,6 +378,8 @@ impl Workspace {
             edit_bounds: Default::default(),
             edit_dragging: false,
             resume_after_quit: HashSet::new(),
+            stopping: HashMap::new(),
+            quit_ticker: None,
             scrollback_saved: false,
             restore_next: None,
             key_note: None,
@@ -424,7 +430,7 @@ impl Workspace {
                     if ws.quitting.is_some() || ws.running_programs(cx).is_empty() {
                         return true;
                     }
-                    ws.open_overlay(crate::overlay::Overlay::QuitRunning, window, cx);
+                    ws.open_overlay(crate::overlay::Overlay::QuitRunning { expanded: false, selected: 0 }, window, cx);
                     false
                 })
                 .unwrap_or(true)
@@ -572,7 +578,8 @@ impl Workspace {
                     None
                 }
                 "quit" => Some(Overlay::QuitUpdate),
-                "quit-running" => Some(Overlay::QuitRunning),
+                "quit-running" => Some(Overlay::QuitRunning { expanded: false, selected: 0 }),
+                "quit-list" => Some(Overlay::QuitRunning { expanded: true, selected: 0 }),
                 "rename" => {
                     let text = "Fix the login redirect".to_string();
                     this.edit_sel = crate::input::Sel { anchor: 8, cursor: 13 };
@@ -1015,13 +1022,6 @@ impl Workspace {
         let titles: Vec<String> = self.tabs.iter().filter(|t| t.group == key).map(|t| t.title()).take(5).collect();
         self.icon_suggestions.insert(key.to_path_buf(), crate::group_icons::suggest_local(key, &label, &titles));
         self.helper_icon(key, &label, &titles, cx);
-    }
-
-    /// Quit dialog › Show running. Until the canvas design (v3-p) is built: the switcher,
-    /// showing working agents.
-    pub fn show_running(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.switcher_filter = crate::overlay::SwitcherFilter::Working;
-        self.open_overlay(crate::overlay::Overlay::Switcher { query: String::new(), selected: 0 }, window, cx);
     }
 
     /// Drop group `moved` just above group `before` (dragging a header).

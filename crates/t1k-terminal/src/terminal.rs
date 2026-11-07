@@ -145,6 +145,20 @@ impl Terminal {
         }
     }
 
+    /// The foreground program's command line and when it started (quit dialog).
+    pub fn foreground_command(&self) -> Option<(String, Option<std::time::SystemTime>)> {
+        let pid = self.foreground_pid();
+        Some((crate::process::command(pid)?, crate::process::started(pid)))
+    }
+
+    /// Force the foreground program to stop (SIGKILL to its process group), never the shell.
+    pub fn kill_foreground(&self) {
+        let pgid = unsafe { libc::tcgetpgrp(self.pty_fd) };
+        if pgid > 0 && pgid != self.shell_pid && unsafe { libc::getpgid(self.shell_pid) } != pgid {
+            unsafe { libc::killpg(pgid, libc::SIGKILL) };
+        }
+    }
+
     /// Pid of the foreground process (falls back to the shell).
     pub fn foreground_pid(&self) -> i32 {
         crate::process::foreground_pid(self.pty_fd).unwrap_or(self.shell_pid)
