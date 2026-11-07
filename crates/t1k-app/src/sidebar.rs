@@ -24,149 +24,37 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
     let groups = ws.grouped();
 
     // Groups are separated by space alone (v3: no hairlines).
-    let mut list = div().id("sidebar-list").flex_1().min_h_0().overflow_y_scroll().pb(px(12.)).flex().flex_col().gap(px(14.));
+    let mut list = div()
+        .id("sidebar-list")
+        .size_full()
+        .overflow_y_scroll()
+        .track_scroll(&ws.sidebar_scroll)
+        .pb(px(12.))
+        .flex()
+        .flex_col()
+        .gap(px(14.));
+
+    // Sticky header: the group whose header has scrolled off while its tabs still show keeps a
+    // copy pinned at the top, pushed up by the next group's header. Bounds are last frame's.
+    let sticky = {
+        let sh = &ws.sidebar_scroll;
+        let (off, top) = (sh.offset().y, sh.bounds().top());
+        let h = px(26.);
+        groups.iter().enumerate().find_map(|(i, (key, tabs))| {
+            let b = sh.bounds_for_item(i)?;
+            let (y, bottom) = (b.top() + off, b.bottom() + off);
+            (y < top && bottom > top + px(8.)).then(|| (key.clone(), tabs.clone(), (bottom - top - h).min(px(0.))))
+        })
+    };
 
     for (key, tabs) in groups {
         let tally = Tally::of(ws, &tabs);
         let has_active = tabs.contains(&ws.active);
-        // v3: a group with nothing going on (all quiet, none selected) is one line until opened.
         let all_quiet = !has_active && tabs.iter().all(|&i| ws.is_quiet(i));
-        let auto_folded = all_quiet && !ws.show_quiet.contains(&key);
-        let folded = ws.collapsed.contains(&key) || auto_folded;
-        let label = ws.group_label(&key);
-        let renamed = ws.group_names.contains_key(&key);
-        let folder = crate::groups::label(&key);
-        let click_key = key.clone();
+        let folded = ws.collapsed.contains(&key) || (all_quiet && !ws.show_quiet.contains(&key));
+        let _ = &tally;
         let mut group = div().flex().flex_col();
-        group = group.child(
-            div()
-                .id(SharedString::from(format!("group-{}", key.display())))
-                .group(SharedString::from(format!("gh-{}", key.display())))
-                .relative()
-                .h(px(26.))
-                .flex_none()
-                .mx(px(INSET))
-                .pl(px(12.))
-                .pr(px(10.))
-                .rounded(px(6.))
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .hover(move |d| d.bg(ui.bg_hover))
-                .when(auto_folded, |d| d.tooltip(crate::tooltip::text(ui, QUIET_HELP)))
-                .on_mouse_down(MouseButton::Right, cx.listener({
-                    let key = key.clone();
-                    move |this, ev: &gpui::MouseDownEvent, window, cx| {
-                        this.open_overlay(crate::overlay::Overlay::GroupMenu { key: key.clone(), at: ev.position }, window, cx);
-                    }
-                }))
-                .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
-                    if ev.click_count() == 2 {
-                        let text = this.group_label(&click_key);
-                        this.open_overlay(crate::overlay::Overlay::RenameGroup { key: click_key.clone(), text }, window, cx);
-                        return;
-                    }
-                    // A quiet group opens by showing its quiet tabs; otherwise click collapses.
-                    if all_quiet && !this.collapsed.contains(&click_key) {
-                        if !this.show_quiet.remove(&click_key) {
-                            this.show_quiet.insert(click_key.clone());
-                        }
-                        cx.notify();
-                    } else {
-                        this.toggle_group(click_key.clone(), cx);
-                    }
-                }))
-                .child(group_dot(ws.group_color(&key), ui))
-                .child(
-                    div()
-                        .min_w_0()
-                        .truncate()
-                        .text_size(px(12. * k))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(if folded { ui.text_secondary } else { ui.text_primary })
-                        .child(label),
-                )
-                .when(renamed, |d| {
-                    // Renamed groups keep the real folder name visible.
-                    d.child(div().flex_none().text_size(px(10. * k)).font_family("JetBrains Mono").text_color(ui.text_disabled).child(folder.clone()))
-                })
-                .child(div().flex_1())
-                .map(|d| {
-                    if folded {
-                        // One line: loud part first in amber, then "N quiet ›".
-                        let (loud, quiet) = tally.summary();
-                        d.child(
-                            div()
-                                .flex_none()
-                                .flex()
-                                .gap(px(4.))
-                                .text_size(px(11.5 * k))
-                                .when(!loud.is_empty(), |d| d.child(div().text_color(ui.status_needs).child(loud.clone())))
-                                .when(!quiet.is_empty(), |d| d.child(div().text_color(ui.text_tertiary).child(quiet.clone())))
-                                .child(div().text_color(ui.text_disabled).child("›")),
-                        )
-                    } else {
-                        let mut agg = div().flex_none().flex().items_center().gap(px(9.));
-                        for (glyph, n) in tally.loud_glyphs(ui) {
-                            agg = agg.child(
-                                div().flex().items_center().gap(px(4.)).child(glyph).child(
-                                    div().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(ui.text_quiet).child(n.to_string()),
-                                ),
-                            );
-                        }
-                        d.child(agg)
-                    }
-                })
-                // v3-f D: on hover, + (new tab in this project) and ⋯ (group menu).
-                .child({
-                    let gid = SharedString::from(format!("gh-{}", key.display()));
-                    let k1 = key.clone();
-                    let k2 = key.clone();
-                    let small = |id: String| {
-                        div()
-                            .id(SharedString::from(id))
-                            .size(px(20.))
-                            .rounded(px(5.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .hover(move |d| d.bg(ui.bg_control))
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    };
-                    // Floats over the right end (covering the counts) so it takes no space.
-                    div()
-                        .absolute()
-                        .right(px(4.))
-                        .top(px(3.))
-                        .pl(px(6.))
-                        .flex()
-                        .gap(px(2.))
-                        .rounded(px(6.))
-                        .bg(ui.bg_hover)
-                        .invisible()
-                        .group_hover(gid, |s| s.visible())
-                        .child(
-                            small(format!("gplus-{}", key.display()))
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    cx.stop_propagation();
-                                    let cwd = k1.is_dir().then(|| k1.clone());
-                                    this.open_tab(cwd, None, window, cx);
-                                }))
-                                .tooltip(crate::tooltip::text(ui, "New tab in this project"))
-                                .child(crate::icons::plus(ui.text_secondary)),
-                        )
-                        .child(
-                            small(format!("gmore-{}", key.display()))
-                                .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
-                                    cx.stop_propagation();
-                                    this.open_overlay(crate::overlay::Overlay::GroupMenu { key: k2.clone(), at: ev.position() }, window, cx);
-                                }))
-                                .text_size(px(13.))
-                                .text_color(ui.text_tertiary)
-                                .child("⋯"),
-                        )
-                }),
-        );
+        group = group.child(group_header(ws, &key, &tabs, false, cx));
         if !folded {
             // Mixed groups fold their quiet tabs into one "+N quiet" row.
             let quiet: Vec<usize> = tabs.iter().copied().filter(|&i| ws.is_quiet(i)).collect();
@@ -318,7 +206,164 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 )
         )
         .children(attention(ws, cx))
-        .child(list)
+        .child(
+            div().relative().flex_1().min_h_0().child(list).children(sticky.map(|(key, tabs, dy)| {
+                div()
+                    .absolute()
+                    .top(dy)
+                    .left_0()
+                    .right_0()
+                    .pb(px(4.))
+                    .bg(ui.bg_sidebar)
+                    .shadow_sm()
+                    .child(group_header(ws, &key, &tabs, true, cx))
+            })),
+        )
+        .into_any_element()
+}
+
+/// A group's header row. `sticky` draws the copy pinned to the top of the list.
+fn group_header(ws: &Workspace, key: &std::path::Path, tabs: &[usize], sticky: bool, cx: &mut Context<Workspace>) -> AnyElement {
+    let k = ws.config.interface.text_scale();
+    let ui = ws.ui;
+    let key = key.to_path_buf();
+    let tally = Tally::of(ws, tabs);
+    let has_active = tabs.contains(&ws.active);
+    // v3: a group with nothing going on (all quiet, none selected) is one line until opened.
+    let all_quiet = !has_active && tabs.iter().all(|&i| ws.is_quiet(i));
+    let auto_folded = all_quiet && !ws.show_quiet.contains(&key);
+    let folded = ws.collapsed.contains(&key) || auto_folded;
+    let label = ws.group_label(&key);
+    let renamed = ws.group_names.contains_key(&key);
+    let folder = crate::groups::label(&key);
+    let click_key = key.clone();
+    div()
+        .id(SharedString::from(format!("group-{}{}", if sticky { "s-" } else { "" }, key.display())))
+        .group(SharedString::from(format!("gh-{}", key.display())))
+        .relative()
+        .h(px(26.))
+        .flex_none()
+        .mx(px(INSET))
+        .pl(px(12.))
+        .pr(px(10.))
+        .rounded(px(6.))
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .hover(move |d| d.bg(ui.bg_hover))
+        .when(auto_folded, |d| d.tooltip(crate::tooltip::text(ui, QUIET_HELP)))
+        .on_mouse_down(MouseButton::Right, cx.listener({
+            let key = key.clone();
+            move |this, ev: &gpui::MouseDownEvent, window, cx| {
+                this.open_overlay(crate::overlay::Overlay::GroupMenu { key: key.clone(), at: ev.position }, window, cx);
+            }
+        }))
+        .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
+            if ev.click_count() == 2 {
+                let text = this.group_label(&click_key);
+                this.open_overlay(crate::overlay::Overlay::RenameGroup { key: click_key.clone(), text }, window, cx);
+                return;
+            }
+            // A quiet group opens by showing its quiet tabs; otherwise click collapses.
+            if all_quiet && !this.collapsed.contains(&click_key) {
+                if !this.show_quiet.remove(&click_key) {
+                    this.show_quiet.insert(click_key.clone());
+                }
+                cx.notify();
+            } else {
+                this.toggle_group(click_key.clone(), cx);
+            }
+        }))
+        .child(group_dot(ws.group_color(&key), ui))
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .text_size(px(12. * k))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(if folded { ui.text_secondary } else { ui.text_primary })
+                .child(label),
+        )
+        .when(renamed, |d| {
+            // Renamed groups keep the real folder name visible.
+            d.child(div().flex_none().text_size(px(10. * k)).font_family("JetBrains Mono").text_color(ui.text_disabled).child(folder.clone()))
+        })
+        .child(div().flex_1())
+        .map(|d| {
+            if folded {
+                // One line: loud part first in amber, then "N quiet ›".
+                let (loud, quiet) = tally.summary();
+                d.child(
+                    div()
+                        .flex_none()
+                        .flex()
+                        .gap(px(4.))
+                        .text_size(px(11.5 * k))
+                        .when(!loud.is_empty(), |d| d.child(div().text_color(ui.status_needs).child(loud.clone())))
+                        .when(!quiet.is_empty(), |d| d.child(div().text_color(ui.text_tertiary).child(quiet.clone())))
+                        .child(div().text_color(ui.text_disabled).child("›")),
+                )
+            } else {
+                let mut agg = div().flex_none().flex().items_center().gap(px(9.));
+                for (glyph, n) in tally.loud_glyphs(ui) {
+                    agg = agg.child(
+                        div().flex().items_center().gap(px(4.)).child(glyph).child(
+                            div().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(ui.text_quiet).child(n.to_string()),
+                        ),
+                    );
+                }
+                d.child(agg)
+            }
+        })
+        // v3-f D: on hover, + (new tab in this project) and ⋯ (group menu).
+        .child({
+            let gid = SharedString::from(format!("gh-{}", key.display()));
+            let k1 = key.clone();
+            let k2 = key.clone();
+            let small = |id: String| {
+                div()
+                    .id(SharedString::from(id))
+                    .size(px(20.))
+                    .rounded(px(5.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .hover(move |d| d.bg(ui.bg_control))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            };
+            // Floats over the right end (covering the counts) so it takes no space.
+            div()
+                .absolute()
+                .right(px(4.))
+                .top(px(3.))
+                .pl(px(6.))
+                .flex()
+                .gap(px(2.))
+                .rounded(px(6.))
+                .bg(ui.bg_hover)
+                .invisible()
+                .group_hover(gid, |s| s.visible())
+                .child(
+                    small(format!("gplus-{}", key.display()))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            cx.stop_propagation();
+                            let cwd = k1.is_dir().then(|| k1.clone());
+                            this.open_tab(cwd, None, window, cx);
+                        }))
+                        .tooltip(crate::tooltip::text(ui, "New tab in this project"))
+                        .child(crate::icons::plus(ui.text_secondary)),
+                )
+                .child(
+                    small(format!("gmore-{}", key.display()))
+                        .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
+                            cx.stop_propagation();
+                            this.open_overlay(crate::overlay::Overlay::GroupMenu { key: k2.clone(), at: ev.position() }, window, cx);
+                        }))
+                        .text_size(px(13.))
+                        .text_color(ui.text_tertiary)
+                        .child("⋯"),
+                )
+        })
         .into_any_element()
 }
 

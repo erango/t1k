@@ -185,6 +185,8 @@ pub struct Workspace {
     pub settings_query: String,
     /// Settings › Keybindings: the action waiting for a new shortcut.
     pub key_recording: Option<&'static str>,
+    /// The sidebar list's scroll position (for the sticky group header).
+    pub sidebar_scroll: gpui::ScrollHandle,
     /// The switcher's filter chip (back to All when it closes).
     pub switcher_filter: crate::overlay::SwitcherFilter,
     /// While the theme picker previews: what to go back to on esc.
@@ -306,6 +308,7 @@ impl Workspace {
             hooks_installed: crate::settings::claude_hooks_installed(),
             settings_query: String::new(),
             key_recording: None,
+            sidebar_scroll: gpui::ScrollHandle::new(),
             switcher_filter: Default::default(),
             theme_before: None,
             key_note: None,
