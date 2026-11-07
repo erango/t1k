@@ -757,6 +757,8 @@ fn detect_links(
 ) -> (Vec<Link>, HashMap<(usize, usize), usize>) {
     let mut grid = vec![vec!['\0'; cols]; rows];
     let mut wraps = vec![false; rows];
+    // Rows that are a shell prompt (marked by shell integration): no file/PR/ticket links there.
+    let mut prompt_rows = vec![false; rows];
     let mut links: Vec<Link> = Vec::new();
     let mut map: HashMap<(usize, usize), usize> = HashMap::new();
     let mut osc_ids: HashMap<String, usize> = HashMap::new();
@@ -775,6 +777,9 @@ fn detect_links(
         if flags.contains(Flags::WRAPLINE) {
             wraps[row] = true;
         }
+        if ind.cell.hyperlink().is_some_and(|h| h.uri().starts_with(PROMPT_MARK)) {
+            prompt_rows[row] = true;
+        }
         if let Some(h) = ind.cell.hyperlink().filter(|h| !h.uri().starts_with(PROMPT_MARK)) {
             let uri = h.uri().to_string();
             let id = *osc_ids.entry(uri.clone()).or_insert_with(|| {
@@ -789,7 +794,9 @@ fn detect_links(
     while r < rows {
         let mut chars = Vec::with_capacity(cols);
         let mut pos = Vec::with_capacity(cols);
+        let mut is_prompt = false;
         loop {
+            is_prompt |= prompt_rows[r];
             for c in 0..cols {
                 chars.push(grid[r][c]);
                 pos.push((c, r));
@@ -814,19 +821,19 @@ fn detect_links(
         for (a, b) in find_urls(&chars) {
             add(a, b, Link::Url(chars[a..b].iter().collect()), &mut links, &mut map);
         }
-        if rules.files {
+        if rules.files && !is_prompt {
             for c in find_path_candidates(&chars) {
                 if let Some(path) = resolve(&c.path) {
                     add(c.start, c.end, Link::File { path, line: c.line, col: c.col }, &mut links, &mut map);
                 }
             }
         }
-        if rules.prs {
+        if rules.prs && !is_prompt {
             for (a, b, n) in find_pr_refs(&chars) {
                 add(a, b, Link::Pr(n), &mut links, &mut map);
             }
         }
-        if rules.tickets {
+        if rules.tickets && !is_prompt {
             for (a, b, k) in find_tickets(&chars) {
                 add(a, b, Link::Ticket(k), &mut links, &mut map);
             }
@@ -861,7 +868,9 @@ fn build_frame(view: &TerminalView, focused: bool) -> Frame {
         }
         let base = cwd.clone().unwrap_or_default();
         let key = base.join(text);
-        cache.entry(key).or_insert_with(|| resolve_path(text, &base)).clone()
+        let found = cache.entry(key).or_insert_with(|| resolve_path(text, &base)).clone();
+        // The tab's own folder is what prompts print; it isn't worth a link.
+        found.filter(|p| cwd.as_deref().is_none_or(|c| p.canonicalize().ok().as_deref() != c.canonicalize().ok().as_deref()))
     };
     let (links, link_map) = detect_links(&cells, offset, term.screen_lines(), term.columns(), view.link_rules, &mut resolve);
     drop(cache);
