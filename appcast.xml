@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>T1K</title>
+    <item>
+      <title>T1K 0.1.0</title>
+      <pubDate>Sat, 07 Nov 2026 15:04:39 +0200</pubDate>
+      <sparkle:version>0.1.0</sparkle:version>
+      <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/erango/t1k/releases/tag/v0.1.0</sparkle:fullReleaseNotesLink>
+      <description><![CDATA[<ul><li>First public release: a native macOS terminal for running many coding agents at once.</li><li>Sidebar groups tabs by project and shows each agent&#x27;s status, goal and recap; tabs that need you rise to the top, and ⌘J jumps to them.</li><li>Works with Claude Code, Codex, Antigravity, Gemini CLI and Grok through their hooks.</li><li>⌘P switcher, ⌘O overview, outputs panel (PRs, files, links), reminders with snooze.</li><li>20 built-in themes plus import from Ghostty, iTerm2, Alacritty, Windows Terminal and base16, with a live-preview picker.</li><li>Resizable sidebar that collapses to a strip of icons or hides; every shortcut can be rebound.</li><li>Optional cheap-model helper for titles, recaps and search by meaning (off by default).</li></ul>]]></description>
+      <enclosure url="https://github.com/erango/t1k/releases/download/v0.1.0/T1K-0.1.0.zip" type="application/octet-stream" sparkle:edSignature="zme1nFCcvcLSoLjHPCFcmHIIIvv6k23wxClNt6pBHEy2Cxk3ALNLH25pVk9KDfrhSja8SF1oOAb0PPaJv+mjDQ==" length="10458939" />
+    </item>
+  </channel>
+</rss>
