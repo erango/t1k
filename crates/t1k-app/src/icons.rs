@@ -142,6 +142,20 @@ pub fn back(color: Hsla) -> impl IntoElement {
     })
 }
 
+/// A small chevron, centered in the 14 px box (history back / forward).
+pub fn chevron(color: Hsla, left: bool) -> impl IntoElement {
+    icon(move |b, window| {
+        let o = b.origin;
+        let x = |v: f32| if left { v } else { 14. - v };
+        let pt = |a: f32, y: f32| point(o.x + px(x(a)), o.y + px(y));
+        stroke(window, color, |p| {
+            p.move_to(pt(8.5, 3.5));
+            p.line_to(pt(5., 7.));
+            p.line_to(pt(8.5, 10.5));
+        })
+    })
+}
+
 /// A plus (new tab).
 pub fn plus(color: Hsla) -> impl IntoElement {
     icon(move |b, window| {

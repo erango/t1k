@@ -301,3 +301,14 @@ pub fn apps_for(_: &std::path::Path) -> Vec<(String, std::path::PathBuf)> {
 pub fn open_with(app: &std::path::Path, file: &std::path::Path) {
     let _ = std::process::Command::new("/usr/bin/open").arg("-a").arg(app).arg(file).spawn().map(|mut c| std::thread::spawn(move || c.wait()));
 }
+
+/// System Settings › Accessibility › Display › Reduce motion.
+pub fn reduce_motion() -> bool {
+    use cocoa::base::{id, BOOL, NO};
+    use objc::{class, msg_send, sel, sel_impl};
+    unsafe {
+        let ws: id = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let on: BOOL = msg_send![ws, accessibilityDisplayShouldReduceMotion];
+        on != NO
+    }
+}

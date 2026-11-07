@@ -831,15 +831,13 @@ fn nav_button(ws: &Workspace, back: bool, cx: &mut Context<Workspace>) -> impl I
         .flex()
         .items_center()
         .justify_center()
-        .text_size(px(17.))
-        .text_color(if enabled { ui.text_secondary } else { ui.text_disabled })
         // Don't drag the window from the buttons.
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .when(enabled, |d| {
-            d.hover(move |d| d.bg(ui.sidebar_hover).text_color(ui.text_primary))
+            d.hover(move |d| d.bg(ui.sidebar_hover))
                 .on_click(cx.listener(move |this, _, window, cx| this.navigate(back, window, cx)))
         })
-        .child(if back { "‹" } else { "›" })
+        .child(crate::icons::chevron(if enabled { ui.text_secondary } else { ui.text_disabled }, back))
 }
 
 /// Title color by state (design v2): bright for selected / unread / due, normal while

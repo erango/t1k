@@ -141,7 +141,7 @@ fn write_icon_png(_: &Path, _: &Path) -> bool {
 pub fn badge(tab: &Tab, ui: UiColors, size: f32) -> Div {
     // Small icons fill their tile edge to edge with a tighter corner, so they read at 16-22 px.
     let radius = (size * 0.24).round();
-    let base = div().size(px(size)).flex_none().rounded(px(radius)).overflow_hidden().flex().items_center().justify_center();
+    let base = div().opacity(ui.icon_alpha).size(px(size)).flex_none().rounded(px(radius)).overflow_hidden().flex().items_center().justify_center();
     // A live agent session names the program (its process may show as node or python).
     let live_agent = tab.agent.as_ref().filter(|a| a.status != t1k_agent::Status::Ended);
     let program = match live_agent {

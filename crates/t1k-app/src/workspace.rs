@@ -196,6 +196,11 @@ pub struct Workspace {
     light: &'static Theme,
     pub theme: &'static Theme,
     pub ui: UiColors,
+    /// The theme's colors with the window active; `ui` is these, dimmed while it's inactive.
+    ui_base: UiColors,
+    /// Fade toward the inactive look: (from, to, started, seconds).
+    dim: (f32, f32, Instant, f32),
+    dim_anim: Option<Task<()>>,
     pub overlay: Overlay,
     /// Tabs visited before / after the current one (ids), for ⌘[ / ⌘].
     /// Whether T1K's Claude Code hooks are in ~/.claude/settings.json (refreshed while polling).
@@ -380,6 +385,9 @@ impl Workspace {
             light,
             theme: dark,
             ui: dark.ui(),
+            ui_base: dark.ui(),
+            dim: (0., 0., Instant::now(), 0.),
+            dim_anim: None,
             overlay: Overlay::None,
             hooks_installed: crate::settings::claude_hooks_installed(),
             settings_query: String::new(),
@@ -448,6 +456,10 @@ impl Workspace {
             _fast: fast,
         };
         cx.observe_window_appearance(window, |this, window, cx| this.apply_theme(window, cx)).detach();
+        cx.observe_window_activation(window, |this, window, cx| this.set_inactive(!window.is_window_active(), cx)).detach();
+        if !window.is_window_active() && std::env::var_os("T1K_DEBUG_BACKGROUND").is_some() {
+            this.set_inactive(true, cx);
+        }
         crate::updater::start(&this.config.updates);
         // Remember where the window is; saved with the session (debounced through `poll`).
         cx.observe_window_bounds(window, |this, window, _| this.window_frame = Some(frame_of(window))).detach();
@@ -1626,7 +1638,8 @@ impl Workspace {
 
     fn apply_theme(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.theme = self.resolve_theme(window);
-        self.ui = self.theme.ui();
+        self.ui_base = self.theme.ui();
+        self.ui = self.ui_base.inactive(self.dim_level());
         let palette = self.theme.palette();
         for tab in &self.tabs {
             tab.view.update(cx, |v, cx| {
@@ -1635,6 +1648,38 @@ impl Workspace {
             });
         }
         cx.notify();
+    }
+
+    /// Canvas v3-u: 150 ms ease-out into the inactive look, 80 ms back; instant with Reduce motion.
+    fn set_inactive(&mut self, inactive: bool, cx: &mut Context<Self>) {
+        let to = if inactive { 1. } else { 0. };
+        if self.dim.1 == to {
+            return;
+        }
+        let secs = if crate::platform::reduce_motion() { 0. } else if inactive { 0.15 } else { 0.08 };
+        self.dim = (self.dim_level(), to, Instant::now(), secs);
+        self.ui = self.ui_base.inactive(self.dim_level());
+        cx.notify();
+        if secs > 0. {
+            self.dim_anim = Some(cx.spawn(async move |this, cx| loop {
+                cx.background_executor().timer(Duration::from_millis(16)).await;
+                let done = this.update(cx, |ws, cx| {
+                    ws.ui = ws.ui_base.inactive(ws.dim_level());
+                    cx.notify();
+                    ws.dim.2.elapsed().as_secs_f32() >= ws.dim.3
+                });
+                if done.unwrap_or(true) {
+                    break;
+                }
+            }));
+        }
+    }
+
+    fn dim_level(&self) -> f32 {
+        let (from, to, at, secs) = self.dim;
+        let t = if secs <= 0. { 1. } else { (at.elapsed().as_secs_f32() / secs).min(1.) };
+        let e = 1. - (1. - t) * (1. - t);
+        from + (to - from) * e
     }
 
     // ---- actions ----------------------------------------------------------------------------

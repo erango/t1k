@@ -72,6 +72,51 @@ pub struct UiColors {
     pub status_needs: Hsla,
     pub status_done: Hsla,
     pub status_error: Hsla,
+    /// Opacity for program icons (lowered while the window is inactive).
+    pub icon_alpha: f32,
+}
+
+fn blend(a: Hsla, b: Hsla, t: f32) -> Hsla {
+    let (x, y) = (Rgba::from(a), Rgba::from(b));
+    let l = |p: f32, q: f32| p + (q - p) * t;
+    Rgba { r: l(x.r, y.r), g: l(x.g, y.g), b: l(x.b, y.b), a: l(x.a, y.a) }.into()
+}
+
+impl UiColors {
+    /// The window's inactive look (canvas v3-u, option d), `k` of the way there (0 = active,
+    /// 1 = inactive, in between while fading). Chrome text and accents soften toward the
+    /// sidebar, borders and fills flatten. Amber and red stay as they are, so a tab that needs
+    /// you stands out more, not less. The terminal is drawn from its own palette and is untouched.
+    pub fn inactive(&self, k: f32) -> UiColors {
+        if k <= 0. {
+            return *self;
+        }
+        let k = k.min(1.);
+        let surface = self.bg_sidebar;
+        let text = |c: Hsla| blend(c, surface, 0.30 * k);
+        let line = |c: Hsla| Hsla { a: c.a * (1. - 0.40 * k), ..c };
+        let fill = |c: Hsla| blend(c, surface, 0.50 * k);
+        let accent = |c: Hsla| blend(Hsla { s: c.s * (1. - 0.35 * k), ..c }, surface, 0.25 * k);
+        UiColors {
+            bg_raised: fill(self.bg_raised),
+            bg_hover: fill(self.bg_hover),
+            sidebar_hover: fill(self.sidebar_hover),
+            bg_control: fill(self.bg_control),
+            sidebar_edge: line(self.sidebar_edge),
+            border: line(self.border),
+            text_primary: text(self.text_primary),
+            text_secondary: text(self.text_secondary),
+            text_tertiary: text(self.text_tertiary),
+            text_quiet: text(self.text_quiet),
+            text_disabled: text(self.text_disabled),
+            accent: accent(self.accent),
+            link: accent(self.link),
+            status_working: text(self.status_working),
+            status_done: accent(self.status_done),
+            icon_alpha: 1. - 0.25 * k,
+            ..*self
+        }
+    }
 }
 
 fn rgb(v: u32) -> Rgb {
@@ -162,6 +207,7 @@ impl Theme {
             status_needs: hsla(self.ansi[3], 1.),
             status_done: hsla(self.ansi[2], 1.),
             status_error: hsla(self.ansi[1], 1.),
+            icon_alpha: 1.,
         }
     }
 }
