@@ -456,7 +456,15 @@ fn scrim(ws: &Workspace, close_on_click: bool, cx: &mut Context<Workspace>) -> g
         .occlude()
         .track_focus(&ws.overlay_focus)
         .on_key_down(cx.listener(Workspace::overlay_key))
-        .when(close_on_click, |d| d.on_click(cx.listener(|this, _, window, cx| this.close_overlay(window, cx))))
+        // GPUI turns Space/Enter on a focused element into a click; the scrim holds the
+        // overlay's focus, so only a real mouse click outside the panel may close it.
+        .when(close_on_click, |d| {
+            d.on_click(cx.listener(|this, ev: &gpui::ClickEvent, window, cx| {
+                if !ev.is_keyboard() {
+                    this.close_overlay(window, cx)
+                }
+            }))
+        })
 }
 
 pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> Option<AnyElement> {
