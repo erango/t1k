@@ -766,7 +766,7 @@ pub(crate) fn card(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> im
                     div().truncate().text_color(if needs && j + 1 == n { ui.status_needs } else { ui.text_secondary }).child(l)
                 }))
         }))
-        .children(recap.map(|r| div().text_size(px(12.5 * k)).text_color(ui.text_secondary).line_clamp(3).child(format!("Recap: {r}"))))
+        .children(recap.map(|r| div().text_size(px(12.5 * k)).text_color(ui.text_secondary).child(format!("Recap: {r}"))))
         .when(!chips.is_empty(), |d| {
             d.child(div().flex().flex_wrap().gap(px(6.)).children(chips.into_iter().map(|(t, c)| {
                 div().px(px(6.)).py(px(2.)).rounded(px(4.)).bg(ui.bg_control).text_size(px(11.)).font_family("JetBrains Mono").text_color(c).child(t)
