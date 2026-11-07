@@ -92,6 +92,13 @@ pub fn tool_path() -> String {
 static CLICKED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 static UN_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// (tab id, minutes) from a reminder banner's Snooze buttons, drained each tick.
+static SNOOZED: std::sync::Mutex<Vec<(String, u64)>> = std::sync::Mutex::new(Vec::new());
+
+pub fn take_snoozed() -> Vec<(String, u64)> {
+    std::mem::take(&mut *SNOOZED.lock().unwrap())
+}
+
 /// Tab ids whose notification was clicked since the last call.
 pub fn take_clicked() -> Vec<String> {
     std::mem::take(&mut *CLICKED.lock().unwrap())
@@ -126,11 +133,21 @@ pub fn init_notifications() {
                 use cocoa::foundation::NSString;
                 let key = NSString::alloc(nil).init_str("tab");
                 let tab: id = msg_send![info, objectForKey: key];
+                let action: id = msg_send![response, actionIdentifier];
+                let action = if action == nil {
+                    String::new()
+                } else {
+                    let a: *const std::os::raw::c_char = msg_send![action, UTF8String];
+                    if a.is_null() { String::new() } else { std::ffi::CStr::from_ptr(a).to_string_lossy().into_owned() }
+                };
                 if tab != nil {
                     let s: *const std::os::raw::c_char = msg_send![tab, UTF8String];
                     if !s.is_null() {
                         let s = std::ffi::CStr::from_ptr(s).to_string_lossy().into_owned();
-                        CLICKED.lock().unwrap().push(s);
+                        match action.strip_prefix("snooze-").and_then(|m| m.parse::<u64>().ok()) {
+                            Some(mins) => SNOOZED.lock().unwrap().push((s, mins)),
+                            None => CLICKED.lock().unwrap().push(s),
+                        }
                     }
                 }
                 let block = &*(done as *const block::Block<(), ()>);
@@ -163,6 +180,18 @@ pub fn init_notifications() {
         let delegate: id = msg_send![class, new];
         let center: id = msg_send![class!(UNUserNotificationCenter), currentNotificationCenter];
         let _: () = msg_send![center, setDelegate: delegate];
+        // Reminder banners carry Snooze buttons.
+        {
+            use cocoa::foundation::NSString;
+            let s = |t: &str| NSString::alloc(nil).init_str(t);
+            let a10: id = msg_send![class!(UNNotificationAction), actionWithIdentifier: s("snooze-10") title: s("Snooze 10 min") options: 0usize];
+            let a60: id = msg_send![class!(UNNotificationAction), actionWithIdentifier: s("snooze-60") title: s("Snooze 1 hour") options: 0usize];
+            let actions: id = msg_send![class!(NSArray), arrayWithObjects: [a10, a60].as_ptr() count: 2usize];
+            let none: id = msg_send![class!(NSArray), array];
+            let cat: id = msg_send![class!(UNNotificationCategory), categoryWithIdentifier: s("t1k-reminder") actions: actions intentIdentifiers: none options: 0usize];
+            let set: id = msg_send![class!(NSSet), setWithObject: cat];
+            let _: () = msg_send![center, setNotificationCategories: set];
+        }
         let handler = ConcreteBlock::new(|granted: BOOL, _err: id| {
             if granted != cocoa::base::NO {
                 UN_READY.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -180,6 +209,15 @@ pub fn init_notifications() {}
 /// Post a banner that focuses `tab` when clicked. Falls back to osascript (no click target)
 /// outside the app bundle or without permission.
 pub fn notify_tab(tab: &str, title: &str, subtitle: &str, body: &str) {
+    notify_tab_in(tab, title, subtitle, body, None)
+}
+
+/// A reminder banner: like `notify_tab`, with Snooze buttons.
+pub fn notify_reminder(tab: &str, title: &str, body: &str) {
+    notify_tab_in(tab, "T1K", title, body, Some("t1k-reminder"))
+}
+
+fn notify_tab_in(tab: &str, title: &str, subtitle: &str, body: &str, category: Option<&str>) {
     #[cfg(target_os = "macos")]
     if UN_READY.load(std::sync::atomic::Ordering::SeqCst) {
         use cocoa::base::{id, nil};
@@ -193,6 +231,9 @@ pub fn notify_tab(tab: &str, title: &str, subtitle: &str, body: &str) {
             let _: () = msg_send![content, setBody: s(body)];
             let info: id = msg_send![class!(NSDictionary), dictionaryWithObject: s(tab) forKey: s("tab")];
             let _: () = msg_send![content, setUserInfo: info];
+            if let Some(c) = category {
+                let _: () = msg_send![content, setCategoryIdentifier: s(c)];
+            }
             let sound: id = msg_send![class!(UNNotificationSound), defaultSound];
             let _: () = msg_send![content, setSound: sound];
             let ident = s(&format!("t1k-{tab}-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)));

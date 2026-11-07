@@ -472,6 +472,7 @@ impl Workspace {
                     let dark = this.theme.is_dark();
                     Some(Overlay::ThemePicker { query: String::new(), selected: 0, dark })
                 }
+                "remind" => Some(Overlay::RemindCustom { tab: this.active, text: "tomorrow 9:15".into() }),
                 "settings-keys" => Some(Overlay::Settings { section: crate::settings::Section::Keybindings }),
                 "settings-search" => {
                     this.settings_query = "font".into();
@@ -896,8 +897,14 @@ impl Workspace {
                 t.reminder_due = true;
                 changed = true;
                 if self.config.notify.reminder {
-                    crate::platform::notify_tab(&t.id, "T1K", "Reminder", &t.title());
+                    crate::platform::notify_reminder(&t.id, "Reminder", &t.title());
                 }
+            }
+        }
+        for (id, mins) in crate::platform::take_snoozed() {
+            if let Some(ix) = self.tabs.iter().position(|t| t.id == id) {
+                self.set_reminder(ix, Some(now + Duration::from_secs(mins * 60)), cx);
+                changed = true;
             }
         }
         while let Ok(env) = self.agent_rx.try_recv() {

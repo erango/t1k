@@ -47,6 +47,8 @@ pub enum Overlay {
         apps: Vec<(String, std::path::PathBuf)>,
     },
     Settings { section: crate::settings::Section },
+    /// Tab menu › Remind me › Custom…: a typed time.
+    RemindCustom { tab: usize, text: String },
     /// Theme picker: `dark` is the slot being chosen.
     ThemePicker { query: String, selected: usize, dark: bool },
 }
@@ -297,6 +299,17 @@ impl Workspace {
                     }
                 }
             }
+            Overlay::RemindCustom { tab, mut text } => match input::handle(&mut text, ev) {
+                Key::Submit => match crate::reminders::parse(&text, SystemTime::now()) {
+                    Some(at) => {
+                        self.set_reminder(tab, Some(at), cx);
+                        None
+                    }
+                    None => Some(Overlay::RemindCustom { tab, text }),
+                },
+                Key::Cancel => None,
+                _ => Some(Overlay::RemindCustom { tab, text }),
+            },
             Overlay::Rename { tab, mut text } => match input::handle(&mut text, ev) {
                 Key::Submit => {
                     let text = text.trim().to_string();
@@ -719,7 +732,38 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                         .child(format!("{text}▏")),
                 )
                 .child(div().text_size(px(11.)).text_color(ui.text_tertiary).child(hint));
-            Some(scrim(ws, true, cx).flex().justify_center().child(panel).into_any_element())
+            Some(scrim(ws, true, cx).flex().justify_center().items_start().child(panel).into_any_element())
+        }
+        Overlay::RemindCustom { tab, text } => {
+            let now = SystemTime::now();
+            let when = crate::reminders::parse(text, now);
+            let preview = match (when, text.trim().is_empty()) {
+                (_, true) => "Try 45m, 2h, 16:30, 4pm or tomorrow 9:15".to_string(),
+                (Some(at), _) => format!("Reminds you {}", crate::reminders::describe(at, now)),
+                (None, _) => "Can't read that time yet".to_string(),
+            };
+            let title = ws.tabs.get(*tab).map(|t| t.title()).unwrap_or_default();
+            let panel = div()
+                .w(px(420.))
+                .mt(px(120.))
+                .p(px(14.))
+                .rounded(px(12.))
+                .bg(ui.bg_raised)
+                .border_1()
+                .border_color(ui.border)
+                .shadow_lg()
+                .flex()
+                .flex_col()
+                .gap(px(8.))
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .child(div().truncate().text_size(px(12.)).text_color(ui.text_tertiary).child(format!("Remind me about {title}")))
+                .child(
+                    div().h(px(34.)).px(px(10.)).rounded(px(6.)).bg(ui.bg_control).flex().items_center()
+                        .text_size(px(14.)).text_color(ui.text_primary).child(format!("{text}▏")),
+                )
+                .child(div().text_size(px(12.)).text_color(if when.is_some() { ui.text_secondary } else { ui.text_tertiary }).child(preview))
+                .child(div().text_size(px(11.)).text_color(ui.text_tertiary).child("Enter to set · Esc"));
+            Some(scrim(ws, true, cx).flex().justify_center().items_start().child(panel).into_any_element())
         }
         Overlay::ThemePicker { query, selected, dark } => {
             let panel = crate::theme_picker::render(ws, query, *selected, *dark, cx);
@@ -1000,7 +1044,51 @@ fn menu(ws: &Workspace, tab: usize, at: Point<Pixels>, window: &Window, cx: &mut
                 .child(label),
         );
     }
+    chips = chips.child(
+        div()
+            .id("rem-custom")
+            .px(px(8.))
+            .h(px(22.))
+            .rounded(px(5.))
+            .bg(ui.bg_control)
+            .flex()
+            .items_center()
+            .text_size(px(12.))
+            .text_color(ui.text_primary)
+            .hover(move |d| d.bg(ui.accent.opacity(0.3)))
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.open_overlay(Overlay::RemindCustom { tab, text: String::new() }, window, cx);
+            }))
+            .child("Custom…"),
+    );
     m = m.child(chips);
+    if t.reminder_due {
+        // A reminder that went off: push it back instead of clearing it.
+        let mut snooze = div().flex().gap(px(4.)).px(px(8.)).pb(px(4.));
+        for (label, mins) in [("Snooze 10 min", 10u64), ("Snooze 1 hour", 60)] {
+            snooze = snooze.child(
+                div()
+                    .id(SharedString::from(format!("snooze-{mins}")))
+                    .px(px(8.))
+                    .h(px(22.))
+                    .rounded(px(5.))
+                    .bg(ui.bg_control)
+                    .flex()
+                    .items_center()
+                    .text_size(px(12.))
+                    .text_color(ui.text_primary)
+                    .hover(move |d| d.bg(ui.accent.opacity(0.3)))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.set_reminder(tab, Some(SystemTime::now() + Duration::from_secs(mins * 60)), cx);
+                        this.close_overlay(window, cx);
+                    }))
+                    .child(label),
+            );
+        }
+        m = m.child(snooze);
+    } else if let Some(at) = t.reminder_at {
+        m = m.child(div().px(px(10.)).pb(px(4.)).text_size(px(11.)).text_color(ui.text_tertiary).child(format!("Set {}", crate::reminders::describe(at, SystemTime::now()))));
+    }
     if t.reminder_at.is_some() || t.reminder_due {
         m = m.child(item("clear-rem", "Clear reminder".into()).on_click(cx.listener(move |this, _, window, cx| {
             this.set_reminder(tab, None, cx);

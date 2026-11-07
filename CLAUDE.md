@@ -42,7 +42,7 @@ Debug environment variables (all read at launch):
 
 | Variable | Effect |
 |---|---|
-| `T1K_DEBUG_OVERLAY=palette\|switcher\|overview\|settings\|settings-interface\|settings-search\|settings-keys\|themes\|menu\|groupmenu\|termmenu\|sidebarview\|more\|card\|about\|welcome\|settings-advanced\|update\|update-background\|quit` | Opens that surface (`update` also starts a check) |
+| `T1K_DEBUG_OVERLAY=palette\|switcher\|overview\|settings\|settings-interface\|settings-search\|settings-keys\|themes\|remind\|menu\|groupmenu\|termmenu\|sidebarview\|more\|card\|about\|welcome\|settings-advanced\|update\|update-background\|quit` | Opens that surface (`update` also starts a check) |
 | `T1K_DEBUG_UPDATE=install` | Presses Restart now as soon as an update is ready (with `T1K_DEBUG_OVERLAY=update-background`) |
 | `T1K_DEBUG_CRASH=error\|panic` | Sends a test error report / crashes on purpose (needs a DSN) |
 | `T1K_DEBUG_AGENT=working\|needs\|error\|done\|helper` | Fakes an agent session on the active tab (`helper`: an untitled Codex turn that just finished, for the helper) |
