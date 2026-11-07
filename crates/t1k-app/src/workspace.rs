@@ -49,6 +49,8 @@ pub struct Tab {
     pub last_session: Option<String>,
     /// Set when the user moved the tab to a group by hand; folder changes don't regroup it.
     pub pinned_group: Option<PathBuf>,
+    /// An emoji chosen to stand in for the program icon.
+    pub icon: Option<String>,
     /// A second terminal beside or below the main one.
     pub split: Option<crate::split::Split>,
     _sub: Subscription,
@@ -173,6 +175,8 @@ pub struct Workspace {
     pub group_order: Vec<PathBuf>,
     pub group_icons: HashMap<PathBuf, String>,
     pub icon_suggestions: HashMap<PathBuf, Vec<String>>,
+    /// Tab icon suggestions, worked out when the picker first opens for a tab (not saved).
+    pub tab_icon_suggestions: HashMap<String, Vec<String>>,
     /// Automatic group hue (ANSI 4-6), by name, bumped so neighbors differ.
     auto_hues: HashMap<PathBuf, u8>,
     /// The order the hues were last worked out for; they change only when it does.
@@ -369,6 +373,7 @@ impl Workspace {
             group_order: saved.group_order.clone(),
             group_icons: saved.group_icons.iter().cloned().collect(),
             icon_suggestions: saved.icon_suggestions.iter().cloned().collect(),
+            tab_icon_suggestions: HashMap::new(),
             auto_hues: HashMap::new(),
             hues_for: Vec::new(),
             group_emptied: HashMap::new(),
@@ -513,6 +518,7 @@ impl Workspace {
                     }
                 }
                 tab.last_session = t.last_session;
+                tab.icon = t.icon;
                 if let Some(g) = t.pinned_group {
                     tab.group = g.clone();
                     tab.pinned_group = Some(g);
@@ -650,9 +656,12 @@ impl Workspace {
                     Some(Overlay::ThemePicker { query: String::new(), selected: 0, dark })
                 }
                 "remind" => Some(Overlay::RemindCustom { tab: this.active, text: "tomorrow 9:15".into() }),
-                "icons" | "icons-search" => {
-                    let key = this.tabs[this.active].group.clone();
-                    this.ensure_icon_suggestions(&key, cx);
+                "icons" | "icons-search" | "tabicons" => {
+                    let key = match which.as_str() {
+                        "tabicons" => crate::group_icons::IconFor::Tab(this.tabs[this.active].id.clone()),
+                        _ => crate::group_icons::IconFor::Group(this.tabs[this.active].group.clone()),
+                    };
+                    this.ensure_suggestions_for(&key, cx);
                     let query = if which == "icons-search" { "rocket".to_string() } else { String::new() };
                     Some(Overlay::IconPicker { key, at: gpui::point(px(60.), px(130.)), query, selected: 0, cat: 0 })
                 }
@@ -666,6 +675,10 @@ impl Workspace {
                 "termmenu" => Some(Overlay::TerminalMenu { tab: this.active, split: false, at: gpui::point(px(600.), px(200.)), link: None, has_selection: false, apps: Vec::new() }),
                 "card" => {
                     this.card = this.tabs.get(this.active).map(|t| t.id.clone());
+                    None
+                }
+                "card-strip" => {
+                    this.card = this.tabs.get(this.active).map(|t| format!("strip:{}", t.id));
                     None
                 }
                 _ => None,
@@ -738,6 +751,7 @@ impl Workspace {
             reminder_due: false,
             last_session: None,
             pinned_group: None,
+            icon: None,
             split: None,
             _sub: sub,
         });
@@ -1558,6 +1572,7 @@ impl Workspace {
                     last_session: t.agent.as_ref().map(|a| a.session_id.clone()).filter(|s| !s.is_empty())
                         .or_else(|| t.last_session.clone()),
                     pinned_group: t.pinned_group.clone(),
+                    icon: t.icon.clone(),
                     split: t.split.as_ref().map(|s| (s.cwd.clone(), s.vertical)),
                     scrollback: self.scrollback_saved.then(|| format!("{}.ansi", t.id)),
                     agent_live: self.resume_after_quit.contains(&t.id)

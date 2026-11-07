@@ -27,6 +27,9 @@ pub struct SavedTab {
     /// A Claude session was still running in this tab when T1K quit.
     #[serde(default)]
     pub agent_live: bool,
+    /// Emoji chosen for this tab.
+    #[serde(default)]
+    pub icon: Option<String>,
 }
 
 /// A Claude session that no tab holds any more (tab closed, or replaced by a newer session).

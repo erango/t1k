@@ -142,6 +142,10 @@ pub fn badge(tab: &Tab, ui: UiColors, size: f32) -> Div {
     // Small icons fill their tile edge to edge with a tighter corner, so they read at 16-22 px.
     let radius = (size * 0.24).round();
     let base = div().opacity(ui.icon_alpha).size(px(size)).flex_none().rounded(px(radius)).overflow_hidden().flex().items_center().justify_center();
+    // An emoji the user chose for this tab stands in for the program.
+    if let Some(e) = &tab.icon {
+        return base.text_size(px((size * 0.8).round())).line_height(px(size)).child(e.clone());
+    }
     // A live agent session names the program (its process may show as node or python).
     let live_agent = tab.agent.as_ref().filter(|a| a.status != t1k_agent::Status::Ended);
     let program = match live_agent {

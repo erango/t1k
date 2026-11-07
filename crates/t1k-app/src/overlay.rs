@@ -41,7 +41,7 @@ pub enum Overlay {
     Menu { tab: usize, at: Point<Pixels> },
     GroupMenu { key: std::path::PathBuf, at: Point<Pixels> },
     /// Group icon picker: suggestions, search and the emoji palette (`cat` is the category).
-    IconPicker { key: std::path::PathBuf, at: Point<Pixels>, query: String, selected: usize, cat: usize },
+    IconPicker { key: crate::group_icons::IconFor, at: Point<Pixels>, query: String, selected: usize, cat: usize },
     /// Right-click in a terminal pane (`split`: the tab's split pane rather than its main one).
     TerminalMenu {
         tab: usize,
@@ -1025,6 +1025,10 @@ fn menu(ws: &Workspace, tab: usize, at: Point<Pixels>, window: &Window, cx: &mut
         }),
     ));
     m = m.child(item("rename", "Rename…".into()).on_click(cx.listener(move |this, _, window, cx| this.start_rename(tab, window, cx))));
+    let id = t.id.clone();
+    m = m.child(item("icon", if t.icon.is_some() { "Change icon…".into() } else { "Choose icon…".into() }).on_click(cx.listener(
+        move |this, ev: &gpui::ClickEvent, window, cx| this.open_icon_picker(crate::group_icons::IconFor::Tab(id.clone()), ev.position(), window, cx),
+    )));
     if t.split.is_some() {
         m = m.child(item("close-split", "Close split".into()).on_click(cx.listener(move |this, _, window, cx| {
             this.close_overlay(window, cx);
@@ -1236,7 +1240,7 @@ fn group_menu(ws: &Workspace, key: std::path::PathBuf, at: Point<Pixels>, window
     let k = key.clone();
     let has_icon = ws.group_icons.contains_key(&key);
     m = m.child(item("icon", if has_icon { "Change icon…".into() } else { "Choose icon…".into() }).on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
-        this.open_icon_picker(k.clone(), ev.position(), window, cx);
+        this.open_icon_picker(crate::group_icons::IconFor::Group(k.clone()), ev.position(), window, cx);
     })));
     let k = key.clone();
     m = m.child(item("rename", "Rename…".into()).on_click(cx.listener(move |this, _, window, cx| {

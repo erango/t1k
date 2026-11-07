@@ -20,8 +20,8 @@ pub enum JobKind {
     Recap,
     /// Rank tabs for a switcher query; `ids` maps the numbers offered to tab ids.
     Search { query: String, ids: Vec<String> },
-    /// Emoji suggestions for a group's icon.
-    Icon { key: std::path::PathBuf },
+    /// Emoji suggestions for a group's or a tab's icon.
+    Icon { key: crate::group_icons::IconFor },
 }
 
 #[derive(Clone, Debug)]
@@ -117,7 +117,17 @@ impl Workspace {
         let readme = key.is_dir().then(|| std::fs::read_to_string(key.join("README.md")).ok()).flatten();
         let heading = readme.as_deref().and_then(|r| r.lines().find(|l| l.starts_with('#'))).map(|h| h.trim_start_matches('#').trim().to_string());
         let prompt = crate::group_icons::icon_prompt(label, heading.as_deref(), titles);
-        self.helper.queue.push_back(Job { tab_id: String::new(), session_id: String::new(), kind: JobKind::Icon { key: key.to_path_buf() }, prompt });
+        self.helper.queue.push_back(Job { tab_id: String::new(), session_id: String::new(), kind: JobKind::Icon { key: crate::group_icons::IconFor::Group(key.to_path_buf()) }, prompt });
+        self.pump_helper(cx);
+    }
+
+    /// Ask the helper for a tab's icon suggestions (when its picker first opens).
+    pub fn helper_tab_icon(&mut self, id: &str, title: &str, project: &str, detail: Option<&str>, cx: &mut Context<Self>) {
+        if self.helper_backend().is_none() {
+            return;
+        }
+        let prompt = crate::group_icons::tab_icon_prompt(title, project, detail);
+        self.helper.queue.push_front(Job { tab_id: id.to_string(), session_id: String::new(), kind: JobKind::Icon { key: crate::group_icons::IconFor::Tab(id.to_string()) }, prompt });
         self.pump_helper(cx);
     }
 
@@ -181,8 +191,16 @@ impl Workspace {
             JobKind::Icon { key } => {
                 let picks = crate::group_icons::parse_emoji(&text);
                 if picks.len() >= 3 {
-                    self.icon_suggestions.insert(key, picks);
-                    self.save();
+                    match key {
+                        crate::group_icons::IconFor::Group(k) => {
+                            self.icon_suggestions.insert(k, picks);
+                            self.save();
+                        }
+                        crate::group_icons::IconFor::Tab(id) => {
+                            self.tab_icon_suggestions.insert(id, picks);
+                        }
+                    }
+                    cx.notify();
                 }
             }
             kind if !text.is_empty() => {

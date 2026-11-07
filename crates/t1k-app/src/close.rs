@@ -20,6 +20,7 @@ pub struct ClosedTab {
     pub manual_title: Option<String>,
     pub title: String,
     pub pinned_group: Option<PathBuf>,
+    pub icon: Option<String>,
     pub session: Option<String>,
     /// Its scrollback, replayed when it reopens (no banner).
     pub scrollback: Vec<u8>,
@@ -138,6 +139,7 @@ impl Workspace {
             manual_title: t.manual_title.clone(),
             title: t.title(),
             pinned_group: t.pinned_group.clone(),
+            icon: t.icon.clone(),
             session: t.agent.as_ref().map(|a| a.session_id.clone()).filter(|s| !s.is_empty()).or_else(|| t.last_session.clone()),
             scrollback: t.view.read(cx).terminal.snapshot(5_000),
             batch,
@@ -187,6 +189,7 @@ impl Workspace {
         self.restore_next = Some(c.scrollback);
         self.open_tab(cwd, c.manual_title, window, cx);
         let ix = self.tabs.len() - 1;
+        self.tabs[ix].icon = c.icon;
         if let Some(g) = c.pinned_group {
             self.move_tab(ix, Some(g), cx);
         }

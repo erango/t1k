@@ -53,7 +53,18 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
         // the title.
         // Only the step text gives way when space runs out; the rest is clipped, never drawn
         // over the title.
+        // The step text is often cut off: resting on it shows the sidebar's card for this tab.
+        let hover_id = format!("strip:{}", tab.map(|t| t.id.as_str()).unwrap_or(""));
+        let carded = ws.card.as_deref() == Some(hover_id.as_str()) && matches!(ws.overlay, crate::overlay::Overlay::None);
         div()
+            .id("strip-chip")
+            .relative()
+            .on_hover(cx.listener(move |this, hovered: &bool, _, cx| this.row_hovered(hover_id.clone(), *hovered, cx)))
+            .when(carded, |d| {
+                d.child(div().absolute().top(px(32.)).left(px(-8.)).child(
+                    gpui::deferred(gpui::anchored().snap_to_window_with_margin(px(8.)).child(crate::sidebar::card(ws, ws.active, cx))).with_priority(1),
+                ))
+            })
             .flex_shrink()
             .min_w(px(140.))
             .max_w(px(440.))

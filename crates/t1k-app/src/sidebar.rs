@@ -452,7 +452,7 @@ fn icon_slot(ws: &Workspace, key: &std::path::Path, sticky: bool, cx: &mut Conte
         .tooltip(crate::tooltip::text(ui, if icon.is_some() { "Change icon" } else { "Choose an icon" }))
         .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
             cx.stop_propagation();
-            this.open_icon_picker(k.clone(), ev.position(), window, cx);
+            this.open_icon_picker(crate::group_icons::IconFor::Group(k.clone()), ev.position(), window, cx);
         }));
     match icon {
         Some(e) => base.size(px(size)).text_size(px(size.min(18.) - 3.)).child(e),
@@ -646,7 +646,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
 /// Hover card (v3): what this tab is doing and whether to go there, without switching.
 /// Needs you quotes Claude's question from the screen; Working shows the last output lines;
 /// Done shows the recap. Chips only when true. Actions: the one that fits, then split, remind.
-fn card(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> impl IntoElement {
+pub(crate) fn card(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> impl IntoElement {
     let ui = ws.ui;
     let k = ws.config.interface.text_scale();
     let tab = &ws.tabs[ix];
