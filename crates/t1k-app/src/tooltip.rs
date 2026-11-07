@@ -31,5 +31,5 @@ impl Render for TextTooltip {
 /// For `.tooltip(...)` on a stateful element.
 pub fn text(ui: UiColors, text: impl Into<gpui::SharedString>) -> impl Fn(&mut Window, &mut App) -> AnyView {
     let text: gpui::SharedString = text.into();
-    move |_, cx| cx.new(|_| TextTooltip { text: text.clone().into(), ui }).into()
+    move |_, cx| cx.new(|_| TextTooltip { text: text.clone(), ui }).into()
 }
