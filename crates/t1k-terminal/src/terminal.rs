@@ -228,6 +228,58 @@ impl Terminal {
         self.term.lock().selection = Some(Selection::new(ty, point, side));
     }
 
+    /// Shift-arrow on a selection (as in macOS text): move its moving end from `head` by a
+    /// character (`dx`), a line (`dy`), a word (`word`) or to the line's edge (`edge`).
+    /// Returns the new head, or None when there's no selection.
+    pub fn extend_selection(&self, head: GridPoint, dx: i32, dy: i32, word: bool, edge: bool) -> Option<GridPoint> {
+        use alacritty_terminal::grid::Dimensions;
+        let mut term = self.term.lock();
+        term.selection.as_ref()?;
+        let cols = term.columns() as i32;
+        let (top, bottom) = (term.topmost_line().0, term.bottommost_line().0);
+        let cell = |term: &Term<Listener>, l: i32, c: i32| term.grid()[Line(l)][Column(c as usize)].c;
+        let (mut line, mut col) = (head.line.0, head.column.0 as i32);
+        if dy != 0 {
+            line = (line + dy).clamp(top, bottom);
+        } else if edge {
+            col = if dx < 0 { 0 } else { cols - 1 };
+        } else if word {
+            // Skip spaces, then the word, in the direction of travel.
+            let step = |line: &mut i32, col: &mut i32| -> bool {
+                *col += dx;
+                if *col < 0 {
+                    if *line == top { *col = 0; return false; }
+                    *line -= 1;
+                    *col = cols - 1;
+                } else if *col >= cols {
+                    if *line == bottom { *col = cols - 1; return false; }
+                    *line += 1;
+                    *col = 0;
+                }
+                true
+            };
+            while cell(&term, line, col).is_whitespace() && step(&mut line, &mut col) {}
+            while !cell(&term, line, col).is_whitespace() && step(&mut line, &mut col) {}
+        } else {
+            col += dx;
+            if col < 0 && line > top {
+                line -= 1;
+                col = cols - 1;
+            } else if col >= cols && line < bottom {
+                line += 1;
+                col = 0;
+            }
+            col = col.clamp(0, cols - 1);
+        }
+        let point = GridPoint::new(Line(line), Column(col as usize));
+        let side = if dx < 0 || dy < 0 { Side::Left } else { Side::Right };
+        if let Some(sel) = term.selection.as_mut() {
+            sel.update(point, side);
+        }
+        term.scroll_to_point(point);
+        Some(point)
+    }
+
     pub fn update_selection(&self, col: usize, row: usize, side: Side) {
         let point = self.grid_point(col, row);
         if let Some(sel) = self.term.lock().selection.as_mut() {

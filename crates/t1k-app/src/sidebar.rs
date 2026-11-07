@@ -579,8 +579,8 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
 
     if selected {
         // Selected: filled with the terminal background, flush to the sidebar's right edge so the
-        // row reads as part of the terminal; 3px accent bar inset 7px top and bottom.
-        // Design v3-o C1: the row and the terminal are one surface. It reaches over the edge
+        // row reads as part of the terminal; no accent bar (the join says it, and a bar would
+        // compete with the group line). Design v3-o C1: the row and the terminal are one surface. It reaches over the edge
         // hairline, and 8 px concave curves above and below flare it into the terminal.
         let fillet = |top: bool| {
             div()
@@ -598,8 +598,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
             .bg(ui.bg_terminal)
             .rounded_l(px(R))
             .child(fillet(true))
-            .child(fillet(false))
-            .child(div().absolute().left_0().top(px(7.)).bottom(px(7.)).w(px(3.)).rounded(px(2.)).bg(ui.accent));
+            .child(fillet(false));
     } else {
         el = el.mr(px(INSET)).rounded(px(6.)).hover(move |d| d.bg(ui.sidebar_hover));
     }

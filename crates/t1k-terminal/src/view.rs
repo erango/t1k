@@ -93,6 +93,8 @@ pub struct TerminalView {
     scroll_accum: f32,
     /// Cell of the last plain single click, to tell a click from a drag on release.
     press_cell: Option<(usize, usize)>,
+    /// The selection's moving end, for shift-arrow (grid coordinates).
+    sel_head: Option<alacritty_terminal::index::Point>,
     /// Links found in the last painted frame: viewport (col, row) -> index into `links`.
     link_map: HashMap<(usize, usize), usize>,
     links: Vec<Link>,
@@ -179,6 +181,7 @@ impl TerminalView {
             layout: None,
             scroll_accum: 0.,
             press_cell: None,
+            sel_head: None,
             link_map: HashMap::new(),
             links: Vec::new(),
             link_rules: LinkRules { files: true, prs: false, tickets: false },
@@ -448,6 +451,25 @@ impl TerminalView {
             self.hint_key(ev, cx);
             return;
         }
+        // Shift-arrows change a selection, as in any macOS text (⌥ by word, ⌘ to the edge).
+        let m = &ev.keystroke.modifiers;
+        if m.shift && !m.control && self.terminal.selection_text().is_some() {
+            let (dx, dy) = match ev.keystroke.key.as_str() {
+                "left" => (-1, 0),
+                "right" => (1, 0),
+                "up" => (0, -1),
+                "down" => (0, 1),
+                _ => (0, 0),
+            };
+            if (dx, dy) != (0, 0) {
+                if let Some(head) = self.sel_head {
+                    self.sel_head = self.terminal.extend_selection(head, dx, dy, m.alt, m.platform);
+                    cx.stop_propagation();
+                    cx.notify();
+                    return;
+                }
+            }
+        }
         let mode = self.terminal.mode();
         if let Some(bytes) = to_esc(&ev.keystroke, mode, self.style.option_as_meta) {
             self.terminal.clear_selection();
@@ -588,6 +610,7 @@ impl TerminalView {
         }
         self.press_cell = (ev.click_count == 1 && ev.modifiers.number_of_modifiers() == 0).then_some((col, row));
         self.terminal.start_selection(col, row, side, ty);
+        self.sel_head = Some(self.terminal.grid_point(col, row));
         cx.notify();
     }
 
@@ -625,6 +648,7 @@ impl TerminalView {
             return;
         }
         self.terminal.update_selection(col, row, side);
+        self.sel_head = Some(self.terminal.grid_point(col, row));
         cx.notify();
     }
 
