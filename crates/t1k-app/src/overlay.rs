@@ -188,6 +188,10 @@ impl Workspace {
 
     pub fn open_overlay(&mut self, o: Overlay, window: &mut Window, cx: &mut Context<Self>) {
         self.hide_card(cx);
+        // Rename fields open with the whole name selected, as in Finder.
+        if let Overlay::Rename { text, .. } | Overlay::RenameGroup { text, .. } = &o {
+            self.edit_sel = input::Sel::all(text);
+        }
         self.overlay = o;
         window.focus(&self.overlay_focus);
         cx.notify();
@@ -315,7 +319,7 @@ impl Workspace {
                 Key::Cancel => None,
                 _ => Some(Overlay::RemindCustom { tab, text }),
             },
-            Overlay::Rename { tab, mut text } => match input::handle(&mut text, ev) {
+            Overlay::Rename { tab, mut text } => match input::edit(&mut text, &mut self.edit_sel, ev, cx) {
                 Key::Submit => {
                     let text = text.trim().to_string();
                     if let Some(t) = self.tabs.get_mut(tab) {
@@ -327,7 +331,7 @@ impl Workspace {
                 Key::Cancel => None,
                 _ => Some(Overlay::Rename { tab, text }),
             },
-            Overlay::RenameGroup { key, mut text } => match input::handle(&mut text, ev) {
+            Overlay::RenameGroup { key, mut text } => match input::edit(&mut text, &mut self.edit_sel, ev, cx) {
                 Key::Submit => {
                     let text = text.trim().to_string();
                     if groups::is_custom(&key) {
@@ -754,18 +758,7 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                 .gap(px(8.))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .child(div().text_size(px(12.)).text_color(ui.text_tertiary).child(title))
-                .child(
-                    div()
-                        .h(px(34.))
-                        .px(px(10.))
-                        .rounded(px(6.))
-                        .bg(ui.bg_control)
-                        .flex()
-                        .items_center()
-                        .text_size(px(14.))
-                        .text_color(ui.text_primary)
-                        .child(format!("{text}▏")),
-                )
+                .child(edit_field(ws, text, cx))
                 .child(div().text_size(px(11.)).text_color(ui.text_tertiary).child(hint));
             Some(scrim(ws, true, cx).flex().justify_center().items_start().child(panel).into_any_element())
         }
@@ -1758,4 +1751,89 @@ fn more_menu(ws: &Workspace, at: Point<Pixels>, cx: &mut Context<Workspace>) -> 
         .child(item("more-palette", "Command palette", "⌘⇧P").on_click(run(Box::new(ToggleCommandPalette))))
         .child(item("more-settings", "Settings", "⌘,").on_click(run(Box::new(OpenSettings))))
         .into_any_element()
+}
+
+/// A rename field: the text with its selection and caret; click to place the caret, drag
+/// to select, double-click for a word.
+fn edit_field(ws: &Workspace, text: &str, cx: &mut Context<Workspace>) -> AnyElement {
+    let ui = ws.ui;
+    let sel = ws.edit_sel;
+    let r = sel.range();
+    let (lo, hi) = (r.start.min(text.len()), r.end.min(text.len()));
+    let caret = || div().w(px(1.5)).h(px(17.)).flex_none().bg(ui.accent);
+    let bounds = ws.edit_bounds.clone();
+    let line = div()
+        .relative()
+        .flex_1()
+        .min_w_0()
+        .h_full()
+        .flex()
+        .items_center()
+        .overflow_hidden()
+        .whitespace_nowrap()
+        .child(gpui::canvas(move |b, _, _| bounds.set(Some(b)), |_, _, _, _| {}).absolute().size_full())
+        .child(div().child(text[..lo].to_string()))
+        .when(lo == hi, |d| d.child(caret()))
+        .child(div().bg(ui.accent.opacity(0.3)).child(text[lo..hi].to_string()))
+        .child(div().child(text[hi..].to_string()));
+    div()
+        .id("edit-field")
+        .h(px(34.))
+        .px(px(10.))
+        .rounded(px(6.))
+        .bg(ui.bg_control)
+        .border_1()
+        .border_color(ui.accent.opacity(0.5))
+        .flex()
+        .items_center()
+        .cursor(gpui::CursorStyle::IBeam)
+        .text_size(px(14.))
+        .text_color(ui.text_primary)
+        .on_mouse_down(MouseButton::Left, cx.listener(|this, ev: &gpui::MouseDownEvent, window, cx| {
+            let Some(i) = this.edit_index_at(ev.position, window) else { return };
+            let text = this.edit_text().unwrap_or_default();
+            this.edit_sel = match ev.click_count {
+                2 => input::word_at(&text, i),
+                n if n >= 3 => input::Sel::all(&text),
+                _ if ev.modifiers.shift => input::Sel { anchor: this.edit_sel.anchor, cursor: i },
+                _ => input::Sel { anchor: i, cursor: i },
+            };
+            this.edit_dragging = ev.click_count == 1;
+            cx.notify();
+        }))
+        .on_mouse_move(cx.listener(|this, ev: &gpui::MouseMoveEvent, window, cx| {
+            if !this.edit_dragging || ev.pressed_button != Some(MouseButton::Left) {
+                return;
+            }
+            if let Some(i) = this.edit_index_at(ev.position, window) {
+                this.edit_sel.cursor = i;
+                cx.notify();
+            }
+        }))
+        .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, _| this.edit_dragging = false))
+        .child(line)
+        .into_any_element()
+}
+
+impl Workspace {
+    fn edit_text(&self) -> Option<String> {
+        match &self.overlay {
+            Overlay::Rename { text, .. } | Overlay::RenameGroup { text, .. } => Some(text.clone()),
+            _ => None,
+        }
+    }
+
+    /// Byte offset in the rename field nearest a window position.
+    fn edit_index_at(&self, pos: Point<Pixels>, window: &mut Window) -> Option<usize> {
+        let text = self.edit_text()?;
+        let b = self.edit_bounds.get()?;
+        let x = pos.x - b.origin.x;
+        if text.is_empty() {
+            return Some(0);
+        }
+        let font = window.text_style().font();
+        let run = gpui::TextRun { len: text.len(), font, color: self.ui.text_primary, background_color: None, underline: None, strikethrough: None };
+        let shaped = window.text_system().shape_line(text.clone().into(), px(14.), &[run], None);
+        Some(shaped.closest_index_for_x(x).min(text.len()))
+    }
 }

@@ -113,7 +113,8 @@ pub struct Session {
     #[serde(default)]
     pub group_icons: Vec<(PathBuf, String)>,
     /// Icon suggestions per group, worked out ahead of time (helper or keywords).
-    #[serde(default)]
+    // Renamed from `icon_suggestions` when local suggestions improved, so they're redone.
+    #[serde(default, rename = "icon_suggestions_v2")]
     pub icon_suggestions: Vec<(PathBuf, Vec<String>)>,
 }
 

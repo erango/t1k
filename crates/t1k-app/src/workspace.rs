@@ -225,6 +225,10 @@ pub struct Workspace {
     pub outputs_seen: HashMap<String, usize>,
     /// Set once Quit anyway was pressed: programs are being closed.
     pub quitting: Option<Instant>,
+    /// Rename fields: selection, where the text sits (for clicks) and whether a drag is on.
+    pub edit_sel: crate::input::Sel,
+    pub edit_bounds: std::rc::Rc<std::cell::Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
+    pub edit_dragging: bool,
     /// Claude sessions running when the quit began (they exit, but resume next launch).
     pub resume_after_quit: HashSet<String>,
     /// Scrollback files were written for every tab (at quit); the session points at them.
@@ -366,6 +370,9 @@ impl Workspace {
             settings_return: None,
             outputs_seen: HashMap::new(),
             quitting: None,
+            edit_sel: Default::default(),
+            edit_bounds: Default::default(),
+            edit_dragging: false,
             resume_after_quit: HashSet::new(),
             scrollback_saved: false,
             restore_next: None,
@@ -566,6 +573,11 @@ impl Workspace {
                 }
                 "quit" => Some(Overlay::QuitUpdate),
                 "quit-running" => Some(Overlay::QuitRunning),
+                "rename" => {
+                    let text = "Fix the login redirect".to_string();
+                    this.edit_sel = crate::input::Sel { anchor: 8, cursor: 13 };
+                    Some(Overlay::Rename { tab: this.active, text })
+                }
                 "themes" => {
                     let dark = this.theme.is_dark();
                     Some(Overlay::ThemePicker { query: String::new(), selected: 0, dark })

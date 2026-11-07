@@ -459,11 +459,10 @@ fn icon_slot(ws: &Workspace, key: &std::path::Path, sticky: bool, cx: &mut Conte
                     .flex()
                     .items_center()
                     .justify_center()
-                    .text_size(px(11.))
-                    .text_color(ui.text_tertiary)
                     .invisible()
                     .group_hover(gid, |s| s.visible())
-                    .child("+"),
+                    // A drawn plus: the text glyph sat low in the box.
+                    .child(crate::icons::plus(ui.text_tertiary)),
             ),
         })
 }

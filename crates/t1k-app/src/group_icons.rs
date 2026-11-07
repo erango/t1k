@@ -27,6 +27,12 @@ const KEYWORDS: &[(&str, &str)] = &[
     ("dotfiles", "🧰"), ("config", "🔧"), ("tools", "🧰"), ("bug", "🐛"), ("fix", "🩹"), ("perf", "⚡"), ("search", "🔎"),
     ("notes", "🗒️"), ("todo", "✅"), ("home", "🏠"), ("finance", "💰"), ("money", "💰"), ("shop", "🛒"), ("store", "🛒"),
     ("week", "📅"), ("sprint", "🏃"), ("review", "👀"), ("ops", "🛠️"), ("monitor", "📟"), ("log", "📜"), ("flag", "🚩"),
+    ("sites", "🌐"), ("website", "🌐"), ("skills", "🎓"), ("skill", "🎓"), ("claude", "🤖"), ("find", "🔎"), ("file", "🗂️"),
+    ("files", "🗂️"), ("index", "🗂️"), ("cache", "🗃️"), ("queue", "📬"), ("sync", "🔄"), ("backup", "💾"), ("image", "🖼️"),
+    ("pdf", "📄"), ("translate", "🌍"), ("i18n", "🌍"), ("learn", "🎓"), ("course", "🎓"), ("health", "🩺"), ("food", "🍽️"),
+    ("recipe", "🍳"), ("weather", "⛅"), ("time", "⏱️"), ("timer", "⏱️"), ("news", "📰"), ("rss", "📰"), ("podcast", "🎙️"),
+    ("form", "📝"), ("survey", "📝"), ("crm", "🤝"), ("sales", "🤝"), ("support", "🛟"), ("ticket", "🎫"), ("tv", "📺"),
+    ("plugin", "🧩"), ("extension", "🧩"), ("theme", "🎨"), ("icon", "🖼️"), ("font", "🔤"), ("markdown", "📝"), ("wiki", "📖"),
 ];
 
 /// Files that say what a project is built with.
@@ -35,7 +41,13 @@ const MARKERS: &[(&str, &str)] = &[
     ("Dockerfile", "🐳"), ("main.tf", "🏗️"), ("Gemfile", "💎"), ("Package.swift", "🐦"), ("pom.xml", "☕"), ("build.gradle", "☕"),
 ];
 
-const FALLBACK: &[&str] = &["⭐", "🧭", "🛠️", "💡", "📁", "🌱", "🔭", "🧩"];
+/// When nothing in a project suggests an icon: a varied pool, picked by the group's name,
+/// so different groups get different choices.
+const POOL: &[&str] = &[
+    "🦊", "🐙", "🦉", "🐝", "🦋", "🐢", "🐳", "🦜", "🐧", "🦔", "🌵", "🌲", "🍀", "🌻", "🍄", "🌊", "🔥", "⛰️", "🌙", "☀️",
+    "⭐", "🪐", "🌈", "❄️", "⚡", "🍋", "🍒", "🥑", "🍩", "☕", "🎯", "🎲", "🧩", "🎈", "🪁", "🏁", "🧭", "🔭", "🧪", "🔬",
+    "💎", "🔑", "🧲", "🪄", "🛰️", "⚓", "🗿", "🏔️", "🏝️", "🚲", "⛵", "🎸", "🎨", "📐", "🧱", "🪴", "🕯️", "📯", "🧿", "🔮",
+];
 
 fn words(s: &str) -> Vec<String> {
     s.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(|w| w.to_lowercase()).collect()
@@ -44,47 +56,65 @@ fn words(s: &str) -> Vec<String> {
 /// Up to 5 emoji for a group, without a model: keywords in its name, its README's first
 /// heading and its tabs' titles, then what the project is built with.
 pub fn suggest_local(key: &Path, label: &str, titles: &[String]) -> Vec<String> {
-    let mut text = vec![label.to_string()];
+    // What the project says about itself: its name, README (title and opening), and the
+    // description in its manifest; then its tabs' titles.
+    let mut own = vec![label.to_string()];
     if key.is_dir() {
         if let Ok(readme) = std::fs::read_to_string(key.join("README.md")) {
-            if let Some(h) = readme.lines().find(|l| l.starts_with('#')) {
-                text.push(h.trim_start_matches('#').to_string());
+            own.extend(readme.lines().filter(|l| !l.trim().is_empty() && !l.contains("](") && !l.starts_with("```")).take(12).map(str::to_string));
+        }
+        for m in ["Cargo.toml", "package.json", "pyproject.toml"] {
+            if let Ok(t) = std::fs::read_to_string(key.join(m)) {
+                own.extend(t.lines().filter(|l| l.trim_start().trim_start_matches('"').starts_with("description")).map(str::to_string));
             }
         }
     }
-    text.extend(titles.iter().cloned());
     let mut out: Vec<String> = Vec::new();
-    let mut push = |e: &str| {
+    let push = |e: &str, out: &mut Vec<String>| {
         if out.len() < 5 && !out.iter().any(|x| x == e) {
             out.push(e.to_string());
         }
     };
-    // The group's own name and README title first, then its tabs' titles (keywords only:
-    // titles are full of words like "mode" or "link" that make poor icons).
-    let own = text.len() - titles.len();
-    for (n, w) in text.iter().enumerate().flat_map(|(n, t)| words(t).into_iter().map(move |w| (n, w))) {
-        if let Some((_, e)) = KEYWORDS.iter().find(|(k, _)| *k == w) {
-            push(e);
-        }
-        // Emoji whose own name is the word ("rocket", "whale").
-        if n < own && w.len() >= 4 {
-            if let Some(e) = palette().find(|e| e.name().split(' ').any(|n| n == w)) {
-                push(e.as_str());
-            }
+    // Words that say more come first: keywords anywhere in what the project says about
+    // itself, then emoji named like its words ("rocket", "whale"), then tab-title keywords
+    // (titles are full of words like "mode" or "link" that make poor icons).
+    let own_words: Vec<String> = own.iter().flat_map(|t| words(t)).collect();
+    for w in &own_words {
+        if let Some((_, e)) = KEYWORDS.iter().find(|(k, _)| k == w) {
+            push(e, &mut out);
         }
     }
     if key.is_dir() {
         for (file, e) in MARKERS {
             if key.join(file).exists() {
-                push(e);
+                push(e, &mut out);
             }
         }
     }
-    for e in FALLBACK {
-        push(e);
+    for w in own_words.iter().filter(|w| w.len() >= 4 && !STOP.contains(&w.as_str())) {
+        // Only emoji whose whole name is the word: "rocket", "crab", "globe". Matching any
+        // word of a longer name brought in noise like ⏭ for "next".
+        if let Some(e) = palette().find(|e| e.name() == w) {
+            push(e.as_str(), &mut out);
+        }
+    }
+    for w in titles.iter().flat_map(|t| words(t)) {
+        if let Some((_, e)) = KEYWORDS.iter().find(|(k, _)| *k == w) {
+            push(e, &mut out);
+        }
+    }
+    // Fill from the pool, starting at a place set by the group's name.
+    let h = key.to_string_lossy().bytes().fold(2166136261u32, |h, b| (h ^ b as u32).wrapping_mul(16777619)) as usize;
+    let mut i = 0;
+    while out.len() < 5 && i < POOL.len() {
+        push(POOL[(h + i * 7) % POOL.len()], &mut out);
+        i += 1;
     }
     out
 }
+
+/// Common words that happen to name an emoji but say nothing about a project.
+const STOP: &[&str] = &["this", "that", "with", "from", "your", "into", "will", "have", "when", "what", "which", "make", "made", "mode", "link", "page", "free", "open", "back", "new", "top", "up", "down", "right", "left", "information", "input", "card"];
 
 /// Emoji the system font draws (the newest ones show as boxes on older macOS).
 fn palette() -> impl Iterator<Item = &'static emojis::Emoji> {
