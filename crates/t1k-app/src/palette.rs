@@ -10,6 +10,8 @@ use crate::workspace::Workspace;
 pub enum Run {
     Action(Box<dyn Action>),
     Settings(Section),
+    /// Bring tabs over from other terminals.
+    Import,
     /// Flip a boolean in config.toml.
     Toggle(&'static [&'static str], bool),
 }
@@ -64,6 +66,8 @@ pub fn commands(ws: &Workspace) -> Vec<Command> {
         act("Check for Updates…", "", CheckForUpdates),
         act("Report a Bug…", "", ReportBug),
     ];
+    let found = ws.import_found.as_ref().filter(|f| !f.is_empty()).map(|f| format!("Found {} in {}", f.len(), f[0].source.label())).unwrap_or_default();
+    v.push(Command { label: "Import Tabs from Other Terminals…".into(), keys: found, run: Run::Import });
     for s in Section::ALL {
         v.push(Command { label: format!("Settings: {}", s.label()), keys: String::new(), run: Run::Settings(s) });
     }
@@ -117,6 +121,7 @@ impl Workspace {
         match run {
             Run::Action(a) => window.dispatch_action(a, cx),
             Run::Settings(section) => self.open_overlay(Overlay::Settings { section }, window, cx),
+            Run::Import => self.open_import(window, cx),
             Run::Toggle(keys, on) => crate::config::set_value(keys, toml_edit::Value::from(!on)),
         }
     }

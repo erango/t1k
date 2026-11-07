@@ -30,6 +30,9 @@ pub struct SavedTab {
     /// Emoji chosen for this tab.
     #[serde(default)]
     pub icon: Option<String>,
+    /// Where an imported tab came from ("Warp ttys004").
+    #[serde(default)]
+    pub origin: Option<String>,
 }
 
 /// A Claude session that no tab holds any more (tab closed, or replaced by a newer session).
@@ -82,6 +85,12 @@ pub enum WindowState {
 #[derive(Serialize, Deserialize, Default, Debug, Clone)]
 pub struct Session {
     pub tabs: Vec<SavedTab>,
+    /// Tabs in other terminals already offered for import ("Warp ttys004").
+    #[serde(default)]
+    pub import_seen: Vec<String>,
+    /// Last import: (tabs, unix time).
+    #[serde(default)]
+    pub import_last: Option<(usize, i64)>,
     #[serde(default)]
     pub active: usize,
     #[serde(default)]

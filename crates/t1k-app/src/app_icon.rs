@@ -150,7 +150,7 @@ pub fn badge(tab: &Tab, ui: UiColors, size: f32) -> Div {
     let live_agent = tab.agent.as_ref().filter(|a| a.status != t1k_agent::Status::Ended);
     let program = match live_agent {
         Some(a) => Some(a.kind.program()),
-        None => tab.program.as_deref(),
+        None => tab.program.as_deref().or(tab.waiting.as_ref().map(|_| "claude")),
     };
     // Debug aid for screenshots: T1K_DEBUG_PROGRAM=<name> shows that program's badge everywhere.
     let debug = std::env::var("T1K_DEBUG_PROGRAM").ok();

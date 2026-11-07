@@ -69,6 +69,23 @@ pub fn about(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 .child(button(ws, "about-issue", "Report a bug", false).on_click(|_, _, cx| cx.open_url(&format!("{REPO}/issues"))))
                 .child(button(ws, "about-close", "Close", true).on_click(cx.listener(|this, _, window, cx| this.close_overlay(window, cx)))),
         )
+        .child(
+            div()
+                .flex()
+                .gap(px(4.))
+                .text_size(px(12.))
+                .text_color(ui.text_tertiary)
+                .child("Built with ♥ by")
+                .child(
+                    div()
+                        .id("about-author")
+                        .text_color(ui.link)
+                        .cursor_pointer()
+                        .hover(|d| d.underline())
+                        .on_click(|_, _, cx| cx.open_url("https://github.com/erango"))
+                        .child("@erango"),
+                ),
+        )
         .into_any_element()
 }
 
@@ -123,6 +140,7 @@ pub fn welcome(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 )
                 .child(button(ws, "welcome-start", "Start", connected).on_click(cx.listener(|this, _, window, cx| this.close_overlay(window, cx)))),
         )
+        .children(crate::import_ui::welcome_card(ws, cx))
         .child(div().text_size(px(11.)).text_color(ui.text_disabled).child(SharedString::from("You can connect agents later in Settings › Agents.")))
         .into_any_element()
 }

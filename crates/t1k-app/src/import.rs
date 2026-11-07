@@ -7,9 +7,6 @@
 //! Terminals that can say more (tab titles and order) are asked separately, only when the
 //! user agrees (iTerm2 and Terminal.app go through AppleScript, which macOS asks about).
 
-// Parts used only by the import sheet, which is being built next.
-#![allow(dead_code)]
-
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -40,25 +37,6 @@ impl Source {
             Source::Alacritty => "Alacritty",
             Source::Tmux => "tmux",
         }
-    }
-
-    /// The program name T1K uses for its icon.
-    pub fn program(self) -> &'static str {
-        match self {
-            Source::ITerm2 => "iterm2",
-            Source::Terminal => "terminal",
-            Source::Ghostty => "ghostty",
-            Source::Warp => "warp",
-            Source::WezTerm => "wezterm",
-            Source::Kitty => "kitty",
-            Source::Alacritty => "alacritty",
-            Source::Tmux => "tmux",
-        }
-    }
-
-    /// Whether the app can tell us tab titles and order (after the user agrees).
-    pub fn has_titles(self) -> bool {
-        matches!(self, Source::ITerm2 | Source::Terminal | Source::WezTerm | Source::Tmux)
     }
 
     /// Which terminal a process belongs to, from its executable path and name.
@@ -211,6 +189,55 @@ fn claude_session(pid: i32) -> Option<Claude> {
 
 fn claude_cwd(pid: i32) -> Option<PathBuf> {
     claude_file(pid)?.get("cwd")?.as_str().map(PathBuf::from)
+}
+
+/// Whether a Claude process is working on a turn (from its session file).
+pub fn claude_busy(pid: i32) -> Option<bool> {
+    claude_session(pid).map(|c| c.busy)
+}
+
+/// Bring the source terminal to the front.
+pub fn show_app(s: Source) {
+    let app = match s {
+        Source::ITerm2 => "iTerm",
+        Source::Terminal => "Terminal",
+        Source::Ghostty => "Ghostty",
+        Source::Warp => "Warp",
+        Source::WezTerm => "WezTerm",
+        Source::Kitty => "kitty",
+        Source::Alacritty => "Alacritty",
+        Source::Tmux => return,
+    };
+    let _ = std::process::Command::new("open").args(["-a", app]).spawn();
+}
+
+/// Type /exit into the idle Claude prompt on `tty` (iTerm2 and Terminal only).
+pub fn send_exit(s: Source, tty: &str) {
+    let dev = format!("/dev/{tty}");
+    let script = match s {
+        Source::ITerm2 => format!(
+            r#"tell application "iTerm2"
+  repeat with w in windows
+    repeat with t in tabs of w
+      repeat with s in sessions of t
+        if tty of s is "{dev}" then tell s to write text "/exit"
+      end repeat
+    end repeat
+  end repeat
+end tell"#
+        ),
+        Source::Terminal => format!(
+            r#"tell application "Terminal"
+  repeat with w in windows
+    repeat with t in tabs of w
+      if tty of t is "{dev}" then do script "/exit" in t
+    end repeat
+  end repeat
+end tell"#
+        ),
+        _ => return,
+    };
+    let _ = std::process::Command::new("osascript").arg("-e").arg(script).output();
 }
 
 /// Whether a process is still running.

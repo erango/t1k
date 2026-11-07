@@ -51,6 +51,12 @@ pub struct Tab {
     pub pinned_group: Option<PathBuf>,
     /// An emoji chosen to stand in for the program icon.
     pub icon: Option<String>,
+    /// Brought over from another terminal: where from ("Warp ttys004"), so it isn't again.
+    pub origin: Option<String>,
+    /// A Claude session still open in the terminal this tab came from.
+    pub waiting: Option<crate::import_ui::Waiting>,
+    /// What the tab ran in the other terminal (not restarted; "Run again" types it).
+    pub was_running: Option<String>,
     /// A second terminal beside or below the main one.
     pub split: Option<crate::split::Split>,
     _sub: Subscription,
@@ -177,6 +183,18 @@ pub struct Workspace {
     pub icon_suggestions: HashMap<PathBuf, Vec<String>>,
     /// Tab icon suggestions, worked out when the picker first opens for a tab (not saved).
     pub tab_icon_suggestions: HashMap<String, Vec<String>>,
+    /// The import sheet while it's open.
+    pub import: Option<crate::import_ui::Sheet>,
+    /// Tabs in other terminals not yet in T1K (launch scan): welcome card and palette hint.
+    pub import_found: Option<Vec<crate::import::Found>>,
+    /// Show the launch offer (new tabs turned up in other terminals).
+    pub import_offer: bool,
+    /// Tabs already offered ("Warp ttys004"), so the launch offer is only for new ones.
+    pub import_seen: Vec<String>,
+    /// Last import: (tabs, unix time).
+    pub import_last: Option<(usize, i64)>,
+    /// A short message at the bottom of the sidebar, and when it appeared.
+    pub notice: Option<(String, Instant)>,
     /// Automatic group hue (ANSI 4-6), by name, bumped so neighbors differ.
     auto_hues: HashMap<PathBuf, u8>,
     /// The order the hues were last worked out for; they change only when it does.
@@ -374,6 +392,12 @@ impl Workspace {
             group_icons: saved.group_icons.iter().cloned().collect(),
             icon_suggestions: saved.icon_suggestions.iter().cloned().collect(),
             tab_icon_suggestions: HashMap::new(),
+            import: None,
+            import_found: None,
+            import_offer: false,
+            import_seen: saved.import_seen.clone(),
+            import_last: saved.import_last,
+            notice: None,
             auto_hues: HashMap::new(),
             hues_for: Vec::new(),
             group_emptied: HashMap::new(),
@@ -461,6 +485,8 @@ impl Workspace {
             _fast: fast,
         };
         cx.observe_window_appearance(window, |this, window, cx| this.apply_theme(window, cx)).detach();
+        // Tabs open in other terminals: the welcome card, the palette hint, the launch offer.
+        this.scan_for_import(cx);
         cx.observe_window_activation(window, |this, window, cx| this.set_inactive(!window.is_window_active(), cx)).detach();
         if !window.is_window_active() && std::env::var_os("T1K_DEBUG_BACKGROUND").is_some() {
             this.set_inactive(true, cx);
@@ -519,6 +545,7 @@ impl Workspace {
                 }
                 tab.last_session = t.last_session;
                 tab.icon = t.icon;
+                tab.origin = t.origin;
                 if let Some(g) = t.pinned_group {
                     tab.group = g.clone();
                     tab.pinned_group = Some(g);
@@ -678,6 +705,16 @@ impl Workspace {
                     this.card = this.tabs.get(this.active).map(|t| t.id.clone());
                     None
                 }
+                "import" => {
+                    this.open_import(window, cx);
+                    None
+                }
+                "waiting" => {
+                    // A Claude session "still open in iTerm2" (this process stands in for it).
+                    let ix = this.active;
+                    this.tabs[ix].waiting = Some(crate::import_ui::Waiting { pid: std::process::id() as i32, session_id: "3f2c9a1e".into(), source: crate::import::Source::ITerm2, tty: "ttys009".into(), busy: false });
+                    None
+                }
                 "card-strip" => {
                     this.card = this.tabs.get(this.active).map(|t| format!("strip:{}", t.id));
                     None
@@ -753,6 +790,9 @@ impl Workspace {
             last_session: None,
             pinned_group: None,
             icon: None,
+            origin: None,
+            waiting: None,
+            was_running: None,
             split: None,
             _sub: sub,
         });
@@ -1237,6 +1277,11 @@ impl Workspace {
             let term = &t.view.read(cx).terminal;
             let cwd = term.cwd();
             let program = term.foreground_name().filter(|n| !SHELLS.contains(&n.trim_start_matches('-')));
+            if program.is_some() && t.was_running.is_some() {
+                // Something runs again: the "was running" note has done its job.
+                t.was_running = None;
+                changed = true;
+            }
             if program != t.program {
                 // Claude exited without a SessionEnd (crash, kill): the session is over.
                 if program.is_none() {
@@ -1267,6 +1312,7 @@ impl Workspace {
                 changed = true;
             }
         }
+        changed |= self.poll_waiting(cx);
         let hooks = crate::settings::claude_hooks_installed();
         if hooks != self.hooks_installed {
             self.hooks_installed = hooks;
@@ -1574,6 +1620,7 @@ impl Workspace {
                         .or_else(|| t.last_session.clone()),
                     pinned_group: t.pinned_group.clone(),
                     icon: t.icon.clone(),
+                    origin: t.origin.clone(),
                     split: t.split.as_ref().map(|s| (s.cwd.clone(), s.vertical)),
                     scrollback: self.scrollback_saved.then(|| format!("{}.ansi", t.id)),
                     agent_live: self.resume_after_quit.contains(&t.id)
@@ -1949,7 +1996,8 @@ impl Render for Workspace {
         window.set_window_title(&format!("{badge}{title} — T1K"));
         // Cached: sidebar spinners and other workspace repaints reuse the terminal's last frame
         // unless the terminal itself changed.
-        let active_view = self.tabs.get(self.active).map(|t| crate::split::render_panes(t, self.ui, window, cx));
+        let active_view = crate::import_ui::waiting_pane(self, self.active, cx)
+            .or_else(|| self.tabs.get(self.active).map(|t| crate::split::render_panes(t, self.ui, window, cx)));
 
         macro_rules! select {
             ($d:expr, $($act:ident => $ix:expr),*) => {

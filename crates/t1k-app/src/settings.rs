@@ -446,6 +446,13 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
                 .into_any_element()),
         e(Advanced, "Privacy", "Send crash reports", if crate::telemetry::available() { "Crashes and errors, never terminal contents; applies at next launch" } else { "This build has no crash reporting" }, "privacy.crash_reports", "sentry telemetry crash error report privacy",
             toggle(ui, "crash", c.privacy.crash_reports, &["privacy", "crash_reports"], cx).into_any_element()),
+        e(Advanced, "Other terminals", "Import tabs from other terminals", "Reads open tabs in iTerm2, Terminal, Ghostty, Warp, WezTerm, kitty, Alacritty and tmux", "import", "import migrate iterm warp ghostty tabs move",
+            div().flex().items_center().gap(px(10.))
+                .children(ws.import_last.map(|(n, at)| div().text_size(px(12.)).text_color(ui.text_tertiary).child(format!("Last: {n} tabs, {}", crate::usage::clock(at)))))
+                .child(pill(ui, "import-now".into(), "Import…".into(), false).on_click(cx.listener(|this, _, window, cx| this.open_import(window, cx))))
+                .into_any_element()),
+        e(Advanced, "Other terminals", "Offer to import at launch", "Only when new tabs are found since the last import", "terminal.offer_import", "import launch offer",
+            toggle(ui, "offer-import", c.terminal.offer_import, &["terminal", "offer_import"], cx).into_any_element()),
         e(Advanced, "Files", "Settings file", "~/.config/t1k/config.toml; edits apply live", "config.toml", "config", open_cfg),
         e(Advanced, "Files", "Imported themes", "~/.config/t1k/themes/", "themes_dir", "import", themes_dir),
     ];

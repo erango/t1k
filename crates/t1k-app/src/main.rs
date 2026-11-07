@@ -2,6 +2,7 @@
 
 mod actions;
 mod import;
+mod import_ui;
 mod agent_setup;
 mod app_icon;
 mod brand;

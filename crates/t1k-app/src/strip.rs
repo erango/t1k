@@ -145,6 +145,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
             }
         })
         .children(chip)
+        .when(agent.is_none(), |d| d.children(crate::import_ui::was_running(ws, cx)))
         .child(div().flex_none().max_w(px(360.)).truncate().text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).child(title.clone()))
         .child(
             div()

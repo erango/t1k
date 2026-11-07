@@ -239,6 +239,8 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             })),
         )
         .children(crate::close::toast(ws, cx))
+        .children(crate::import_ui::notice(ws))
+        .children(crate::import_ui::offer(ws, cx))
         .into_any_element()
 }
 
@@ -559,6 +561,10 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
                         .gap(px(9.))
                         .when(!icons, |d| d.child(glyph))
                         .child(title)
+                        // Still open in the terminal it came from (v3-v: neutral, not amber).
+                        .children(tab.waiting.as_ref().map(|w| {
+                            div().flex_none().text_size(px(11. * k)).text_color(ui.text_tertiary).child(format!("in {}", w.source.label()))
+                        }))
                         .children(pending)
                         .children(waiting.map(|w| {
                             div().flex_none().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(w)
@@ -880,7 +886,7 @@ fn status_icon(tab: &Tab, ui: UiColors, sidebar_bg: gpui::Hsla, selected: bool, 
         .relative()
         .size(px(size))
         .flex_none()
-        .child(crate::app_icon::badge(tab, ui, size).when(quiet, |d| d.opacity(0.45)))
+        .child(crate::app_icon::badge(tab, ui, size).when(quiet || tab.waiting.is_some(), |d| d.opacity(if tab.waiting.is_some() { 0.5 } else { 0.45 })))
         .children(corner.map(|c| div().absolute().right(px(off)).bottom(px(off)).child(c)))
 }
 

@@ -32,6 +32,8 @@ prompt_gravity = "bottom"
 restore_scrollback = true
 # Claude Code sessions still running when T1K quits resume in their tabs on the next launch.
 resume_agents = true
+# At launch, offer to bring over tabs open in other terminals (only when new ones turn up).
+offer_import = true
 
 [terminal.font]
 family = "JetBrains Mono"
@@ -289,6 +291,7 @@ pub struct TerminalCfg {
     pub copy_on_select: bool,
     pub restore_scrollback: bool,
     pub resume_agents: bool,
+    pub offer_import: bool,
     pub shell_integration: bool,
     pub prompt_gravity: String,
     pub font: FontCfg,
@@ -341,7 +344,7 @@ impl Default for ThemeCfg {
 }
 impl Default for TerminalCfg {
     fn default() -> Self {
-        Self { padding: 14., option_as_meta: false, copy_on_select: true, restore_scrollback: true, resume_agents: true, shell_integration: true, prompt_gravity: "bottom".into(), font: FontCfg::default() }
+        Self { padding: 14., option_as_meta: false, copy_on_select: true, restore_scrollback: true, resume_agents: true, offer_import: true, shell_integration: true, prompt_gravity: "bottom".into(), font: FontCfg::default() }
     }
 }
 impl Default for FontCfg {

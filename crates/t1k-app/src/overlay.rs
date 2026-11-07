@@ -24,6 +24,8 @@ pub enum Overlay {
     About,
     /// First launch.
     Welcome,
+    /// Bring your tabs over (the sheet's rows live in `Workspace::import`).
+    Import { selected: usize },
     /// The update dialog (any phase).
     Update,
     /// ⌘Q while an update waits.
@@ -362,6 +364,7 @@ impl Workspace {
             o @ Overlay::MoreMenu { .. } => (ev.keystroke.key != "escape").then_some(o),
             Overlay::About => (!matches!(ev.keystroke.key.as_str(), "escape" | "enter")).then_some(Overlay::About),
             Overlay::Welcome => (!matches!(ev.keystroke.key.as_str(), "escape" | "enter")).then_some(Overlay::Welcome),
+            Overlay::Import { selected } => self.import_key(selected, ev, window, cx),
             Overlay::Update => {
                 if ev.keystroke.key == "escape" {
                     self.close_update(window, cx);
@@ -651,6 +654,10 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
         Overlay::About => {
             let c = crate::brand::about(ws, cx);
             Some(scrim(ws, true, cx).bg(gpui::black().opacity(0.35)).flex().justify_center().items_start().child(c).into_any_element())
+        }
+        Overlay::Import { selected } => {
+            let c = crate::import_ui::sheet(ws, *selected, window, cx);
+            Some(scrim(ws, false, cx).bg(gpui::black().opacity(0.35)).flex().justify_center().items_start().child(c).into_any_element())
         }
         Overlay::Welcome => {
             let c = crate::brand::welcome(ws, cx);
