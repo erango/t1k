@@ -775,7 +775,7 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
             Some(scrim(ws, true, cx).flex().justify_center().items_start().child(panel).into_any_element())
         }
         Overlay::ThemePicker { query, selected, dark } => {
-            let panel = crate::theme_picker::render(ws, query, *selected, *dark, cx);
+            let panel = crate::theme_picker::render(ws, query, *selected, *dark, window, cx);
             Some(scrim(ws, true, cx).bg(gpui::black().opacity(0.2)).flex().justify_center().items_start().child(panel).into_any_element())
         }
         Overlay::Settings { section } => {

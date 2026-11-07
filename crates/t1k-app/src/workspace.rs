@@ -1300,7 +1300,7 @@ impl Workspace {
     }
 
     /// Re-read themes and push config to the theme and every terminal.
-    fn apply_config(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn apply_config(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(d) = config::themes_dir() {
             t1k_themes::load_user_themes(&d);
         }
@@ -1379,6 +1379,30 @@ impl Workspace {
         self.write_appearance();
     }
 
+    /// The appearance mode the user chose (not the one a theme preview forces).
+    pub fn chosen_mode(&self) -> AppearanceMode {
+        self.theme_before.map(|b| b.0).unwrap_or(self.mode)
+    }
+
+    /// Set the appearance mode from the theme picker. During a preview it takes effect when
+    /// the preview ends, so the theme under the cursor stays on screen.
+    pub fn set_mode(&mut self, mode: AppearanceMode, window: &mut Window, cx: &mut Context<Self>) {
+        match &mut self.theme_before {
+            Some(b) => b.0 = mode,
+            None => {
+                self.mode = mode;
+                self.apply_theme(window, cx);
+            }
+        }
+        let v = match mode {
+            AppearanceMode::System => "system",
+            AppearanceMode::Dark => "dark",
+            AppearanceMode::Light => "light",
+        };
+        config::set(&["appearance"], v);
+        cx.notify();
+    }
+
     /// The theme in the dark or light slot.
     pub fn theme_slot(&self, dark: bool) -> &'static Theme {
         if dark { self.dark } else { self.light }
@@ -1393,6 +1417,14 @@ impl Workspace {
         if t.is_dark() { self.dark = t } else { self.light = t }
         self.mode = if t.is_dark() { AppearanceMode::Dark } else { AppearanceMode::Light };
         self.apply_theme(window, cx);
+    }
+
+    /// The slot's theme before any preview (what "in use" means in the picker).
+    pub fn saved_slot(&self, dark: bool) -> &'static Theme {
+        match self.theme_before {
+            Some((_, d, l)) => if dark { d } else { l },
+            None => self.theme_slot(dark),
+        }
     }
 
     /// Leave the preview: keep `pick` (saved like any theme choice) or go back to before.
