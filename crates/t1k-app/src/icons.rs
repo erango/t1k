@@ -6,6 +6,22 @@ fn icon(paint: impl Fn(Bounds<Pixels>, &mut Window) + 'static) -> impl IntoEleme
     canvas(|_, _, _| {}, move |b, _, window, _| paint(b, window)).size(px(14.)).flex_none()
 }
 
+/// An icon drawn in the 14-unit space, scaled to `size` px (stroke scales with it).
+fn icon_at(size: f32, paint: impl Fn(&dyn Fn(f32, f32) -> gpui::Point<Pixels>, &mut PathBuilder) + 'static, color: Hsla) -> impl IntoElement {
+    canvas(|_, _, _| {}, move |b, _, window, _| {
+        let k = size / 14.;
+        let o = b.origin;
+        let pt = move |x: f32, y: f32| point(o.x + px(x * k), o.y + px(y * k));
+        let mut p = PathBuilder::stroke(px(1.2 * k.sqrt()));
+        paint(&pt, &mut p);
+        if let Ok(path) = p.build() {
+            window.paint_path(path, color);
+        }
+    })
+    .size(px(size))
+    .flex_none()
+}
+
 fn stroke(window: &mut Window, color: Hsla, build: impl FnOnce(&mut PathBuilder)) {
     let mut p = PathBuilder::stroke(px(1.2));
     build(&mut p);
@@ -37,19 +53,15 @@ pub fn search(color: Hsla) -> impl IntoElement {
 }
 
 /// Three shortening lines (view options: how the list shows).
-pub fn filter_lines(color: Hsla) -> impl IntoElement {
-    icon(move |b, window| {
-        let o = b.origin;
-        let pt = |x: f32, y: f32| point(o.x + px(x), o.y + px(y));
-        stroke(window, color, |p| {
-            p.move_to(pt(2.5, 4.));
-            p.line_to(pt(11.5, 4.));
-            p.move_to(pt(4.5, 7.));
-            p.line_to(pt(9.5, 7.));
-            p.move_to(pt(6.3, 10.));
-            p.line_to(pt(7.7, 10.));
-        })
-    })
+pub fn filter_lines_at(color: Hsla, size: f32) -> impl IntoElement {
+    icon_at(size, |pt, p| {
+        p.move_to(pt(2.5, 4.));
+        p.line_to(pt(11.5, 4.));
+        p.move_to(pt(4.5, 7.));
+        p.line_to(pt(9.5, 7.));
+        p.move_to(pt(6.3, 10.));
+        p.line_to(pt(7.7, 10.));
+    }, color)
 }
 
 /// A small filled caret: pointing down (open) or right (folded), like a disclosure triangle.
@@ -160,29 +172,25 @@ pub fn back(color: Hsla) -> impl IntoElement {
 }
 
 /// A small chevron, centered in the 14 px box (history back / forward).
-pub fn chevron(color: Hsla, left: bool) -> impl IntoElement {
-    icon(move |b, window| {
-        let o = b.origin;
-        let x = |v: f32| if left { v } else { 14. - v };
-        let pt = |a: f32, y: f32| point(o.x + px(x(a)), o.y + px(y));
-        stroke(window, color, |p| {
-            p.move_to(pt(8.5, 3.5));
-            p.line_to(pt(5., 7.));
-            p.line_to(pt(8.5, 10.5));
-        })
-    })
+pub fn chevron_at(color: Hsla, left: bool, size: f32) -> impl IntoElement {
+    let x = move |v: f32| if left { v } else { 14. - v };
+    icon_at(size, move |pt, p| {
+        p.move_to(pt(x(8.5), 3.5));
+        p.line_to(pt(x(5.), 7.));
+        p.line_to(pt(x(8.5), 10.5));
+    }, color)
 }
 
 /// A plus (new tab).
 pub fn plus(color: Hsla) -> impl IntoElement {
-    icon(move |b, window| {
-        let o = b.origin;
-        let pt = |x: f32, y: f32| point(o.x + px(x), o.y + px(y));
-        stroke(window, color, |p| {
-            p.move_to(pt(7., 2.5));
-            p.line_to(pt(7., 11.5));
-            p.move_to(pt(2.5, 7.));
-            p.line_to(pt(11.5, 7.));
-        })
-    })
+    plus_at(color, 14.)
+}
+
+pub fn plus_at(color: Hsla, size: f32) -> impl IntoElement {
+    icon_at(size, |pt, p| {
+        p.move_to(pt(7., 2.5));
+        p.line_to(pt(7., 11.5));
+        p.move_to(pt(2.5, 7.));
+        p.line_to(pt(11.5, 7.));
+    }, color)
 }

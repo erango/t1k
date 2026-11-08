@@ -175,6 +175,8 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 .flex()
                 .items_center()
                 .justify_end()
+                // Clear of the traffic lights: on a narrow sidebar the usage label shrinks first.
+                .pl(px(74.))
                 .pr(px(10.))
                 .gap(px(2.))
                 .on_mouse_down(MouseButton::Left, |ev, window, _| {
@@ -194,7 +196,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                             this.open_overlay(crate::overlay::Overlay::SidebarView { at }, window, cx);
                         }))
                         .tooltip(crate::tooltip::text(ui, "View options"))
-                        .child(crate::icons::filter_lines(ui.text_tertiary)),
+                        .child(crate::icons::filter_lines_at(ui.text_secondary, 16.)),
                 )
                 .child(
                     ghost("new-tab", ui)
@@ -203,9 +205,9 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                             this.open_tab(cwd, None, window, cx);
                         }))
                         .tooltip(crate::tooltip::text(ui, "New tab  ⌘T"))
-                        .child(crate::icons::plus(ui.text_secondary)),
+                        .child(crate::icons::plus_at(ui.text_secondary, 16.)),
                 )
-                .child(div().w(px(1.)).h(px(14.)).mx(px(4.)).bg(ui.border))
+                .child(div().w(px(1.)).h(px(16.)).mx(px(3.)).bg(ui.border))
                 .children(crate::usage::meter(ws, "usage-meter", cx))
                 .child(nav_button(ws, true, cx))
                 .child(nav_button(ws, false, cx)),
@@ -935,7 +937,7 @@ fn nav_button(ws: &Workspace, back: bool, cx: &mut Context<Workspace>) -> impl I
             d.hover(move |d| d.bg(ui.sidebar_hover))
                 .on_click(cx.listener(move |this, _, window, cx| this.navigate(back, window, cx)))
         })
-        .child(crate::icons::chevron(if enabled { ui.text_secondary } else { ui.text_disabled }, back))
+        .child(crate::icons::chevron_at(if enabled { ui.text_secondary } else { ui.text_disabled }, back, 16.))
 }
 
 /// Title color: bright for selected / unread / due, one readable level for everything else.

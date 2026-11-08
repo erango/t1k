@@ -140,14 +140,16 @@ pub fn meter(ws: &Workspace, id: &'static str, cx: &mut Context<Workspace>) -> O
             _ => format!("{name} {:.0}%", hw.used),
         }
     });
-    let bars = primary.windows.iter().take(2).fold(div().flex().flex_col().gap(px(3.)), |d, w| d.child(bar(ui, 18., 3., w.used)));
+    let bars = primary.windows.iter().take(2).fold(div().flex().flex_col().gap(px(3.5)), |d, w| d.child(bar(ui, 22., 4., w.used)));
     let snapshot = data.clone();
     Some(
         div()
             .id(id)
-            .h(px(22.))
-            .px(px(5.))
-            .mr(px(4.))
+            .h(px(24.))
+            .min_w_0()
+            .flex_shrink()
+            .px(px(6.))
+            .mr(px(2.))
             .rounded(px(5.))
             .flex()
             .items_center()
@@ -155,8 +157,8 @@ pub fn meter(ws: &Workspace, id: &'static str, cx: &mut Context<Workspace>) -> O
             .hover(move |d| d.bg(ui.sidebar_hover))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(bars.when(stale, |d| d.opacity(0.45)))
-            .when(stale, |d| d.child(div().text_size(px(10.)).text_color(ui.text_disabled).child("◷")))
-            .when_some(label, |d, l| d.child(div().font_family(MONO).text_size(px(10.5)).text_color(level(ui, hw.used)).child(l)))
+            .when(stale, |d| d.child(div().text_size(px(12.)).text_color(ui.text_tertiary).child("◷")))
+            .when_some(label, |d, l| d.child(div().min_w_0().truncate().font_family(MONO).text_size(px(11.)).text_color(level(ui, hw.used)).child(l)))
             .tooltip(move |_, cx| cx.new(|_| Tip { ui, data: snapshot.clone() }).into())
             .on_click(cx.listener(|this, ev: &gpui::ClickEvent, window, cx| {
                 let p = ev.position();
