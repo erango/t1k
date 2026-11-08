@@ -203,7 +203,7 @@ pub fn small_button(ui: UiColors, id: impl Into<SharedString>, label: impl Into<
         .rounded(px(6.))
         .text_size(px(12.))
         .cursor_pointer()
-        .map(|d| if primary { d.bg(ui.accent).text_color(gpui::white()).font_weight(FontWeight::MEDIUM) } else { d.bg(ui.bg_control).text_color(ui.text_primary) })
+        .map(|d| if primary { d.bg(ui.accent).text_color(ui.on_accent).font_weight(FontWeight::MEDIUM) } else { d.bg(ui.bg_control).text_color(ui.text_primary) })
         .hover(|d| d.opacity(0.88))
         .child(label.into())
 }

@@ -320,7 +320,7 @@ pub(crate) fn checkbox(ui: UiColors, state: Option<bool>) -> gpui::Div {
         .justify_center()
         .text_size(px(10.))
         .font_weight(FontWeight::BOLD)
-        .when(on, |d| d.bg(ui.accent).text_color(gpui::white()))
+        .when(on, |d| d.bg(ui.accent).text_color(ui.on_accent))
         .when(!on, |d| d.border_1().border_color(ui.text_disabled))
         .child(match state {
             Some(true) => "✓",
@@ -339,7 +339,7 @@ pub(crate) fn button(ui: UiColors, id: impl Into<SharedString>, label: impl Into
         .gap(px(6.))
         .rounded(px(7.))
         .text_size(px(12.5))
-        .map(|d| if primary { d.bg(ui.accent).text_color(gpui::white()).font_weight(FontWeight::MEDIUM) } else { d.bg(ui.bg_control).text_color(ui.text_primary) })
+        .map(|d| if primary { d.bg(ui.accent).text_color(ui.on_accent).font_weight(FontWeight::MEDIUM) } else { d.bg(ui.bg_control).text_color(ui.text_primary) })
         .when(!enabled, |d| d.opacity(0.45))
         .when(enabled, |d| d.cursor_pointer().hover(|d| d.opacity(0.88)))
         .child(label.into())

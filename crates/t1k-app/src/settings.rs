@@ -117,7 +117,7 @@ fn pill(ui: UiColors, id: String, label: String, on: bool) -> gpui::Stateful<gpu
         .items_center()
         .text_size(px(12.))
         // The chosen one is filled with the accent, so it's clear at a glance which is on.
-        .when(on, |d| d.bg(ui.accent).text_color(gpui::white()).font_weight(FontWeight::MEDIUM))
+        .when(on, |d| d.bg(ui.accent).text_color(ui.on_accent).font_weight(FontWeight::MEDIUM))
         .when(!on, |d| d.bg(ui.bg_control).text_color(ui.text_secondary).hover(move |d| d.bg(ui.accent.opacity(0.18))))
         .child(label)
 }

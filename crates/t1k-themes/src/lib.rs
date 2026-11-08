@@ -67,6 +67,9 @@ pub struct UiColors {
     pub text_quiet: Hsla,
     pub text_disabled: Hsla,
     pub accent: Hsla,
+    /// Text on an accent fill (primary buttons, on pills): dark on a light accent, white on a
+    /// dark one, so it always reads.
+    pub on_accent: Hsla,
     pub link: Hsla,
     pub status_working: Hsla,
     pub status_needs: Hsla,
@@ -191,7 +194,9 @@ impl Theme {
             sidebar_hover: hsla(mix(sidebar, fg, t(0.06, 0.12)), 1.),
             sidebar_edge: hsla(fg, t(0.08, 0.45)),
             bg_terminal: hsla(bg, 1.),
-            bg_raised: hsla(mix(bg, fg, 0.04), 1.),
+            // Cards, popovers and offers sit on the sidebar (itself 5% toward the text in dark
+            // themes), so they need a clear step above it to read as a separate surface.
+            bg_raised: hsla(mix(bg, fg, if self.is_dark() { t(0.11, 0.16) } else { 0.0 }), 1.),
             bg_hover: hsla(mix(bg, fg, t(0.06, 0.1)), 1.),
             bg_selected: hsla(mix(bg, fg, t(0.11, 0.2)), 1.),
             bg_control: hsla(mix(bg, fg, t(0.16, 0.22)), 1.),
@@ -202,6 +207,7 @@ impl Theme {
             text_quiet: hsla(mix(bg, fg, t(0.62, 0.84)), 1.),
             text_disabled: hsla(mix(bg, fg, t(0.36, 0.62)), 1.),
             accent: hsla(accent, 1.),
+            on_accent: hsla(on(accent), 1.),
             link: hsla(self.link_hex(), 1.),
             status_working: hsla(mix(bg, fg, t(0.52, 0.78)), 1.),
             status_needs: hsla(self.ansi[3], 1.),
@@ -257,6 +263,21 @@ pub fn default_for(appearance: Appearance) -> &'static Theme {
 }
 
 /// WCAG relative luminance of a 0xRRGGBB color.
+/// Text color for a fill: near-black on light fills, white on dark ones (whichever contrasts
+/// more).
+pub fn on(fill: u32) -> u32 {
+    let l = lum(fill);
+    let (dark, light) = ((l + 0.05) / (lum(0x111317) + 0.05), 1.05 / (l + 0.05));
+    if dark >= light { 0x111317 } else { 0xFFFFFF }
+}
+
+/// Text color for a fill given as Hsla.
+pub fn on_hsla(fill: Hsla) -> Hsla {
+    let c = fill.to_rgb();
+    let v = ((c.r * 255.).round() as u32) << 16 | ((c.g * 255.).round() as u32) << 8 | (c.b * 255.).round() as u32;
+    hsla(on(v), 1.)
+}
+
 pub fn lum(v: u32) -> f32 {
     let f = |c: u32| {
         let c = c as f32 / 255.;

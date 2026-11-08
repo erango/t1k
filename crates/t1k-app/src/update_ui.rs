@@ -149,7 +149,7 @@ pub(crate) fn button(ws: &Workspace, id: &'static str, label: &str, primary: boo
         .justify_center()
         .rounded(px(7.))
         .text_size(px(13.))
-        .map(|d| if primary { d.bg(ui.accent).text_color(ui.bg_sidebar).font_weight(FontWeight::MEDIUM) } else { d.bg(ui.bg_control).text_color(ui.text_primary) })
+        .map(|d| if primary { d.bg(ui.accent).text_color(ui.on_accent).font_weight(FontWeight::MEDIUM) } else { d.bg(ui.bg_control).text_color(ui.text_primary) })
         .hover(|d| d.opacity(0.9))
         .child(label.to_string())
 }

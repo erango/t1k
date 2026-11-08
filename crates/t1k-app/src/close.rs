@@ -249,7 +249,7 @@ pub fn confirm_row(ws: &Workspace, ix: usize, k: f32, cx: &mut Context<Workspace
             .items_center()
             .rounded(px(5.))
             .text_size(px(11.5 * k))
-            .when(primary, |d| d.bg(ui.status_error).text_color(gpui::white()).font_weight(FontWeight::MEDIUM))
+            .when(primary, |d| d.bg(ui.status_error).text_color(t1k_themes::on_hsla(ui.status_error)).font_weight(FontWeight::MEDIUM))
             .when(!primary, |d| d.bg(ui.bg_control).text_color(ui.text_primary))
             .hover(|d| d.opacity(0.85))
             .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
