@@ -240,8 +240,8 @@ h1{font:600 50px/56px var(--sans);letter-spacing:-.02em;color:var(--t1)}
 .agents{display:flex;gap:12px 14px;flex-wrap:wrap;margin:0;padding:0;list-style:none}
 .agent{height:36px;padding:0 12px;border-radius:8px;background:var(--card);box-shadow:inset 0 0 0 1px var(--line);display:inline-flex;align-items:center;gap:8px;font-size:14px;color:var(--t1)}
 .agent img{width:24px;height:24px}
-/* The badge T1K's sidebar draws for agents without a Mac app icon: glyph on a 22% tint. */
-.agent .glyph{width:24px;height:24px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;background:rgba(var(--c),.22);color:rgb(var(--c));font:700 16px/1 var(--sans)}
+/* Agents without a Mac app icon: their mark alone, no tile. */
+.agent .glyph{width:22px;height:22px;flex:none}
 
 /* Homebrew command under the download button: click to copy */
 .brew{display:inline-flex;align-items:center;gap:10px;height:36px;padding:0 12px;border:0;border-radius:8px;background:var(--card);box-shadow:inset 0 0 0 1px var(--line);color:var(--t2);font:13px var(--mono);cursor:pointer;max-width:100%}
@@ -601,10 +601,10 @@ footer .tm{font-size:12px}
     <h2 id="works-h" class="lab" style="font-weight:400">Works with</h2>
     <ul class="agents">
       <li class="agent"><img src="site/claude-64.png" width="24" height="24" alt="">Claude Code</li>
-      <li class="agent"><span class="glyph" style="--c:16,163,127" aria-hidden="true">◎</span>Codex</li>
-      <li class="agent"><span class="glyph" style="--c:76,139,245" aria-hidden="true">✦</span>Gemini CLI</li>
-      <li class="agent"><span class="glyph" style="--c:76,139,245" aria-hidden="true">◭</span>Antigravity</li>
-      <li class="agent"><span class="glyph" style="--c:150,156,166" aria-hidden="true">X</span>Grok</li>
+      <li class="agent"><svg class="glyph" viewBox="0 0 24 24" aria-hidden="true" style="color:#10A37F"><circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="12" cy="12" r="4.2" fill="currentColor"/></svg>Codex</li>
+      <li class="agent"><svg class="glyph" viewBox="0 0 24 24" aria-hidden="true" style="color:#4C8BF5"><path d="M12 1.5C12.9 7.4 16.6 11.1 22.5 12 16.6 12.9 12.9 16.6 12 22.5 11.1 16.6 7.4 12.9 1.5 12 7.4 11.1 11.1 7.4 12 1.5Z" fill="currentColor"/></svg>Gemini CLI</li>
+      <li class="agent"><svg class="glyph" viewBox="0 0 24 24" aria-hidden="true" style="color:#4C8BF5"><path d="M12 2.5 22 20.5H2Z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M12 2.5V20.5H2Z" fill="currentColor"/></svg>Antigravity</li>
+      <li class="agent"><svg class="glyph" viewBox="0 0 24 24" aria-hidden="true" style="color:var(--t1)"><path d="M4 3.5 20 20.5M20 3.5 4 20.5" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>Grok</li>
     </ul>
   </section>
 
