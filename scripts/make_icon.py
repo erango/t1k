@@ -57,12 +57,13 @@ CHROME = """<linearGradient id="chrome" x1="0" y1="0" x2="0" y2="1"><stop offset
 
 # The app icon's tile is mid-tone slate, not near-black: a black squircle vanishes on a dark
 # Dock and reads as a hole on a light one, so the icon looked smaller than its neighbours
-# (canvas board "v3-s · App icon presence").
-SLATE = (0x3B4A5E, 0x26303D)
-SLATE_DARK = (0x2A3442, 0x171D26)
-SLATE_TILE = """<linearGradient id="slate" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3B4A5E"/><stop offset="1" stop-color="#26303D"/></linearGradient><linearGradient id="toplight" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".14"/><stop offset=".45" stop-color="#FFFFFF" stop-opacity="0"/></linearGradient>"""
-# The face fills 75% of the tile's height (48 px cells), like the symbols on neighbouring icons.
-FACE_CELL = 48
+# (canvas boards "v3-s · App icon presence" and "v3-af", which made it steel blue).
+SLATE = (0x4C6B91, 0x273B57)
+SLATE_DARK = (0x3A5577, 0x1D2D44)
+SLATE_TILE = """<linearGradient id="slate" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4C6B91"/><stop offset="1" stop-color="#273B57"/></linearGradient><linearGradient id="toplight" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".18"/><stop offset=".45" stop-color="#FFFFFF" stop-opacity="0"/></linearGradient>"""
+# The face is as big as its tall shape allows (54 px cells: 63% wide, 84% tall), and the tile
+# is steel blue, which separates from gray Docks in hue and value (canvas v3-af D).
+FACE_CELL = 54
 
 
 def svg(rows):
@@ -153,9 +154,9 @@ def write_icon_composer(res):
     (d / "Assets" / "face.svg").write_text(
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024"><g shape-rendering="crispEdges">{face_rects(FACE, cell, o, o)}</g></svg>\n'
     )
-    # White 14% at the top, gone by 45% of the height: lifts the tile off a dark Dock.
+    # White 18% at the top, gone by 45% of the height: lifts the tile off a dark Dock.
     (d / "Assets" / "toplight.svg").write_text(
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024"><defs><linearGradient id="l" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".14"/><stop offset=".45" stop-color="#FFFFFF" stop-opacity="0"/></linearGradient></defs><rect width="1024" height="1024" fill="url(#l)"/></svg>\n'
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024"><defs><linearGradient id="l" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".18"/><stop offset=".45" stop-color="#FFFFFF" stop-opacity="0"/></linearGradient></defs><rect width="1024" height="1024" fill="url(#l)"/></svg>\n'
     )
 
 
