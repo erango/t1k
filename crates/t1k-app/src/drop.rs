@@ -18,6 +18,8 @@ pub enum DropTarget {
     Pane { split: bool },
     /// A sidebar row, by tab id.
     Row(String),
+    /// A group header: an image dropped there becomes the group's icon.
+    Group(PathBuf),
 }
 
 /// What's being dragged over the window right now.

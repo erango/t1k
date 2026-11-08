@@ -29,6 +29,8 @@ mod helper_cli;
 mod close;
 mod github;
 mod group_icons;
+mod custom_icon;
+mod icon_crop;
 mod quit;
 mod icons;
 mod rail;

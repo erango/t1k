@@ -49,8 +49,8 @@ pub struct Tab {
     pub last_session: Option<String>,
     /// Set when the user moved the tab to a group by hand; folder changes don't regroup it.
     pub pinned_group: Option<PathBuf>,
-    /// An emoji chosen to stand in for the program icon.
-    pub icon: Option<String>,
+    /// An emoji, app icon or image chosen to stand in for the program icon.
+    pub icon: Option<crate::custom_icon::Icon>,
     /// Brought over from another terminal: where from ("Warp ttys004"), so it isn't again.
     pub origin: Option<String>,
     /// A Claude session still open in the terminal this tab came from.
@@ -179,7 +179,7 @@ pub struct Workspace {
     pub group_sort: HashMap<PathBuf, session::GroupSort>,
     /// Fixed group order; new groups join at the end.
     pub group_order: Vec<PathBuf>,
-    pub group_icons: HashMap<PathBuf, String>,
+    pub group_icons: HashMap<PathBuf, crate::custom_icon::Icon>,
     pub icon_suggestions: HashMap<PathBuf, Vec<String>>,
     /// Tab icon suggestions, worked out when the picker first opens for a tab (not saved).
     pub tab_icon_suggestions: HashMap<String, Vec<String>>,
@@ -220,6 +220,8 @@ pub struct Workspace {
     pub drop_hover: Option<crate::drop::DropHover>,
     /// ⌘A in the emoji picker's search: the whole query is selected.
     pub icon_query_all: bool,
+    /// The icon picker's tab, scroll and cropper.
+    pub icon_ui: crate::group_icons::PickerUi,
     /// The window isn't key (its chrome dims), and the pointer is over the sidebar (it doesn't).
     window_inactive: bool,
     sidebar_hover: bool,
@@ -449,6 +451,7 @@ impl Workspace {
             fonts: Default::default(),
             drop_hover: None,
             icon_query_all: false,
+            icon_ui: Default::default(),
             window_inactive: false,
             sidebar_hover: false,
             restore: None,
@@ -716,7 +719,7 @@ impl Workspace {
             };
             this.view_file(std::path::Path::new(&p), line, cx);
         }
-        // T1K_DEBUG_DROP=pane|row|theme:<path>: files "dragged" over the pane or the active row,
+        // T1K_DEBUG_DROP=pane|row|group|theme:<path>: files "dragged" over the pane or the active row,
         // or the theme-file choice, for screenshots (a real Finder drag can't be scripted).
         if let Some((kind, path)) = std::env::var("T1K_DEBUG_DROP").ok().as_deref().and_then(|v| v.split_once(':')) {
             let paths = vec![std::path::PathBuf::from(path)];
@@ -725,6 +728,10 @@ impl Workspace {
                 "row" => {
                     let id = this.tabs.get(this.active).map(|t| t.id.clone()).unwrap_or_default();
                     self_drop_hover(&mut this, crate::drop::DropTarget::Row(id), paths)
+                }
+                "group" => {
+                    let g = this.tabs.get(this.active).map(|t| t.group.clone()).unwrap_or_default();
+                    self_drop_hover(&mut this, crate::drop::DropTarget::Group(g), paths)
                 }
                 "theme" => this.overlay = Overlay::DropTheme { path: paths[0].clone(), split: false, at: gpui::point(px(700.), px(400.)) },
                 _ => {}
@@ -774,15 +781,7 @@ impl Workspace {
                     Some(Overlay::ThemePicker { query: String::new(), selected: 0, dark })
                 }
                 "remind" => Some(Overlay::RemindCustom { tab: this.active, text: "tomorrow 9:15".into() }),
-                "icons" | "icons-search" | "tabicons" => {
-                    let key = match which.as_str() {
-                        "tabicons" => crate::group_icons::IconFor::Tab(this.tabs[this.active].id.clone()),
-                        _ => crate::group_icons::IconFor::Group(this.tabs[this.active].group.clone()),
-                    };
-                    this.ensure_suggestions_for(&key, cx);
-                    let query = if which == "icons-search" { "rocket".to_string() } else { String::new() };
-                    Some(Overlay::IconPicker { key, at: gpui::point(px(60.), px(130.)), query, selected: 0, cat: 0 })
-                }
+                "icons" | "icons-search" | "tabicons" | "icons-apps" | "icons-image" => this.debug_icon_picker(&which, cx),
                 "settings-keys" => Some(Overlay::Settings { section: crate::settings::Section::Keybindings }),
                 "settings-search" => {
                     this.settings_query = "font".into();

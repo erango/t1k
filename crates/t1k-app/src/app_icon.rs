@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use gpui::{div, img, prelude::*, px, rgb, Div, Hsla};
+use gpui::{div, prelude::*, px, rgb, Div, Hsla};
 use t1k_themes::UiColors;
 
 use crate::workspace::Tab;
@@ -79,7 +79,7 @@ pub static SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::n
 /// The app icon at exactly `px` pixels. The base PNG is 1024 px; GPUI scales images with plain
 /// bilinear filtering, which turns a 1024 → 27 px reduction jagged (most visible at 1×), so a
 /// size-specific copy is made once with sips (proper resampling) and cached next to it.
-fn sized_icon(base: &Path, px: u32) -> Option<PathBuf> {
+pub(crate) fn sized_icon(base: &Path, px: u32) -> Option<PathBuf> {
     let out = base.with_file_name(format!("{}-{px}.png", base.file_stem()?.to_string_lossy()));
     if out.is_file() {
         return Some(out);
@@ -174,9 +174,16 @@ pub fn badge(tab: &Tab, ui: UiColors, size: f32) -> Div {
     // Small icons fill their tile edge to edge with a tighter corner, so they read at 16-22 px.
     let radius = (size * 0.24).round();
     let base = div().opacity(ui.icon_alpha).size(px(size)).flex_none().rounded(px(radius)).overflow_hidden().flex().items_center().justify_center();
-    // An emoji the user chose for this tab stands in for the program.
-    if let Some(e) = &tab.icon {
-        return base.text_size(px((size * 0.8).round())).line_height(px(size)).child(e.clone());
+    // An icon the user chose for this tab stands in for the program: an emoji as text, an app
+    // icon or image in the tile (if its PNG is gone, the program icon shows instead).
+    match &tab.icon {
+        Some(crate::custom_icon::Icon::Emoji(e)) => return base.text_size(px((size * 0.8).round())).line_height(px(size)).child(e.clone()),
+        Some(icon) => {
+            if let Some(c) = crate::custom_icon::content(icon, size) {
+                return base.relative().child(c);
+            }
+        }
+        None => {}
     }
     // A live agent session names the program (its process may show as node or python).
     let live_agent = tab.agent.as_ref().filter(|a| a.status != t1k_agent::Status::Ended);
@@ -200,11 +207,7 @@ pub fn badge(tab: &Tab, ui: UiColors, size: f32) -> Div {
     // The real Mac app's icon when one matches (Claude, Docker, Cursor...). macOS icons carry
     // ~10% transparent margin; drawing them 1.22× and clipping to the tile removes it.
     if let Some(png) = app_icon(program) {
-        let over = (size * 1.22).round();
-        let scale = SCALE.load(std::sync::atomic::Ordering::Relaxed).max(1);
-        let png = sized_icon(&png, (over * scale as f32).round() as u32).unwrap_or(png);
-        let shift = -((over - size) / 2.);
-        return base.relative().child(div().absolute().left(px(shift)).top(px(shift)).child(img(png).size(px(over))));
+        return base.relative().child(crate::custom_icon::overscaled(png, size));
     }
     let (glyph, color): (String, Hsla) = match known(program) {
         Some((g, c)) => (g.to_string(), rgb(c).into()),

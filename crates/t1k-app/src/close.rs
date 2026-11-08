@@ -20,7 +20,7 @@ pub struct ClosedTab {
     pub manual_title: Option<String>,
     pub title: String,
     pub pinned_group: Option<PathBuf>,
-    pub icon: Option<String>,
+    pub icon: Option<crate::custom_icon::Icon>,
     pub session: Option<String>,
     /// Its scrollback, replayed when it reopens (no banner).
     pub scrollback: Vec<u8>,

@@ -356,6 +356,8 @@ fn group_header(ws: &Workspace, key: &std::path::Path, tabs: &[usize], sticky: b
                     .on_drop(cx.listener(move |this, d: &GroupDrag, _, cx| this.reorder_group(&d.0, &to, cx))),
             )
         })
+        // An image dropped on the header becomes the group's icon (canvas v3-ag).
+        .map(|d| crate::icon_crop::header_drop(d, ws, &key, cx))
         .group(SharedString::from(format!("gh-{}", key.display())))
         .relative()
         .h(px(26.))
@@ -563,7 +565,7 @@ fn icon_slot(ws: &Workspace, key: &std::path::Path, sticky: bool, cx: &mut Conte
             this.open_icon_picker(crate::group_icons::IconFor::Group(k.clone()), ev.position(), window, cx);
         }));
     match icon {
-        Some(e) => base.size(px(size)).text_size(px(size.min(18.) - 3.)).child(e),
+        Some(i) => base.size(px(size)).child(crate::custom_icon::mark(&i, ui, size.min(18.), size.min(18.) - 3.)),
         None => base
             .h(px(16.))
             .w(px(16. * t))

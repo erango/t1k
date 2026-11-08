@@ -27,9 +27,9 @@ pub struct SavedTab {
     /// A Claude session was still running in this tab when T1K quit.
     #[serde(default)]
     pub agent_live: bool,
-    /// Emoji chosen for this tab.
+    /// Icon chosen for this tab (a plain string in older sessions: an emoji).
     #[serde(default)]
-    pub icon: Option<String>,
+    pub icon: Option<crate::custom_icon::Icon>,
     /// Where an imported tab came from ("Warp ttys004").
     #[serde(default)]
     pub origin: Option<String>,
@@ -126,7 +126,7 @@ pub struct Session {
     #[serde(default)]
     pub group_order: Vec<PathBuf>,
     #[serde(default)]
-    pub group_icons: Vec<(PathBuf, String)>,
+    pub group_icons: Vec<(PathBuf, crate::custom_icon::Icon)>,
     /// Icon suggestions per group, worked out ahead of time (helper or keywords).
     // Renamed from `icon_suggestions` when local suggestions improved, so they're redone.
     #[serde(default, rename = "icon_suggestions_v2")]
@@ -206,5 +206,22 @@ mod recent_tests {
         assert_eq!(v.iter().filter(|x| x.group == PathBuf::from("/a")).count(), 6);
         assert!(!v.iter().any(|x| x.session_id == "old"));
         assert_eq!(v.iter().filter(|x| x.session_id == "s0").count(), 1);
+    }
+
+    #[test]
+    fn reads_old_emoji_icons_and_writes_tagged_ones() {
+        use crate::custom_icon::Icon;
+        let old = r#"{"tabs":[{"cwd":"/a","icon":"🦀"}],"group_icons":[["/a","🐳"]]}"#;
+        let s: Session = serde_json::from_str(old).unwrap();
+        assert_eq!(s.tabs[0].icon, Some(Icon::Emoji("🦀".into())));
+        assert_eq!(s.group_icons[0].1, Icon::Emoji("🐳".into()));
+        let mut s = s;
+        s.tabs[0].icon = Some(Icon::App("com.figma.Desktop".into()));
+        s.group_icons[0].1 = Icon::Image("0".repeat(64));
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains(r#""icon":{"kind":"app","value":"com.figma.Desktop"}"#));
+        let back: Session = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.tabs[0].icon, s.tabs[0].icon);
+        assert_eq!(back.group_icons, s.group_icons);
     }
 }

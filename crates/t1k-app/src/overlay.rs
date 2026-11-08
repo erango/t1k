@@ -362,7 +362,7 @@ impl Workspace {
             },
             Overlay::Menu { tab, at } => (ev.keystroke.key != "escape").then_some(Overlay::Menu { tab, at }),
             Overlay::GroupMenu { key, at } => (ev.keystroke.key != "escape").then_some(Overlay::GroupMenu { key, at }),
-            Overlay::IconPicker { key, at, query, selected, cat } => self.icon_picker_key(key, at, query, selected, cat, ev, cx),
+            Overlay::IconPicker { key, at, query, selected, cat } => self.icon_picker_key(key, at, query, selected, cat, ev, window, cx),
             o @ Overlay::TerminalMenu { .. } => (ev.keystroke.key != "escape").then_some(o),
             o @ Overlay::SidebarView { .. } => (ev.keystroke.key != "escape").then_some(o),
             o @ Overlay::Usage { .. } => (ev.keystroke.key != "escape").then_some(o),
@@ -1067,6 +1067,13 @@ fn menu(ws: &Workspace, tab: usize, at: Point<Pixels>, window: &Window, cx: &mut
     m = m.child(item("icon", if t.icon.is_some() { "Change icon…".into() } else { "Choose icon…".into() }).on_click(cx.listener(
         move |this, ev: &gpui::ClickEvent, window, cx| this.open_icon_picker(crate::group_icons::IconFor::Tab(id.clone()), ev.position(), window, cx),
     )));
+    if t.icon.is_some() {
+        let id = t.id.clone();
+        m = m.child(item("reset-icon", "Reset icon".into()).on_click(cx.listener(move |this, _, window, cx| {
+            this.set_icon(&crate::group_icons::IconFor::Tab(id.clone()), None, cx);
+            this.close_overlay(window, cx);
+        })));
+    }
     if t.split.is_some() {
         m = m.child(item("close-split", "Close split".into()).on_click(cx.listener(move |this, _, window, cx| {
             this.close_overlay(window, cx);
@@ -1280,6 +1287,13 @@ fn group_menu(ws: &Workspace, key: std::path::PathBuf, at: Point<Pixels>, window
     m = m.child(item("icon", if has_icon { "Change icon…".into() } else { "Choose icon…".into() }).on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
         this.open_icon_picker(crate::group_icons::IconFor::Group(k.clone()), ev.position(), window, cx);
     })));
+    if has_icon {
+        let k = key.clone();
+        m = m.child(item("reset-icon", "Reset icon".into()).on_click(cx.listener(move |this, _, window, cx| {
+            this.set_icon(&crate::group_icons::IconFor::Group(k.clone()), None, cx);
+            this.close_overlay(window, cx);
+        })));
+    }
     let k = key.clone();
     m = m.child(item("rename", "Rename…".into()).on_click(cx.listener(move |this, _, window, cx| {
         let text = this.group_label(&k);

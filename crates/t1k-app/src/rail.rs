@@ -217,7 +217,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         // The group's icon, or a short bar in its color; the same line as the sidebar runs
         // down its tabs.
         g = g.child(div().h(px(16.)).flex().items_center().map(|d| match ws.group_icons.get(&key) {
-            Some(e) => d.text_size(px(13.)).child(e.clone()),
+            Some(i) => d.child(crate::custom_icon::mark(i, ui, 16., 13.)),
             None => d.child(div().w(px(12.)).h(px(2.)).rounded(px(1.)).bg(color.unwrap_or(ui.text_disabled))),
         }));
         if let Some(c) = color {
