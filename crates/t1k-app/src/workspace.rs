@@ -856,8 +856,11 @@ impl Workspace {
                     Some(Overlay::Rename { tab: this.active, text })
                 }
                 "themes" => {
+                    // The theme in use is the one selected (and previewed), as when opened by hand.
                     let dark = this.theme.is_dark();
-                    Some(Overlay::ThemePicker { query: String::new(), selected: 0, dark })
+                    let current = this.theme_slot(dark).name.clone();
+                    let selected = crate::theme_picker::results("", dark).iter().position(|t| t.name == current).unwrap_or(0);
+                    Some(Overlay::ThemePicker { query: String::new(), selected, dark })
                 }
                 "remind" => Some(Overlay::RemindCustom { tab: this.active, text: "tomorrow 9:15".into() }),
                 "icons" | "icons-search" | "tabicons" | "icons-apps" | "icons-image" => this.debug_icon_picker(&which, cx),

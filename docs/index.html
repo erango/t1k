@@ -92,8 +92,13 @@ h1{font:600 50px/56px var(--sans);letter-spacing:-.02em;color:var(--t1)}
 .outputs .frame img{width:382.17%;left:-282.17%;top:0}
 .switcher .frame{aspect-ratio:596/475}
 .switcher .frame img{width:201.34%;left:-50.67%;top:-16.42%}
-.themes .frame{aspect-ratio:990/660}
+.themes .frame{aspect-ratio:990/660;width:80%}
 .themes .frame img{width:121.21%;left:-10.61%;top:-5.3%}
+/* Dark and light, overlapping: one theme per slot, each window in its own theme. */
+.themes .frame.light{margin:-34% 0 0 20%;box-shadow:0 0 0 1px var(--line),var(--shadow-lg)}
+.themes .tag{position:absolute;right:10px;bottom:10px;padding:2px 8px;border-radius:6px;font:600 11px/16px var(--sans);letter-spacing:.3px;background:rgba(0,0,0,.55);color:#fff}
+.themes .frame.dark .tag{left:10px;right:auto}
+.themes .frame.light .tag{background:rgba(255,255,255,.85);color:#1b1c1f}
 
 /* App window (sidebar + terminal) */
 .win{display:flex;border-radius:12px;overflow:hidden;background:var(--term);box-shadow:0 0 0 1px var(--line),var(--shadow);font-family:var(--sans)}
@@ -214,7 +219,7 @@ h1{font:600 50px/56px var(--sans);letter-spacing:-.02em;color:var(--t1)}
 .r-pill{height:28px;padding:0 12px;border-radius:14px;background:var(--card);box-shadow:0 0 0 1px var(--line);display:inline-flex;align-items:center;gap:8px;font-size:11.5px;color:var(--t1);white-space:nowrap}
 
 /* Make it yours */
-.f-vis .shot.themes{max-width:520px}
+.f-vis .shot.themes{max-width:620px}
 .prefs{padding:16px}
 .pref{display:flex;align-items:center;gap:12px;padding:7px 0;border-top:1px solid var(--line)}
 .pref .l{font-size:11px;color:var(--t3);width:96px;flex:none}
@@ -235,6 +240,8 @@ h1{font:600 50px/56px var(--sans);letter-spacing:-.02em;color:var(--t1)}
 .agents{display:flex;gap:12px 14px;flex-wrap:wrap;margin:0;padding:0;list-style:none}
 .agent{height:36px;padding:0 12px;border-radius:8px;background:var(--card);box-shadow:inset 0 0 0 1px var(--line);display:inline-flex;align-items:center;gap:8px;font-size:14px;color:var(--t1)}
 .agent img{width:24px;height:24px}
+/* The badge T1K's sidebar draws for agents without a Mac app icon: glyph on a 22% tint. */
+.agent .glyph{width:24px;height:24px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;background:rgba(var(--c),.22);color:rgb(var(--c));font:700 16px/1 var(--sans)}
 
 /* Homebrew command under the download button: click to copy */
 .brew{display:inline-flex;align-items:center;gap:10px;height:36px;padding:0 12px;border:0;border-radius:8px;background:var(--card);box-shadow:inset 0 0 0 1px var(--line);color:var(--t2);font:13px var(--mono);cursor:pointer;max-width:100%}
@@ -569,7 +576,8 @@ footer .tm{font-size:12px}
     </div>
     <div class="f-vis">
       <div class="shot themes">
-        <div class="frame"><img src="screenshots/themes.png" width="2880" height="1754" alt="The theme picker with a live preview of the sidebar and terminal" loading="lazy" onerror="var s=this.closest('.shot');if(s)s.classList.add('no-img');this.remove()"></div>
+        <div class="frame dark"><img src="screenshots/themes.png" width="2880" height="1754" alt="The theme picker in dark mode, previewing Catppuccin Mocha across the sidebar and terminal" loading="lazy" onerror="var s=this.closest('.shot');if(s)s.classList.add('no-img');this.remove()"><span class="tag">Dark</span></div>
+        <div class="frame light"><img src="screenshots/themes-light.png" width="2880" height="1754" alt="The same picker in light mode, previewing Catppuccin Latte" loading="lazy" onerror="var s=this.closest('.shot');if(s)s.classList.add('no-img');this.remove()"><span class="tag">Light</span></div>
         <div class="mock panel prefs" role="img" aria-label="T1K’s look settings: themes, fonts, sidebar density, tab icons, session colors, keys and the setup wizard">
           <div class="pref"><span class="l">Themes</span><span class="v">
             <span class="sw-th" style="background:#121316"></span><span class="sw-th" style="background:#FBFBFC"></span><span class="sw-th" style="background:#002B36"></span><span class="sw-th" style="background:#1A1B26"></span><span class="sw-th" style="background:#FDF6E3"></span><span class="sw-th" style="background:#282A36"></span>
@@ -593,10 +601,10 @@ footer .tm{font-size:12px}
     <h2 id="works-h" class="lab" style="font-weight:400">Works with</h2>
     <ul class="agents">
       <li class="agent"><img src="site/claude-64.png" width="24" height="24" alt="">Claude Code</li>
-      <li class="agent">Codex</li>
-      <li class="agent">Gemini CLI</li>
-      <li class="agent">Antigravity</li>
-      <li class="agent">Grok</li>
+      <li class="agent"><span class="glyph" style="--c:16,163,127" aria-hidden="true">◎</span>Codex</li>
+      <li class="agent"><span class="glyph" style="--c:76,139,245" aria-hidden="true">✦</span>Gemini CLI</li>
+      <li class="agent"><span class="glyph" style="--c:76,139,245" aria-hidden="true">◭</span>Antigravity</li>
+      <li class="agent"><span class="glyph" style="--c:150,156,166" aria-hidden="true">X</span>Grok</li>
     </ul>
   </section>
 

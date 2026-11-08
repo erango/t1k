@@ -35,7 +35,10 @@ shot switcher 1 T1K_DEBUG_OVERLAY=switcher T1K_DEBUG_QUERY=pay
 shot overview 1 T1K_DEBUG_OVERLAY=overview
 shot outputs outputs
 shot setup 1 T1K_DEBUG_OVERLAY=setup-3
-shot themes 1 T1K_DEBUG_OVERLAY=themes
+# The picker previews the theme the window is in, so the pane and the app match. Catppuccin
+# has a dark and a light flavor that both read as clearly not the default.
+shot themes 1 T1K_DEBUG_OVERLAY=themes "T1K_THEME=Catppuccin Mocha"
+shot themes-light 1 T1K_DEBUG_OVERLAY=themes "T1K_THEME=Catppuccin Latte"
 shot hero-light 1 "T1K_THEME=Mercury Light"
 
 # Social sizes: the window scaled onto a dark backdrop with a margin.
