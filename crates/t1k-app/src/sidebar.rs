@@ -17,6 +17,10 @@ const ROW_GAP: f32 = 2.;
 /// What "quiet" means, shown on hover of the quiet labels.
 const QUIET_HELP: &str = "Quiet tabs have nothing running and nothing new: idle shells and finished sessions you've already seen. Click to show them.";
 const INSET: f32 = 8.;
+/// Rows start here (design v3-y c): the group line runs at x 8 in the gutter left of them.
+const ROW_LEFT: f32 = 14.;
+/// Group line x (design v3-y c), where the rows' left edge used to be.
+const LINE_X: f32 = 8.;
 
 pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
     let k = ws.config.interface.text_scale();
@@ -62,11 +66,12 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         let folded = ws.collapsed.contains(&key) || (all_quiet && !ws.show_quiet.contains(&key));
         let _ = &tally;
         let mut group = div().relative().flex().flex_col();
-        // Design v3-n2: a 2 px line in the group's color down its rows, from just under the
-        // header to the last row, outside the hover fill.
+        // Design v3-y c: a 2 px line in the group's color down its rows, in its own gutter at
+        // x 8 (off the window edge), from just under the header to the last row. A plain guide:
+        // it ignores selection, since the selected fill joining the terminal already says it.
         if let Some(c) = ws.group_color(&key).filter(|_| !folded) {
             let a = if ws.theme.is_dark() { 0.5 } else { 0.55 };
-            group = group.child(div().absolute().left(px(3.)).top(px(28.)).bottom_0().w(px(2.)).rounded(px(1.)).bg(c.opacity(a)));
+            group = group.child(div().absolute().left(px(LINE_X)).top(px(28.)).bottom_0().w(px(2.)).rounded(px(1.)).bg(c.opacity(a)));
         }
         group = group.child(group_header(ws, &key, &tabs, false, cx));
         if !folded {
@@ -341,7 +346,8 @@ fn group_header(ws: &Workspace, key: &std::path::Path, tabs: &[usize], sticky: b
         .h(px(26.))
         .flex_none()
         .mx(px(INSET))
-        .pl(px(12.))
+        // Label at x 24, lined up with the row icons.
+        .pl(px(16.))
         .pr(px(10.))
         .rounded(px(6.))
         .flex()
@@ -489,8 +495,9 @@ fn quiet_row(ui: UiColors, k: f32, id: String) -> gpui::Stateful<Div> {
         .h(px(26.))
         .flex_none()
         .mt(px(ROW_GAP))
-        .mx(px(INSET))
-        .pl(px(43.))
+        .ml(px(ROW_LEFT))
+        .mr(px(INSET))
+        .pl(px(41.))
         .pr(px(12.))
         .rounded(px(6.))
         .flex()
@@ -618,8 +625,9 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         .flex_none()
         .h(px(height))
         .mt(px(ROW_GAP))
-        .ml(px(INSET))
-        .px(px(12.))
+        .ml(px(ROW_LEFT))
+        .pl(px(10.))
+        .pr(px(12.))
         .flex()
         .items_center()
         .gap(px(if two_lines { 11. } else { 9. }))
@@ -681,7 +689,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         .on_hover(cx.listener(move |this, hovered: &bool, _, cx| this.row_hovered(hover_id.clone(), *hovered, cx)))
         .when(carded, |d| {
             // Card floats over the terminal, level with the row; drawn last so nothing clips it.
-            let left = ws.config.sidebar.width.clamp(200., 480.) - INSET + 6.;
+            let left = ws.config.sidebar.width.clamp(200., 480.) - ROW_LEFT + 6.;
             d.child(
                 div().absolute().top(px(-4.)).left(px(left)).child(
                     deferred(anchored().snap_to_window_with_margin(px(8.)).child(card(ws, ix, cx))).with_priority(1),
