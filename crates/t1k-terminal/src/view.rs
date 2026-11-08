@@ -105,6 +105,9 @@ pub struct TerminalView {
     /// Viewport cell under the mouse, and whether cmd is held (cmd-hover arms a link).
     hover_cell: Option<(usize, usize)>,
     cmd_down: bool,
+    /// Resting on a link without ⌘: (link, since, pointer) for the "⌘ + click to open" tip.
+    link_tip: Option<(usize, std::time::Instant, Point<Pixels>)>,
+    link_tip_task: Option<Task<()>>,
     /// Link hint mode: the letters typed so far (labels are drawn on every visible link).
     hints: Option<String>,
     /// Find bar state while it's open (⌘F).
@@ -188,6 +191,8 @@ impl TerminalView {
             path_cache: Default::default(),
             hover_cell: None,
             cmd_down: false,
+            link_tip: None,
+            link_tip_task: None,
             // Debug aid for screenshots without a keyboard: start in hint mode.
             hints: std::env::var_os("T1K_DEBUG_HINTS").map(|_| String::new()),
             hint_labels: Vec::new(),
@@ -614,6 +619,35 @@ impl TerminalView {
         cx.notify();
     }
 
+    /// A plain click on a link does nothing (it selects, like any text), so resting on one
+    /// without ⌘ says how to open it.
+    fn update_link_tip(&mut self, cell: Option<(usize, usize)>, cmd: bool, at: Point<Pixels>, cx: &mut Context<Self>) {
+        const DELAY: std::time::Duration = std::time::Duration::from_millis(600);
+        let link = (!cmd).then(|| cell.and_then(|c| self.link_map.get(&c).copied())).flatten().filter(|&i| matches!(self.links.get(i), Some(Link::Url(_))));
+        match (link, self.link_tip) {
+            (Some(i), Some((j, _, _))) if i == j => {}
+            (Some(i), _) => {
+                let shown = self.link_tip.is_some_and(|(_, t, _)| t.elapsed() >= DELAY);
+                self.link_tip = Some((i, std::time::Instant::now(), at));
+                self.link_tip_task = Some(cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(DELAY).await;
+                    let _ = this.update(cx, |_, cx| cx.notify());
+                }));
+                if shown {
+                    cx.notify();
+                }
+            }
+            (None, Some((_, t, _))) => {
+                self.link_tip = None;
+                self.link_tip_task = None;
+                if t.elapsed() >= DELAY {
+                    cx.notify();
+                }
+            }
+            (None, None) => {}
+        }
+    }
+
     fn link_at(&self, col: usize, row: usize) -> Option<Link> {
         self.link_map.get(&(col, row)).map(|&i| self.links[i].clone())
     }
@@ -637,6 +671,7 @@ impl TerminalView {
     fn on_mouse_move(&mut self, ev: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
         let cell = self.cell_at(ev.position).map(|(c, r, _)| (c, r));
         self.set_hover(cell, ev.modifiers.platform, cx);
+        self.update_link_tip(cell, ev.modifiers.platform, ev.position, cx);
         if ev.pressed_button != Some(MouseButton::Left) {
             return;
         }
@@ -1230,7 +1265,42 @@ impl Render for TerminalView {
             )
             .children(self.search.as_ref().map(|s| find_bar(s, &self.palette, cx)))
             .children(self.hints.as_ref().map(|typed| hint_bar(typed, self.hint_labels.len(), &self.palette)))
+            .children(
+                self.link_tip
+                    .filter(|(_, t, _)| !self.cmd_down && t.elapsed() >= std::time::Duration::from_millis(600))
+                    .map(|(_, _, at)| link_tip(at, &self.palette)),
+            )
+            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                if !hovered && this.link_tip.take().is_some() {
+                    this.link_tip_task = None;
+                    cx.notify();
+                }
+            }))
     }
+}
+
+/// "⌘ + click to open", just below the pointer, while it rests on a link.
+fn link_tip(at: Point<Pixels>, palette: &Palette) -> impl IntoElement {
+    let fg = hsla(palette.foreground);
+    let bg = hsla(palette.background);
+    let raised = gpui::Hsla { l: if bg.l < 0.5 { bg.l + 0.1 } else { bg.l - 0.06 }, ..bg };
+    gpui::deferred(
+        gpui::anchored().position(point(at.x + px(10.), at.y + px(16.))).snap_to_window_with_margin(px(8.)).child(
+            div()
+                .px(px(8.))
+                .py(px(4.))
+                .rounded(px(6.))
+                .bg(raised)
+                .border_1()
+                .border_color(fg.opacity(0.12))
+                .shadow_md()
+                .font_family(".SystemUIFont")
+                .text_size(px(11.5))
+                .text_color(fg.opacity(0.85))
+                .child("⌘ + click to open"),
+        ),
+    )
+    .with_priority(1)
 }
 
 /// Hint mode's bottom bar: what you've typed and how to get out.
