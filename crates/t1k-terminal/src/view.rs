@@ -759,6 +759,11 @@ impl TerminalView {
         }
     }
 
+    /// The pointer rests on a web link (shown underlined without ⌘): it gets a hand cursor.
+    fn on_url(&self) -> bool {
+        self.hover_cell.and_then(|c| self.link_map.get(&c)).is_some_and(|&i| matches!(self.links.get(i), Some(Link::Url(_))))
+    }
+
     fn link_at(&self, col: usize, row: usize) -> Option<Link> {
         self.link_map.get(&(col, row)).map(|&i| self.links[i].clone())
     }
@@ -766,11 +771,13 @@ impl TerminalView {
     fn set_hover(&mut self, cell: Option<(usize, usize)>, cmd: bool, cx: &mut Context<Self>) {
         let was_cmd = self.cmd_down;
         let armed_before = self.cmd_down && self.hover_cell.is_some_and(|c| self.link_map.contains_key(&c));
+        let url_before = self.on_url();
         self.hover_cell = cell;
         self.cmd_down = cmd;
         let armed_now = cmd && cell.is_some_and(|c| self.link_map.contains_key(&c));
-        // ⌘ reveals file, PR and ticket links anywhere on screen, so a change always repaints.
-        if armed_before || armed_now || cmd != was_cmd {
+        // ⌘ reveals file, PR and ticket links anywhere on screen, so a change always repaints;
+        // moving onto or off a web link repaints for the hand cursor.
+        if armed_before || armed_now || cmd != was_cmd || url_before != self.on_url() {
             cx.notify();
         }
     }
@@ -1587,7 +1594,7 @@ impl Render for TerminalView {
         self.links = frame.links.clone();
         self.link_map = frame.link_map.clone();
         self.hint_labels = frame.hints.as_ref().map(|(_, l)| l.iter().map(|(s, id, _)| (s.clone(), *id)).collect()).unwrap_or_default();
-        let pointer = frame.hovered.is_some();
+        let pointer = frame.hovered.is_some() || self.on_url();
         let palette = self.palette.clone();
         let style = self.style.clone();
         let entity = cx.entity();
