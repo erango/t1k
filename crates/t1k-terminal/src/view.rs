@@ -953,7 +953,22 @@ fn detect_links(
 
 /// Snapshot the visible grid into paint-ready batches. Holds the term lock briefly.
 fn build_frame(view: &TerminalView, focused: bool) -> Frame {
-    let term = view.terminal.term.lock();
+    let mut term = view.terminal.term.lock();
+    // Bottom gravity: draw as if scrolled up past blank rows under the cursor (reverted below,
+    // under the same lock, so the terminal's real scroll position never changes).
+    let shift = if view.terminal.bottom_gravity { crate::terminal::gravity_shift(&term) } else { 0 };
+    if shift > 0 {
+        term.scroll_display(alacritty_terminal::grid::Scroll::Delta(shift as i32));
+    }
+    view.terminal.shift.store(shift, std::sync::atomic::Ordering::Relaxed);
+    let frame = build_frame_locked(view, &term, focused);
+    if shift > 0 {
+        term.scroll_display(alacritty_terminal::grid::Scroll::Delta(-(shift as i32)));
+    }
+    frame
+}
+
+fn build_frame_locked(view: &TerminalView, term: &alacritty_terminal::Term<crate::terminal::Listener>, focused: bool) -> Frame {
     let content = term.renderable_content();
     let palette = &view.palette;
     let colors = content.colors;

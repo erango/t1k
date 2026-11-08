@@ -66,6 +66,41 @@ pub struct Terminal {
     /// Master side of the pty (owned by the event loop; valid while it runs).
     pty_fd: RawFd,
     shell_pid: i32,
+    /// Prompt gravity: bottom (blank rows under the cursor are hidden, see `gravity_shift`).
+    pub bottom_gravity: bool,
+    /// Rows the last frame was shifted down by, so mouse rows map to the same grid lines.
+    pub shift: std::sync::atomic::AtomicUsize,
+}
+
+/// With prompt gravity at the bottom, blank rows under the cursor are hidden by showing that
+/// many earlier lines at the top instead. A TUI that shrinks its live region (Claude Code after a
+/// tall permission prompt is answered) erases lines and leaves the screen's bottom empty, which
+/// otherwise stays empty until more output scrolls it. Only on the main screen, at the bottom of
+/// scrollback, and never more than the history there is.
+pub fn gravity_shift(term: &Term<Listener>) -> usize {
+    use alacritty_terminal::grid::Dimensions;
+    use alacritty_terminal::index::{Column, Line};
+    if term.mode().contains(TermMode::ALT_SCREEN) || term.grid().display_offset() != 0 {
+        return 0;
+    }
+    let grid = term.grid();
+    let cursor = grid.cursor.point.line.0;
+    let cols = term.columns();
+    let mut blank = 0;
+    let mut line = term.screen_lines() as i32 - 1;
+    while line > cursor {
+        let row = &grid[Line(line)];
+        if (0..cols).any(|c| !matches!(row[Column(c)].c, ' ' | '\0')) {
+            break;
+        }
+        blank += 1;
+        line -= 1;
+    }
+    // A mostly empty screen is a deliberate clear (Ctrl-L keeps scrollback): leave it be.
+    if blank * 2 > term.screen_lines() {
+        return 0;
+    }
+    blank.min(grid.history_size())
 }
 
 /// The user's shell as a login session, without the "Last login" banner.
@@ -133,7 +168,8 @@ impl Terminal {
         let notifier = Notifier(event_loop.channel());
         event_loop.spawn();
 
-        Ok((Self { term, notifier, size, title: None, exited: false, pty_fd, shell_pid }, rx))
+        let bottom_gravity = opts.start_at_bottom;
+        Ok((Self { term, notifier, size, title: None, exited: false, pty_fd, shell_pid, bottom_gravity, shift: Default::default() }, rx))
     }
 
     /// Hang up the foreground program, as closing a terminal window does (SIGHUP to its
@@ -232,7 +268,7 @@ impl Terminal {
     /// Convert a viewport cell (col, row) into a grid point accounting for scrollback.
     pub fn grid_point(&self, col: usize, row: usize) -> GridPoint {
         let term = self.term.lock();
-        let offset = term.grid().display_offset() as i32;
+        let offset = term.grid().display_offset() as i32 + self.shift.load(std::sync::atomic::Ordering::Relaxed) as i32;
         let col = col.min(term.columns().saturating_sub(1));
         GridPoint::new(Line(row as i32 - offset), Column(col))
     }
