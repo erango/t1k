@@ -403,24 +403,29 @@ pub fn render(ws: &Workspace, key: &IconFor, at: Point<Pixels>, query: &str, sel
             })))
             .child(div().flex().gap(px(2.)).children(sugg.iter().enumerate().map(|(i, e)| cell(format!("sg-{i}"), e.clone(), selected == i))));
     }
-    // Search field: typing anywhere goes here.
+    // Search field: typing anywhere in the picker goes here, so it always looks focused (accent
+    // border, caret) and takes clicks without closing the picker.
+    let caret = div().w(px(1.5)).h(px(15.)).flex_none().bg(ui.accent);
     body = body.child(
         div()
+            .id("emoji-search")
             .h(px(30.))
             .px(px(10.))
             .rounded(px(7.))
             .bg(ui.bg_sidebar)
             .border_1()
-            .border_color(if query.is_empty() { ui.border } else { ui.accent })
+            .border_color(ui.accent.opacity(0.6))
+            .cursor(gpui::CursorStyle::IBeam)
+            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .flex()
             .items_center()
             .gap(px(8.))
             .text_size(px(12.5))
             .child(crate::icons::search(ui.text_tertiary))
             .child(if query.is_empty() {
-                div().text_color(ui.text_tertiary).child("Search emoji")
+                div().flex().items_center().child(caret).child(div().ml(px(1.)).text_color(ui.text_tertiary).child("Search emoji"))
             } else {
-                div().text_color(ui.text_primary).child(format!("{query}▏"))
+                div().flex().items_center().text_color(ui.text_primary).child(query.to_string()).child(caret)
             }),
     );
     if query.trim().is_empty() {
