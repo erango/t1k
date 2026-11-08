@@ -608,6 +608,7 @@ impl Workspace {
                     failed.push((tab.id.clone(), "Folder missing"));
                 }
                 tab.reminder_at = t.reminder_at.map(|s| UNIX_EPOCH + Duration::from_secs(s));
+                tab.unread = t.unread;
                 // Re-attach the last Claude session's transcript: title, recap and outputs return.
                 if let Some(sid) = &t.last_session {
                     if let Some(path) = session::find_transcript(sid) {
@@ -1989,6 +1990,7 @@ impl Workspace {
                         || t.agent.as_ref().is_some_and(|a| {
                             a.kind == t1k_agent::agents::AgentKind::Claude && !a.session_id.is_empty() && !matches!(a.status, Status::Ended)
                         }) && t.program.is_some(),
+                    unread: t.unread,
                 }
             }).collect(),
             active: self.visual_order().iter().position(|&i| i == self.active).unwrap_or(0),

@@ -27,6 +27,9 @@ pub struct SavedTab {
     /// A Claude session was still running in this tab when T1K quit.
     #[serde(default)]
     pub agent_live: bool,
+    /// Finished while you were elsewhere and not looked at yet.
+    #[serde(default)]
+    pub unread: bool,
     /// Icon chosen for this tab (a plain string in older sessions: an emoji).
     #[serde(default)]
     pub icon: Option<crate::custom_icon::Icon>,
