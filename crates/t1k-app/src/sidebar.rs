@@ -198,7 +198,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                             this.open_overlay(crate::overlay::Overlay::SidebarView { at }, window, cx);
                         }))
                         .tooltip(crate::tooltip::text(ui, "View options"))
-                        .child(crate::icons::filter_lines_at(ui.text_secondary, 16.)),
+                        .child(crate::icons::sliders_at(ui.text_secondary, 16.)),
                 )
                 .child(
                     ghost("new-tab", ui)

@@ -52,15 +52,23 @@ pub fn search(color: Hsla) -> impl IntoElement {
     })
 }
 
-/// Three shortening lines (view options: how the list shows).
-pub fn filter_lines_at(color: Hsla, size: f32) -> impl IntoElement {
+/// Sliders (view options: how the list shows).
+pub fn sliders_at(color: Hsla, size: f32) -> impl IntoElement {
+    // Three tracks, each broken by a hollow knob: "adjust how this looks", not "filter".
     icon_at(size, |pt, p| {
-        p.move_to(pt(2.5, 4.));
-        p.line_to(pt(11.5, 4.));
-        p.move_to(pt(4.5, 7.));
-        p.line_to(pt(9.5, 7.));
-        p.move_to(pt(6.3, 10.));
-        p.line_to(pt(7.7, 10.));
+        for (y, x) in [(3.5f32, 9.0f32), (7., 5.), (10.5, 8.)] {
+            let r = 1.5;
+            p.move_to(pt(1.5, y));
+            p.line_to(pt(x - r, y));
+            p.move_to(pt(x + r, y));
+            p.line_to(pt(12.5, y));
+            let n = 16;
+            p.move_to(pt(x + r, y));
+            for k in 1..=n {
+                let a = k as f32 / n as f32 * std::f32::consts::TAU;
+                p.line_to(pt(x + r * a.cos(), y + r * a.sin()));
+            }
+        }
     }, color)
 }
 

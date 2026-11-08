@@ -22,6 +22,8 @@ const GIVE_UP: Duration = Duration::from_secs(10);
 /// "All 31 tabs back" stays this long, then fades.
 const DONE_SHOWN: Duration = Duration::from_secs(2);
 const FADE: Duration = Duration::from_millis(300);
+/// "29 of 31 back · 2 need a look" stays longer, then fades too.
+const FAIL_SHOWN: Duration = Duration::from_secs(6);
 /// Quiet folding waits this long after the restore, so nothing collapses right as it ends.
 const FOLD_HOLD: Duration = Duration::from_secs(5);
 
@@ -81,9 +83,7 @@ impl Workspace {
         }
         cx.notify();
         match r.done_at {
-            // Failures keep the line up until they're handled; nothing else moves, so stop
-            // ticking.
-            Some(_) if !r.failed.is_empty() => false,
+            Some(_) if !r.failed.is_empty() => r.done_at.is_some_and(|t| t.elapsed() < FAIL_SHOWN + FADE),
             Some(t) => t.elapsed() < DONE_SHOWN + FADE + FOLD_HOLD,
             None => true,
         }
@@ -128,9 +128,16 @@ pub fn progress_label(ws: &Workspace) -> Option<AnyElement> {
     }
     let (text, opacity, color) = match r.done_at {
         None => (format!("Restoring {} of {}", r.back(), r.total), 1., ui.text_tertiary),
-        Some(_) if !r.failed.is_empty() => {
+        // The strip's buttons sit under this line, so it doesn't stay: the rows keep saying
+        // which tabs need a look.
+        Some(t) if !r.failed.is_empty() => {
+            let e = t.elapsed();
+            if e > FAIL_SHOWN + FADE {
+                return None;
+            }
+            let o = if e < FAIL_SHOWN { 1. } else { 1. - (e - FAIL_SHOWN).as_secs_f32() / FADE.as_secs_f32() };
             let n = r.failed.len();
-            (format!("{} of {} back · {n} need{} a look", r.back(), r.total, if n == 1 { "s" } else { "" }), 1., ui.status_error)
+            (format!("{} of {} back · {n} need{} a look", r.back(), r.total, if n == 1 { "s" } else { "" }), o.clamp(0., 1.), ui.status_error)
         }
         Some(t) => {
             let e = t.elapsed();
