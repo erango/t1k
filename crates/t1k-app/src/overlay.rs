@@ -115,6 +115,10 @@ impl Workspace {
                 s.push_str(&format!(" #{n} PR{n}"));
             }
         }
+        if let Some((_, title)) = self.open_pr(i) {
+            s.push(' ');
+            s.push_str(&title);
+        }
         if let Some(c) = &t.cwd {
             s.push(' ');
             s.push_str(&groups::tilde(c));
@@ -133,7 +137,7 @@ impl Workspace {
             ("title", t.title()),
             ("project", self.group_label(&t.group)),
             ("branch", t.branch().unwrap_or_default()),
-            ("PR", a.map(|a| a.prs.iter().map(|(n, _)| format!("#{n} PR{n}")).collect::<Vec<_>>().join(" ")).unwrap_or_default()),
+            ("PR", a.map(|a| a.prs.iter().map(|(n, _)| format!("#{n} PR{n}")).chain(self.open_pr(i).map(|(_, title)| title)).collect::<Vec<_>>().join(" ")).unwrap_or_default()),
             ("now", a.and_then(|a| a.now.clone()).unwrap_or_default()),
             ("recap", a.and_then(|a| a.recap.clone()).unwrap_or_default()),
             ("prompt", a.and_then(|a| a.first_prompt.clone()).unwrap_or_default()),
@@ -509,8 +513,8 @@ fn section(label: &'static str, color: gpui::Hsla) -> Div {
     div().h(px(22.)).px(px(14.)).flex().items_center().text_size(px(10.5)).font_weight(FontWeight::SEMIBOLD).text_color(color).child(label)
 }
 
-/// One switcher result: badge, title with its project and branch, the status under it, the
-/// matched field's tag and the age. Shared by tabs and setup's sample tabs.
+/// One switcher result: badge, title with its project and branch, the status (and open PR)
+/// under it, the matched field's tag and the age. Shared by tabs and setup's sample tabs.
 #[allow(clippy::too_many_arguments)]
 fn switcher_row(
     ui: t1k_themes::UiColors,
@@ -521,6 +525,7 @@ fn switcher_row(
     branch: Option<String>,
     sub: String,
     sub_color: gpui::Hsla,
+    pr: Option<String>,
     tag: Option<&'static str>,
     age: Option<String>,
     selected: bool,
@@ -552,7 +557,15 @@ fn switcher_row(
                         .child(div().flex_none().text_size(px(12.)).text_color(ui.text_tertiary).child(group))
                         .children(branch.map(|b| div().flex_none().text_size(px(11.5)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(b))),
                 )
-                .child(div().truncate().text_size(px(12.)).text_color(sub_color).child(sub)),
+                // An open PR follows the status (v3-aj); both give way when space runs out.
+                .child(
+                    div()
+                        .flex()
+                        .min_w_0()
+                        .text_size(px(12.))
+                        .child(div().min_w_0().truncate().text_color(sub_color).child(sub))
+                        .children(pr.map(|p| div().min_w_0().truncate().text_color(ui.text_tertiary).child(format!(" · {p}")))),
+                ),
         )
         .children(tag.map(|f| {
             div().flex_none().px(px(6.)).h(px(18.)).flex().items_center().rounded(px(4.)).border_1().border_color(ui.border).text_size(px(10.5)).line_height(px(16.)).text_color(ui.text_tertiary).child(f)
@@ -680,7 +693,7 @@ fn sample_switcher(ws: &Workspace, query: &str, selected: usize, cx: &mut Contex
         let sub_color = if s.state == SampleState::Needs { ui.status_needs } else { ui.text_quiet };
         let age = (!s.age.is_empty()).then(|| s.age.to_string());
         rows.push(
-            switcher_row(ui, SharedString::from(format!("sample-sw-{i}")), crate::app_icon::program_badge(s.program, ui, 28.), title, s.group.into(), Some(s.branch.into()), s.status.into(), sub_color, None, age, n == selected)
+            switcher_row(ui, SharedString::from(format!("sample-sw-{i}")), crate::app_icon::program_badge(s.program, ui, 28.), title, s.group.into(), Some(s.branch.into()), s.status.into(), sub_color, None, None, age, n == selected)
                 .on_click(cx.listener(|this, _, window, cx| this.close_overlay(window, cx)))
                 .into_any_element(),
         );
@@ -849,8 +862,9 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                     _ => ui.text_quiet,
                 };
                 let title = div().min_w_0().truncate().text_size(px(13.5)).text_color(ui.text_primary).child(t.title()).into_any_element();
+                let pr = ws.open_pr(i).map(|(n, title)| format!("PR #{n} · {title}"));
                 rows.push(
-                    switcher_row(ui, SharedString::from(format!("sw-{i}")), crate::app_icon::badge(t, ui, 28.), title, ws.group_label(&t.group), t.branch(), t.subtitle(), sub_color, tag, age, is_sel)
+                    switcher_row(ui, SharedString::from(format!("sw-{i}")), crate::app_icon::badge(t, ui, 28.), title, ws.group_label(&t.group), t.branch(), t.subtitle(), sub_color, pr, tag, age, is_sel)
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.close_overlay(window, cx);
                             this.activate(i, window, cx);

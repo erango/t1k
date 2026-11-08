@@ -253,6 +253,8 @@ pub struct TopOutput {
     state: Option<gpui::Hsla>,
     /// Artifacts: the icon kind shown before the title.
     artifact: Option<String>,
+    /// PRs gh has told us about: number and info, for the hover card (v3-aj).
+    pr: Option<(u64, crate::outputs_panel::PrInfo)>,
 }
 
 fn top_output(ws: &Workspace, a: &t1k_agent::AgentState) -> Option<TopOutput> {
@@ -273,7 +275,8 @@ fn top_output(ws: &Workspace, a: &t1k_agent::AgentState) -> Option<TopOutput> {
                 Some((ok, _, _)) if ok > 0 => (("✓", crate::github::open()), "checks passed".into()),
                 _ => (("●", ui.text_disabled), "no checks yet".into()),
             };
-            Some(TopOutput { glyph: Some(glyph), kind: "PR", label: format!("#{n}"), url: url.clone(), tooltip: format!("Open PR #{n} · {tip}"), state: Some(gh), artifact: None })
+            let card = info.map(|i| (*n, i));
+            Some(TopOutput { glyph: Some(glyph), kind: "PR", label: format!("#{n}"), url: url.clone(), tooltip: format!("Open PR #{n} · {tip}"), state: Some(gh), artifact: None, pr: card })
         })
     };
     let other = |kinds: &[Kind], name: &'static str| {
@@ -289,7 +292,7 @@ fn top_output(ws: &Workspace, a: &t1k_agent::AgentState) -> Option<TopOutput> {
                 (Some(_), None) => format!("{}\nclaude.ai · click to open", o.label),
                 _ => format!("Open {}", o.label),
             };
-            TopOutput { glyph: None, kind: name, label, url: o.target.clone(), tooltip, state: None, artifact }
+            TopOutput { glyph: None, kind: name, label, url: o.target.clone(), tooltip, state: None, artifact, pr: None }
         })
     };
     pr(false).or_else(|| pr(true)).or_else(|| other(&[Kind::Artifact, Kind::Doc], "")).or_else(|| other(&[Kind::Ticket], ""))
@@ -355,7 +358,13 @@ fn outputs_button(ws: &Workspace, n: usize, fresh: bool, top: Option<TopOutput>,
                         .gap(px(5.))
                         .text_color(if fresh { ui.accent } else { ui.text_secondary })
                         .hover(move |d| d.bg(ui.bg_selected).text_color(ui.text_primary))
-                        .tooltip(crate::tooltip::text(ui, t.tooltip))
+                        .map(|d| match t.pr {
+                            Some((number, info)) => {
+                                let started = ws.started;
+                                d.tooltip(move |_, cx| cx.new(|_| crate::outputs_panel::PrTip { ui, number, info: info.clone(), started }).into())
+                            }
+                            None => d.tooltip(crate::tooltip::text(ui, t.tooltip)),
+                        })
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .on_click(move |_, _, cx| cx.open_url(&url))
                         .gap(px(6.))

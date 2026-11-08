@@ -720,6 +720,62 @@ impl Workspace {
                 t.agent = Some(a);
             }
         }
+        // Debug aid: T1K_DEBUG_PRS=1|open|done puts PRs in every state on the active tab, with
+        // made-up gh answers, and opens the outputs panel (gh can't be reached reliably).
+        if let Ok(which) = std::env::var("T1K_DEBUG_PRS") {
+            if let Some(t) = this.tabs.get_mut(this.active) {
+                this.panel.fake = true;
+                this.panel.open = true;
+                let a = t.agent.get_or_insert_with(|| AgentState::new("debug".into()));
+                let now = std::time::SystemTime::now();
+                let mins = |m: u64| now - Duration::from_secs(m * 60);
+                let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+                // (number, state, draft, title, checks, decision, approvers, changes, ended, minutes ago)
+                type Fake<'a> = (u64, &'a str, bool, &'a str, (u32, u32, u32), &'a str, Vec<String>, Vec<String>, Option<u64>, u64);
+                let mut open: Vec<Fake> = vec![
+                    (2504, "OPEN", false, "Score coding outcomes per turn", (6, 0, 0), "APPROVED", s(&["ana"]), vec![], None, 4),
+                    (2511, "OPEN", false, "Fix stale hint labels after a resize in split panes", (3, 0, 2), "CHANGES_REQUESTED", vec![], s(&["ana"]), None, 25),
+                    (2498, "OPEN", false, "Retry gh lookups that time out", (5, 1, 0), "REVIEW_REQUIRED", vec![], vec![], None, 90),
+                    (2490, "OPEN", false, "Two approvals, no required review", (2, 0, 0), "", s(&["ana", "bo"]), vec![], None, 150),
+                    (2487, "OPEN", true, "Draft: sidebar density setting", (0, 0, 0), "", vec![], vec![], None, 200),
+                ];
+                // The newest open PR is the title bar's: make it the one with the most to say.
+                open.rotate_left(2);
+                let done: Vec<Fake> = vec![
+                    (2470, "MERGED", false, "Dedupe date utils", (8, 0, 0), "APPROVED", s(&["bo"]), vec![], Some(180), 300),
+                    (2462, "CLOSED", false, "Try a second socket per tab", (1, 0, 0), "", vec![], vec![], Some(2 * 1440), 3000),
+                    (2455, "MERGED", false, "Merge time unknown", (0, 0, 0), "", vec![], vec![], None, 4000),
+                ];
+                let fakes = match which.as_str() {
+                    "open" => open,
+                    "done" => done,
+                    _ => open.into_iter().chain(done).collect(),
+                };
+                for (n, state, draft, title, checks, decision, approvers, changes, ended, ago) in fakes {
+                    let url = format!("https://github.com/erango/t1k/pull/{n}");
+                    a.prs.push((n, url.clone()));
+                    a.outputs.push(t1k_agent::outputs::Output { kind: t1k_agent::outputs::Kind::Pr, target: url.clone(), label: format!("t1k#{n}"), at: mins(ago), icon: None, detail: None });
+                    let info = crate::outputs_panel::PrInfo {
+                        state: state.into(),
+                        draft,
+                        title: title.into(),
+                        checks,
+                        decision: decision.into(),
+                        approvers,
+                        changes,
+                        ended: ended.map(mins),
+                        fetched: Instant::now(),
+                    };
+                    this.panel.prs.insert(url, Some(info));
+                }
+                // One gh hasn't answered for yet: today's look.
+                if which != "done" {
+                    let url = "https://github.com/erango/t1k/pull/2520".to_string();
+                    a.prs.insert(0, (2520, url.clone()));
+                    a.outputs.push(t1k_agent::outputs::Output { kind: t1k_agent::outputs::Kind::Pr, target: url, label: "t1k#2520".into(), at: mins(1), icon: None, detail: None });
+                }
+            }
+        }
         // Debug aid: T1K_DEBUG_VIEW=<path>[:line] opens a file in the side panel.
         if let Ok(spec) = std::env::var("T1K_DEBUG_VIEW") {
             let (p, line) = match spec.rsplit_once(':') {
