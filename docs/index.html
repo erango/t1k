@@ -155,6 +155,18 @@ h1{font:600 50px/56px var(--sans);letter-spacing:-.02em;color:var(--t1)}
 .card-vis{height:80px;border-radius:10px;background:var(--side);box-shadow:inset 0 0 0 1px var(--line);display:flex;align-items:center;justify-content:center;gap:8px;font-size:12px;color:var(--t1)}
 .card h3{margin:0;font:600 16px/22px var(--sans);color:var(--t1)}
 .card p{font:14px/21px var(--sans);color:var(--t2)}
+/* Overview mockup: a grid of session cards, one needing you. */
+.card-vis.ov{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;padding:7px;align-items:stretch}
+.ov-c{min-width:0;border-radius:5px;background:var(--card);box-shadow:inset 0 0 0 1px var(--line);padding:4px 6px;display:flex;flex-direction:column;justify-content:center;gap:1px}
+.ov-c b{display:flex;align-items:center;gap:4px;font:600 9.5px/12px var(--sans);color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ov-c i{width:5px;height:5px;border-radius:50%;flex:none;background:var(--t3);opacity:.6}
+.ov-c em{font:normal 8.5px/11px var(--sans);color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ov-c.amber{box-shadow:inset 0 0 0 1px var(--amber)}
+.ov-c.amber i{background:var(--amber);opacity:1}
+.ov-c.amber em{color:var(--amber)}
+.ov-c.red i{background:#E5484D;opacity:1}
+.ov-c.red em{color:#E5484D}
+.ov-c.work i{background:none;opacity:1;width:6px;height:6px;box-sizing:border-box;border:1.2px solid var(--t3);border-top-color:transparent}
 .kbd{height:36px;min-width:36px;padding:0 8px;border-radius:8px;background:var(--card);box-shadow:0 2px 0 var(--line),inset 0 0 0 1px var(--line);font:600 15px var(--mono);color:var(--t1);display:inline-flex;align-items:center;justify-content:center}
 
 .feature{display:flex;align-items:center;gap:56px;padding:56px 0}
@@ -441,7 +453,7 @@ footer .tm{font-size:12px}
         <p>Jump to the tab that has waited longest. Press again for the next.</p>
       </div>
       <div class="card">
-        <div class="card-vis" aria-hidden="true"><span class="kbd">⌘</span><span class="kbd">O</span></div>
+        <div class="card-vis ov" aria-hidden="true"><span class="ov-c amber"><b><i></i>Upgrade EKS</b><em>Approve terraform apply?</em></span><span class="ov-c work"><b><i></i>Webhook retries</b><em>Running cargo test</em></span><span class="ov-c"><b><i></i>Idempotency keys</b><em>Done · PR #1287</em></span><span class="ov-c work"><b><i></i>Migrate charts</b><em>Editing chart.tsx</em></span><span class="ov-c red"><b><i></i>GPU atlas</b><em>API error 529</em></span><span class="ov-c"><b><i></i>Cost report</b><em>Drafted a CSV</em></span></div>
         <h3>⌘O shows them all</h3>
         <p>One screen with every session: what it’s doing, its goal and its last recap.</p>
       </div>
