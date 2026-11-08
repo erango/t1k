@@ -312,3 +312,50 @@ pub fn reduce_motion() -> bool {
         on != NO
     }
 }
+
+// ---- quitting from outside T1K -----------------------------------------------------------------
+
+/// T1K's own quit paths set this just before quitting, after they've asked about running tabs.
+pub static ALLOW_QUIT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// macOS asked T1K to quit (Dock › Quit, logout, another app): the workspace turns it into ⌘Q.
+pub static QUIT_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Quit for real (the question was asked, or there was nothing to ask about).
+pub fn quit(cx: &mut gpui::App) {
+    ALLOW_QUIT.store(true, std::sync::atomic::Ordering::SeqCst);
+    cx.quit();
+}
+
+/// GPUI lets macOS terminate the app outright, so Dock › Quit skipped the "still running"
+/// question that ⌘Q asks. Answer applicationShouldTerminate: on GPUI's app delegate: cancel,
+/// and let the workspace ask (it quits through `quit`, which lets the next request through).
+#[cfg(target_os = "macos")]
+pub fn guard_terminate() {
+    use cocoa::base::id;
+    use objc::runtime::{class_addMethod, object_getClass, Object, Sel};
+    use objc::{class, msg_send, sel, sel_impl};
+    extern "C" fn should_terminate(_: &Object, _: Sel, _: id) -> u64 {
+        use std::sync::atomic::Ordering;
+        // An update installing (Sparkle quits the app to swap it) always goes through.
+        let installing = crate::updater::snapshot().phase == crate::updater::Phase::Installing;
+        if ALLOW_QUIT.load(Ordering::SeqCst) || installing {
+            1 // NSTerminateNow
+        } else {
+            QUIT_REQUESTED.store(true, Ordering::SeqCst);
+            0 // NSTerminateCancel
+        }
+    }
+    unsafe {
+        let app: id = msg_send![class!(NSApplication), sharedApplication];
+        let delegate: id = msg_send![app, delegate];
+        if delegate.is_null() {
+            return;
+        }
+        let cls = object_getClass(delegate as *const Object) as *mut objc::runtime::Class;
+        let imp: extern "C" fn(&Object, Sel, id) -> u64 = should_terminate;
+        class_addMethod(cls, sel!(applicationShouldTerminate:), std::mem::transmute::<extern "C" fn(&Object, Sel, id) -> u64, objc::runtime::Imp>(imp), c"Q@:@".as_ptr());
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn guard_terminate() {}

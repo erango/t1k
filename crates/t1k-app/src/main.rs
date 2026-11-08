@@ -111,7 +111,7 @@ fn main() {
                     return;
                 }
             }
-            cx.quit()
+            crate::platform::quit(cx)
         });
         cx.on_action(|_: &ReportBug, cx| cx.open_url(&format!("{}/issues", brand::REPO)));
         cx.on_action(|_: &OpenRepo, cx| cx.open_url(brand::REPO));
@@ -124,9 +124,10 @@ fn main() {
         .detach();
         menus::install(cx);
         platform::init_notifications();
+        platform::guard_terminate();
         cx.on_window_closed(|cx| {
             if cx.windows().is_empty() {
-                cx.quit();
+                crate::platform::quit(cx);
             }
         })
         .detach();

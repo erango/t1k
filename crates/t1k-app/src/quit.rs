@@ -69,7 +69,7 @@ impl Workspace {
             return;
         }
         if self.running_programs(cx).is_empty() {
-            cx.quit();
+            crate::platform::quit(cx);
         } else {
             self.open_overlay(Overlay::QuitRunning { expanded: false, selected: 0 }, window, cx);
         }
@@ -174,7 +174,7 @@ impl Workspace {
                 if done {
                     // A moment for the last output to be drawn into the grid.
                     cx.background_executor().timer(Duration::from_millis(150)).await;
-                    let _ = this.update(cx, |_, cx| cx.quit());
+                    let _ = this.update(cx, |_, cx| crate::platform::quit(cx));
                     break;
                 }
             }
@@ -189,7 +189,7 @@ impl Workspace {
         let cmd = ev.keystroke.modifiers.platform;
         if let Some(at) = self.quitting {
             if k == "enter" && cmd && at.elapsed() > GRACE {
-                cx.quit();
+                crate::platform::quit(cx);
             }
             return Some(Overlay::QuitRunning { expanded, selected });
         }
@@ -197,7 +197,7 @@ impl Workspace {
         if list.is_empty() {
             return match k {
                 "enter" => {
-                    cx.quit();
+                    crate::platform::quit(cx);
                     None
                 }
                 "escape" => None,
@@ -316,7 +316,7 @@ pub fn render(ws: &Workspace, expanded: bool, selected: usize, cx: &mut Context<
                 d.child(
                     row()
                         .justify_end()
-                        .child(button(ws, "quit-force", "Force quit  ⌘↵", true).on_click(|_, _, cx| cx.quit())),
+                        .child(button(ws, "quit-force", "Force quit  ⌘↵", true).on_click(|_, _, cx| crate::platform::quit(cx))),
                 )
             })
             .into_any_element();
@@ -332,7 +332,7 @@ pub fn render(ws: &Workspace, expanded: bool, selected: usize, cx: &mut Context<
                 row()
                     .justify_end()
                     .child(button(ws, "quit-cancel", "Cancel", false).on_click(cx.listener(|this, _, window, cx| this.close_overlay(window, cx))))
-                    .child(button(ws, "quit-anyway", "Quit now  ↵", true).on_click(|_, _, cx| cx.quit())),
+                    .child(button(ws, "quit-anyway", "Quit now  ↵", true).on_click(|_, _, cx| crate::platform::quit(cx))),
             )
             .into_any_element();
     }

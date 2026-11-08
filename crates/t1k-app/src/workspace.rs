@@ -1524,6 +1524,10 @@ impl Workspace {
 
     /// Refresh each tab's cwd and foreground program; regroup tabs that changed project.
     fn poll(&mut self, cx: &mut Context<Self>) {
+        // macOS asked to quit (Dock › Quit, logout): ask about running tabs, as ⌘Q does.
+        if crate::platform::QUIT_REQUESTED.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            cx.dispatch_action(&crate::actions::Quit);
+        }
         let mut changed = self.clear_stale_needs(cx);
         let mut regrouped = false;
         for t in &mut self.tabs {
