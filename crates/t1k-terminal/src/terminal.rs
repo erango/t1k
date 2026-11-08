@@ -55,6 +55,9 @@ pub struct SpawnOptions {
     /// Scrollback saved from the last run (`Terminal::snapshot`), replayed before the shell
     /// prints anything.
     pub restore: Option<Vec<u8>>,
+    /// Run this (program, then arguments) instead of the login shell. Demo mode runs a silent
+    /// placeholder, so the screen holds only what it feeds in.
+    pub command: Option<Vec<String>>,
 }
 
 pub struct Terminal {
@@ -137,7 +140,10 @@ impl Terminal {
         env.insert("T1K_TAB_ID".into(), opts.tab_id);
 
         let pty_opts = tty::Options {
-            shell: login_shell(),
+            shell: match opts.command {
+                Some(c) if !c.is_empty() => Some(tty::Shell::new(c[0].clone(), c[1..].to_vec())),
+                _ => login_shell(),
+            },
             working_directory: opts.working_directory,
             drain_on_exit: true,
             env,
@@ -170,6 +176,12 @@ impl Terminal {
 
         let bottom_gravity = opts.start_at_bottom;
         Ok((Self { term, notifier, size, title: None, exited: false, pty_fd, shell_pid, bottom_gravity, shift: Default::default() }, rx))
+    }
+
+    /// Process bytes as if the program had printed them (demo screens).
+    pub fn feed(&self, bytes: &[u8]) {
+        let mut p: alacritty_terminal::vte::ansi::Processor<alacritty_terminal::vte::ansi::StdSyncHandler> = Default::default();
+        p.advance(&mut *self.term.lock(), bytes);
     }
 
     /// Hang up the foreground program, as closing a terminal window does (SIGHUP to its

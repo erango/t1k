@@ -83,6 +83,9 @@ impl Default for TerminalStyle {
     }
 }
 
+/// Makes the bytes for a screen of (columns, rows).
+pub type FeedOnSize = Box<dyn FnOnce(usize, usize) -> Vec<u8>>;
+
 pub struct TerminalView {
     pub terminal: Terminal,
     focus_handle: FocusHandle,
@@ -117,6 +120,9 @@ pub struct TerminalView {
     /// Size the pane wants but the grid hasn't taken yet (see `request_resize`).
     pending_size: Option<GridSize>,
     resize_task: Option<Task<()>>,
+    /// Output to show once the grid has its real size, made for that size (demo screens,
+    /// whose full-width rules must fit the pane).
+    pub feed_on_size: Option<FeedOnSize>,
     _events: Task<()>,
 }
 
@@ -200,6 +206,7 @@ impl TerminalView {
             search: std::env::var("T1K_DEBUG_FIND").ok().map(|q| crate::search::Search { query: q, dirty: true, ..Default::default() }),
             pending_size: None,
             resize_task: None,
+            feed_on_size: None,
             _events: task,
         })
     }
@@ -224,6 +231,10 @@ impl TerminalView {
             self.pending_size = None;
             self.resize_task = None;
             self.terminal.resize(g);
+            if let Some(f) = self.feed_on_size.take() {
+                self.terminal.feed(&f(g.cols, g.rows));
+                cx.notify();
+            }
             return;
         }
         if self.pending_size == Some(g) {

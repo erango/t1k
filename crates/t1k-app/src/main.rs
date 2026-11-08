@@ -1,6 +1,7 @@
 //! T1K: agent-first terminal.
 
 mod actions;
+mod demo;
 mod import;
 mod import_ui;
 mod match_term;
@@ -99,7 +100,7 @@ fn main() {
         _ => {}
     }
     Application::new().run(|cx: &mut App| {
-        keymap::install(cx, &config::load().keys);
+        keymap::install(cx, &if demo::on() { Default::default() } else { config::load().keys });
         cx.on_action(|_: &Quit, cx| {
             // With an update waiting, ⌘Q asks once (it installs as T1K quits).
             if Workspace::should_confirm_quit() {
@@ -137,7 +138,11 @@ fn main() {
 
         // Screenshots while you keep working: open behind other windows, without taking focus.
         let background = std::env::var_os("T1K_DEBUG_BACKGROUND").is_some();
-        let window_bounds = restored_bounds(cx).unwrap_or_else(|| WindowBounds::Windowed(Bounds::centered(None, size(px(1100.), px(720.)), cx)));
+        let window_bounds = if demo::on() {
+            WindowBounds::Windowed(Bounds::centered(None, size(px(demo::WINDOW.0), px(demo::WINDOW.1)), cx))
+        } else {
+            restored_bounds(cx).unwrap_or_else(|| WindowBounds::Windowed(Bounds::centered(None, size(px(1100.), px(720.)), cx)))
+        };
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(window_bounds),

@@ -358,12 +358,14 @@ pub const CAUGHT_UP_FADE: f32 = 0.25;
 
 impl Workspace {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let saved = session::load();
+        // Demo mode reads nothing of the user's: no session, config or other terminals.
+        let demo = crate::demo::on();
+        let saved = if demo { Session::default() } else { session::load() };
         if let Some(d) = config::themes_dir() {
             t1k_themes::load_user_themes(&d);
         }
         let mut watcher = config::Watcher::new();
-        let config = match watcher.poll() {
+        let config = match if demo { None } else { watcher.poll() } {
             Some(Ok(c)) => c,
             Some(Err(e)) => {
                 log::error!("{e}");
@@ -371,6 +373,11 @@ impl Workspace {
             }
             None => Config::default(),
         };
+        let mut config = config;
+        if demo {
+            // Mercury Dark unless T1K_APPEARANCE / T1K_THEME say otherwise.
+            config.appearance = "dark".into();
+        }
         let (mut mode, mut dark, mut light) = Self::slots(&config);
         match std::env::var("T1K_APPEARANCE").as_deref() {
             Ok("dark") => mode = AppearanceMode::Dark,
@@ -391,7 +398,7 @@ impl Workspace {
 
         // Agent socket: hooks in this window's tabs report here.
         let (tx, agent_rx) = channel();
-        let socket = session::support_dir().map(|d| {
+        let socket = session::support_dir().filter(|_| !demo).map(|d| {
             t1k_agent::server::remove_stale(&d);
             t1k_agent::server::socket_path(&d)
         });
@@ -554,13 +561,17 @@ impl Workspace {
         };
         cx.observe_window_appearance(window, |this, window, cx| this.apply_theme(window, cx)).detach();
         // Tabs open in other terminals: the welcome card, the palette hint, the launch offer.
-        this.scan_for_import(cx);
-        this.scan_for_match(cx);
+        if !demo {
+            this.scan_for_import(cx);
+            this.scan_for_match(cx);
+        }
         cx.observe_window_activation(window, |this, window, cx| this.set_inactive(!window.is_window_active(), cx)).detach();
         if !window.is_window_active() && std::env::var_os("T1K_DEBUG_BACKGROUND").is_some() {
             this.set_inactive(true, cx);
         }
-        crate::updater::start(&this.config.updates);
+        if !demo {
+            crate::updater::start(&this.config.updates);
+        }
         // Remember where the window is; saved with the session (debounced through `poll`).
         cx.observe_window_bounds(window, |this, window, _| this.window_frame = Some(frame_of(window))).detach();
         // The window's close button quits T1K (one window), so it asks the same question.
@@ -593,7 +604,9 @@ impl Workspace {
         let restore: Vec<SavedTab> = saved.tabs;
         let mut resuming = std::collections::HashSet::new();
         let mut failed = Vec::new();
-        if restore.is_empty() || std::env::var_os("T1K_FRESH").is_some() {
+        if demo {
+            crate::demo::populate(&mut this, window, cx);
+        } else if restore.is_empty() || std::env::var_os("T1K_FRESH").is_some() {
             this.open_tab(None, None, window, cx);
         } else {
             let dir = session::support_dir().map(|d| d.join("scrollback"));
@@ -649,7 +662,7 @@ impl Workspace {
             this.forward.clear();
             this.start_restore(std::mem::take(&mut resuming), std::mem::take(&mut failed), cx);
         }
-        if first_launch {
+        if first_launch && !demo {
             this.open_overlay(Overlay::Welcome, window, cx);
         }
         // Debug aid: T1K_DEBUG_SIDEBAR=rail|hidden|peek|drag:<x> starts collapsed / peeking /
@@ -808,13 +821,13 @@ impl Workspace {
         if let Ok(which) = std::env::var("T1K_DEBUG_OVERLAY") {
             let at = gpui::point(px(120.), px(140.));
             let o = match which.as_str() {
-                "palette" => Some(Overlay::Palette { query: String::new(), selected: 0 }),
+                "palette" => Some(Overlay::Palette { query: std::env::var("T1K_DEBUG_QUERY").unwrap_or_default(), selected: 0 }),
                 "about" => Some(Overlay::About),
                 "welcome" => Some(Overlay::Welcome),
                 "more" => Some(Overlay::MoreMenu { at: gpui::point(px(480.), px(44.)) }),
                 "sidebarview" => Some(Overlay::SidebarView { at: gpui::point(px(90.), px(44.)) }),
                 "usage" => Some(Overlay::Usage { at: gpui::point(px(60.), px(40.)) }),
-                "switcher" => Some(Overlay::Switcher { query: String::new(), selected: 0 }),
+                "switcher" => Some(Overlay::Switcher { query: std::env::var("T1K_DEBUG_QUERY").unwrap_or_default(), selected: 0 }),
                 "overview" => Some(Overlay::Overview { selected: 0 }),
                 "settings" => Some(Overlay::Settings { section: crate::settings::Section::Appearance }),
                 "settings-interface" => Some(Overlay::Settings { section: crate::settings::Section::Interface }),
@@ -975,7 +988,8 @@ impl Workspace {
         if let Ok(exe) = std::env::current_exe() {
             env.insert("T1K_BIN".into(), exe.display().to_string());
         }
-        if self.config.terminal.shell_integration {
+        // Demo terminals run no shell, so they need no zsh integration files.
+        if self.config.terminal.shell_integration && !crate::demo::on() {
             if let Some(dir) = crate::shell::zsh_dir() {
                 // An empty ZDOTDIR means "unset" to us; restoring it as "" would make zsh look
                 // for /.zshrc.
@@ -985,7 +999,8 @@ impl Workspace {
                 env.insert("ZDOTDIR".into(), dir.display().to_string());
             }
         }
-        let opts = SpawnOptions { working_directory: cwd, env, tab_id, start_at_bottom: self.config.terminal.prompt_gravity != "top", restore };
+        let command = crate::demo::on().then(crate::demo::command);
+        let opts = SpawnOptions { working_directory: cwd, env, tab_id, start_at_bottom: self.config.terminal.prompt_gravity != "top", restore, command };
         let palette = self.theme.palette();
         let style = self.terminal_style();
         cx.new(|cx| {
@@ -1587,7 +1602,7 @@ impl Workspace {
     /// terminal output can hold secrets.
     fn save_scrollback(&mut self, cx: &mut Context<Self>) {
         self.scrollback_saved = false;
-        if !self.config.terminal.restore_scrollback {
+        if !self.config.terminal.restore_scrollback || crate::demo::on() {
             return;
         }
         let Some(dir) = session::support_dir().map(|d| d.join("scrollback")) else { return };
@@ -1622,6 +1637,10 @@ impl Workspace {
 
     /// Refresh each tab's cwd and foreground program; regroup tabs that changed project.
     fn poll(&mut self, cx: &mut Context<Self>) {
+        // Demo tabs keep their made-up state: no processes, folders or gh to look at.
+        if crate::demo::on() {
+            return;
+        }
         // macOS asked to quit (Dock › Quit, logout): ask about running tabs, as ⌘Q does.
         if crate::platform::QUIT_REQUESTED.swap(false, std::sync::atomic::Ordering::SeqCst) {
             cx.dispatch_action(&crate::actions::Quit);
@@ -1747,7 +1766,7 @@ impl Workspace {
             }
             cx.notify();
         }
-        match self.watcher.poll() {
+        match if crate::demo::on() { None } else { self.watcher.poll() } {
             Some(Ok(c)) => {
                 if c != self.config {
                     self.config = c;
@@ -2077,6 +2096,9 @@ impl Workspace {
     }
 
     pub fn save(&self) {
+        if crate::demo::on() {
+            return;
+        }
         session::save(&self.session());
     }
 
