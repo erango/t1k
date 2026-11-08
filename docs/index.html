@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>T1K: a macOS terminal for many coding agents</title>
+<meta name="description" content="T1K is a macOS terminal built to lower the load of running many coding agents at once. It shows which session needs you and takes you there, so you stop checking tabs.">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0B0C0E" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F6F7F9" media="(prefers-color-scheme: light)">
+<meta property="og:type" content="website">
+<meta property="og:title" content="T1K">
+<meta property="og:description" content="Run ten agents without holding ten in your head.">
+<meta property="og:url" content="https://erango.github.io/t1k/">
+<meta property="og:image" content="https://erango.github.io/t1k/site/social-preview.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" href="site/t1k-64.png">
+<link rel="apple-touch-icon" href="site/t1k-128.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600;800&amp;display=swap" rel="stylesheet">
+<style>
+/* Mercury tokens (canvas v3-ak / v3-ak′). Dark is the default; light follows the system. */
+:root{
+  --page:#0B0C0E; --card:#16181B; --side:#1C1D20; --term:#121316; --line:#24272C;
+  --t1:#E6E8EB; --t2:#A0A6AE; --t3:#7A818B; --spin:#8C939C;
+  --accent:#A9C1DE; --on-accent:#0B0C0E; --amber:#F0A63A; --green:#5FCB8E;
+  --wash:rgba(230,232,235,.06); --track:rgba(230,232,235,.08);
+  --shadow-lg:0 40px 80px rgba(0,0,0,.4); --shadow:0 24px 60px rgba(0,0,0,.35);
+  --sans:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme: light){
+  :root{
+    --page:#F6F7F9; --card:#FFFFFF; --side:#E9EBEE; --term:#FFFFFF; --line:#DDE1E6;
+    --t1:#17191C; --t2:#4E555E; --t3:#6A717B; --spin:#6A717B;
+    --accent:#3F6A99; --on-accent:#FFFFFF; --amber:#B86A00; --green:#1E8A55;
+    --wash:rgba(23,25,28,.06); --track:rgba(23,25,28,.08);
+    --shadow-lg:0 40px 80px rgba(23,25,28,.14); --shadow:0 24px 60px rgba(23,25,28,.10);
+  }
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--page);color:var(--t2);font:400 16px/1.5 var(--sans);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+a{color:inherit}
+h1,h2,p{margin:0}
+img{max-width:100%}
+.wrap{max-width:1280px;margin:0 auto;padding:0 72px}
+.mono{font-family:var(--mono)}
+
+/* Nav */
+.nav{height:64px;display:flex;align-items:center;gap:22px;font-size:14px}
+.nav .sp{flex:1}
+.nav .links{display:contents}
+.nav a{text-decoration:none;color:var(--t2)}
+.nav a:hover{color:var(--t1)}
+.brand{display:inline-flex;align-items:center;gap:9px;text-decoration:none}
+.face{display:block;width:20px;height:26px;flex:none}
+.wordmark{font-family:var(--mono);font-weight:800;font-size:20px;letter-spacing:.8px;line-height:1;background:linear-gradient(180deg,#F7F9FC 0%,#B7C0CC 45%,#7E8896 58%,#D4DAE2 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+@media (prefers-color-scheme: light){.wordmark{background:linear-gradient(180deg,#5A6472 0%,#3A424D 45%,#1F252D 58%,#4A5360 100%);-webkit-background-clip:text;background-clip:text}}
+
+/* Hero */
+.hero-band{overflow:hidden}
+.hero{display:flex;align-items:center;gap:48px;padding:56px 0 80px}
+.hero-text{display:flex;flex-direction:column;gap:20px;width:520px;flex:none}
+h1{font:600 50px/56px var(--sans);letter-spacing:-.02em;color:var(--t1)}
+.lede{font:400 18px/28px var(--sans);color:var(--t2)}
+.cta{display:flex;flex-direction:column;gap:10px;align-items:flex-start}
+.dl{height:48px;padding:0 20px 0 16px;border-radius:10px;background:var(--accent);color:var(--on-accent);text-decoration:none;display:inline-flex;align-items:center;gap:12px;font:600 15px var(--sans);transition:filter .15s}
+.dl:hover{filter:brightness(1.07)}
+.dl:focus-visible,.nav a:focus-visible,.gh:focus-visible,footer a:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.dl svg{flex:none}
+.dl-meta{font:500 12px var(--sans);opacity:.7}
+.dl-meta:empty{display:none}
+.req{font-size:12.5px;line-height:18px;color:var(--t3)}
+.gh{font-size:14px;color:var(--accent);text-decoration:none}
+.gh:hover{text-decoration:underline}
+
+/* Screenshot slots: the real capture shows, cropped to the part that matters. If it
+   fails to load, the img is dropped and the same UI built in HTML takes its place. */
+.shot{position:relative;flex:none}
+.frame{position:relative;overflow:hidden;border-radius:12px;background:var(--term);box-shadow:0 0 0 1px var(--line),var(--shadow)}
+.frame img{position:absolute;display:block;max-width:none;height:auto}
+.shot:not(.no-img)>.mock{display:none}
+.shot.no-img>.frame{display:none}
+.hero .shot{width:668px}
+.hero .frame{aspect-ratio:2880/1754;box-shadow:0 0 0 1px var(--line),var(--shadow-lg)}
+.hero .frame img{left:0;top:0;width:100%}
+.outputs .frame{aspect-ratio:314/560}
+.outputs .frame img{width:382.17%;left:-282.17%;top:0}
+.switcher .frame{aspect-ratio:596/475}
+.switcher .frame img{width:201.34%;left:-50.67%;top:-16.42%}
+.themes .frame{aspect-ratio:990/660}
+.themes .frame img{width:121.21%;left:-10.61%;top:-5.3%}
+
+/* App window (sidebar + terminal) */
+.win{display:flex;border-radius:12px;overflow:hidden;background:var(--term);box-shadow:0 0 0 1px var(--line),var(--shadow);font-family:var(--sans)}
+.hero .win{width:668px;height:430px;box-shadow:0 0 0 1px var(--line),var(--shadow-lg)}
+.sb{width:220px;flex:none;background:var(--side);padding:10px 0}
+.lights{display:flex;align-items:center;gap:6px;padding:0 10px 12px 12px;font-size:10px;color:var(--t3)}
+.lights i{width:9px;height:9px;border-radius:5px;flex:none}
+.lights i:nth-child(1){background:#FF5F57}.lights i:nth-child(2){background:#FEBC2E}.lights i:nth-child(3){background:#28C840}
+.lights .sp{flex:1}
+.grp{position:relative;margin-bottom:8px}
+.grp-h{height:18px;padding-left:20px;font-size:10px;font-weight:600;color:var(--t1);display:flex;align-items:center}
+.grp-bar{position:absolute;left:6px;top:20px;bottom:0;width:2px;opacity:.5}
+.row{height:38px;margin:0 6px 0 12px;padding:0 8px;display:flex;align-items:center;gap:8px;border-radius:6px}
+.row.on{margin-right:0;border-radius:6px 0 0 6px;background:var(--term)}
+.row .txt{flex:1;min-width:0;display:flex;flex-direction:column}
+.row .t{font-size:11.5px;line-height:15px;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .t.b{font-weight:600}
+.row .s{font-size:9.5px;line-height:13px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .s.amber,.amber-t{color:var(--amber)}
+.age{font:10px var(--mono);color:var(--amber)}
+.term{flex:1;min-width:0;display:flex;flex-direction:column;position:relative}
+.term-bar{height:34px;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--line);font-size:11px;white-space:nowrap}
+.term-bar b{font-weight:600;color:var(--t1)}
+.term-bar .sp{flex:1}
+.pr-chip{height:20px;padding:0 7px;border-radius:5px;box-shadow:inset 0 0 0 1px var(--line);display:flex;align-items:center;gap:5px;color:var(--t1)}
+.out{flex:1;padding:10px 14px;font:10.5px/16px var(--mono);color:var(--t2);white-space:pre;overflow:hidden;margin:0}
+.out b{color:var(--t1);font-weight:600}
+.ok{color:var(--green)}
+.dim{color:var(--t3)}
+
+/* Program icons with T1K's corner badges */
+.pi{position:relative;width:18px;height:18px;flex:none;display:block}
+.pi.faded{opacity:.5}
+.pi>img,.pi>svg{display:block;width:100%;height:100%}
+.pi .dot{position:absolute;right:-3px;bottom:-3px;width:8px;height:8px;border-radius:50%;box-shadow:0 0 0 2px var(--side)}
+.dot.amber{background:var(--amber)}
+.dot.unread{background:var(--accent)}
+.card-vis .pi .dot{box-shadow:0 0 0 2px var(--side)}
+.ico{display:block;flex:none;object-fit:contain}
+/* Stand-in for programs whose icon we don't ship: a neutral text tile, never a fake logo. */
+.badge{display:inline-flex;align-items:center;justify-content:center;flex:none;border-radius:4px;background:var(--wash);box-shadow:inset 0 0 0 1px var(--line);font:600 7.5px/1 var(--sans);letter-spacing:.02em;color:var(--t2);width:18px;height:18px}
+.pi>.badge{width:100%;height:100%}
+.badge.lg{width:22px;height:22px;font-size:8.5px;border-radius:5px}
+.spin{display:block;flex:none;width:11px;height:11px;animation:spin 1.1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){.spin{animation:none;transform:rotate(30deg)}}
+
+/* Sections */
+.sec{border-top:1px solid var(--line)}
+.place{padding:48px 0;display:flex;flex-direction:column;gap:20px}
+.place h2{font:600 30px/36px var(--sans);letter-spacing:-.01em;color:var(--t1)}
+.cards{display:flex;gap:20px;flex-wrap:wrap}
+.card{display:flex;flex-direction:column;gap:10px;flex:1;min-width:240px}
+.card-vis{height:80px;border-radius:10px;background:var(--side);box-shadow:inset 0 0 0 1px var(--line);display:flex;align-items:center;justify-content:center;gap:8px;font-size:12px;color:var(--t1)}
+.card h3{margin:0;font:600 16px/22px var(--sans);color:var(--t1)}
+.card p{font:14px/21px var(--sans);color:var(--t2)}
+.kbd{height:36px;min-width:36px;padding:0 8px;border-radius:8px;background:var(--card);box-shadow:0 2px 0 var(--line),inset 0 0 0 1px var(--line);font:600 15px var(--mono);color:var(--t1);display:inline-flex;align-items:center;justify-content:center}
+
+.feature{display:flex;align-items:center;gap:56px;padding:56px 0}
+.feature.flip{flex-direction:row-reverse}
+.f-text{display:flex;flex-direction:column;gap:12px;width:420px;flex:none}
+.f-text h2{font:600 30px/36px var(--sans);letter-spacing:-.01em;color:var(--t1)}
+.f-text p{font:16px/25px var(--sans);color:var(--t2)}
+.f-vis{flex:1;min-width:0;display:flex;justify-content:center}
+.f-vis>.shot{width:100%}
+.panel{width:100%;border-radius:12px;background:var(--side);box-shadow:inset 0 0 0 1px var(--line)}
+
+/* Import sheet */
+.import{max-width:520px;padding:16px}
+.imp-h{display:flex;align-items:center;gap:8px;padding-bottom:10px;font:600 14px var(--sans);color:var(--t1)}
+.imp-row{height:34px;display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--t1);border-top:1px solid var(--line)}
+.imp-row .n{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.imp-row .m{font-size:11px;color:var(--t3);white-space:nowrap}
+.check{width:14px;height:14px;border-radius:4px;background:var(--accent);color:var(--on-accent);font-size:10px;display:flex;align-items:center;justify-content:center;flex:none}
+.btn{height:30px;padding:0 14px;border-radius:7px;background:var(--accent);color:var(--on-accent);font:600 13px var(--sans);display:inline-flex;align-items:center;white-space:nowrap}
+.btn.sm{height:26px;padding:0 10px;border-radius:6px;font:400 12px var(--sans)}
+.match{margin-top:12px;padding:10px 12px;border-radius:8px;background:var(--card);box-shadow:inset 0 0 0 1px var(--line);display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--t1)}
+.match .sp{flex:1}
+
+/* Outputs panel */
+.f-vis .shot.outputs{max-width:360px}
+.outputs .mock{padding:4px 4px 10px;border-radius:12px;background:var(--side);box-shadow:0 0 0 1px var(--line),var(--shadow)}
+.o-h{padding:12px 12px 4px;font-size:10.5px;font-weight:600;letter-spacing:.08em;color:var(--t3)}
+.o-pr{padding:10px 12px;display:flex;flex-direction:column;gap:3px}
+.o-pr .top{display:flex;align-items:center;gap:8px}
+.o-pr .num{font:600 12.5px var(--mono);color:var(--t1)}
+.pill-open{height:17px;padding:0 7px;border-radius:9px;background:#238636;color:#fff;font-size:10.5px;display:inline-flex;align-items:center}
+.o-pr .ti{font-size:13px;color:var(--t1)}
+.o-pr .st{font-size:12px;color:var(--t2)}
+.o-it{padding:7px 12px;display:flex;align-items:center;gap:10px}
+.o-ic{width:28px;height:28px;border-radius:6px;background:var(--wash);display:flex;align-items:center;justify-content:center;flex:none}
+.o-ic svg{stroke:var(--t2)}
+.o-it .tx{display:flex;flex-direction:column;gap:1px;min-width:0}
+.o-it .a{font-size:12.5px;color:var(--t1);overflow-wrap:anywhere}
+.o-it .b{font-size:11.5px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Switcher */
+.f-vis .shot.switcher{max-width:520px}
+.sw{border-radius:12px;overflow:hidden;background:var(--side);box-shadow:0 0 0 1px var(--line),var(--shadow)}
+.sw-q{height:50px;padding:0 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--line);font-size:15px;color:var(--t1)}
+.sw-q .sp{flex:1}
+.sw-q .k{font:11px var(--mono);color:var(--t3)}
+.sw-r{height:48px;padding:0 14px;display:flex;align-items:center;gap:12px}
+.sw-r.sel{background:var(--term)}
+.sw-r .tx{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.sw-r .a{font-size:13.5px;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sw-r .b{font-size:11.5px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sw-r .best{font-size:11px;color:var(--accent);white-space:nowrap}
+.sw-r .badge{width:22px;height:22px;font-size:8.5px;border-radius:5px}
+
+/* Restore */
+.restore{position:relative;width:100%;max-width:560px;height:260px}
+.restore .term{opacity:1}
+.restore .out{padding:14px;opacity:.55}
+.r-prog{position:absolute;left:0;top:30px;width:220px;height:2px;background:var(--track)}
+.r-prog i{display:block;width:39%;height:2px;background:var(--accent)}
+.r-pill-wrap{position:absolute;right:0;left:220px;bottom:16px;display:flex;justify-content:center;padding:0 8px}
+.r-pill{height:28px;padding:0 12px;border-radius:14px;background:var(--card);box-shadow:0 0 0 1px var(--line);display:inline-flex;align-items:center;gap:8px;font-size:11.5px;color:var(--t1);white-space:nowrap}
+
+/* Make it yours */
+.f-vis .shot.themes{max-width:520px}
+.prefs{padding:16px}
+.pref{display:flex;align-items:center;gap:12px;padding:7px 0;border-top:1px solid var(--line)}
+.pref .l{font-size:11px;color:var(--t3);width:96px;flex:none}
+.pref .v{display:flex;gap:6px;flex-wrap:wrap;align-items:center;min-width:0}
+.sw-th{width:44px;height:30px;border-radius:6px;box-shadow:inset 0 0 0 1px rgba(128,128,128,.3)}
+.chip{height:26px;padding:0 10px;border-radius:6px;background:var(--card);box-shadow:inset 0 0 0 1px var(--line);font-size:12px;color:var(--t1);display:inline-flex;align-items:center;white-space:nowrap}
+.seg{display:inline-flex;padding:2px;border-radius:7px;background:var(--card);box-shadow:inset 0 0 0 1px var(--line);font-size:11.5px}
+.seg span{padding:3px 9px;border-radius:5px;color:var(--t3)}
+.seg span.on{color:var(--t1);background:var(--term);box-shadow:0 0 0 1px var(--line)}
+.key{height:22px;min-width:22px;padding:0 6px;border-radius:5px;background:var(--card);box-shadow:inset 0 0 0 1px var(--line);font:11px var(--mono);color:var(--t1);display:inline-flex;align-items:center;justify-content:center}
+.corner{position:relative;width:22px;height:22px;display:block;border-radius:5px;overflow:hidden}
+.corner img{display:block;width:22px;height:22px}
+.corner i{position:absolute;left:0;top:0;width:9px;height:9px;background:linear-gradient(135deg,#6CA6F5 0 50%,transparent 50%)}
+
+/* Works with */
+.works{padding:40px 0;display:flex;flex-direction:column;gap:16px}
+.works .lab{font-size:14px;color:var(--t3)}
+.agents{display:flex;gap:12px 14px;flex-wrap:wrap;margin:0;padding:0;list-style:none}
+.agent{height:36px;padding:0 12px;border-radius:8px;background:var(--card);box-shadow:inset 0 0 0 1px var(--line);display:inline-flex;align-items:center;gap:8px;font-size:14px;color:var(--t1)}
+.agent img{width:24px;height:24px}
+
+/* Install */
+.install{padding:32px 0 48px;display:flex;gap:32px}
+.install h2{font:600 22px/30px var(--sans);color:var(--t1);width:260px;flex:none}
+.steps{flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin:0;padding:0;list-style:none}
+.step{display:flex;gap:12px}
+.step .n{width:26px;height:26px;border-radius:13px;box-shadow:inset 0 0 0 1px var(--line);font:600 12px var(--sans);color:var(--t2);display:flex;align-items:center;justify-content:center;flex:none}
+.step .tx{display:flex;flex-direction:column;gap:3px}
+.step b{font:600 15px/22px var(--sans);color:var(--t1)}
+.step span{font:14px/20px var(--sans);color:var(--t2)}
+.step code{font:13px var(--mono);color:var(--t1);white-space:nowrap}
+
+/* Footer */
+footer{padding:28px 0 40px;display:flex;align-items:center;gap:22px;font-size:13.5px;color:var(--t3);flex-wrap:wrap}
+footer a{text-decoration:none}
+footer a:hover{color:var(--t1)}
+footer .sp{flex:1}
+footer .fbrand{display:inline-flex;align-items:center;gap:8px}
+footer .fbrand img{width:22px;height:22px;border-radius:5px;display:block}
+footer .fbrand .wordmark{font-size:14px;letter-spacing:.6px}
+footer .right{display:flex;flex-direction:column;align-items:flex-end;gap:2px}
+footer .tm{font-size:12px}
+
+/* Between phone and desktop: let the text column shrink, keep the window bleeding off the edge. */
+@media (max-width:1180px){
+  .hero{flex-direction:column;align-items:stretch;gap:40px}
+  .hero-text{width:auto;max-width:640px}
+  .hero .shot,.hero .win{width:100%}
+  .f-text{width:auto;flex:1 1 340px}
+  .f-vis{flex:1 1 420px}
+  .feature{gap:40px}
+}
+@media (max-width:900px){
+  .wrap{padding:0 20px}
+  .nav .links{display:none}
+  .hero{flex-direction:column;align-items:stretch;gap:32px;padding:32px 0 48px}
+  .hero-text{flex:none}
+  h1{font-size:32px;line-height:36px}
+  .lede{font-size:16px;line-height:26px}
+  .hero .shot,.hero .win{width:100%}
+  .hero .win{height:260px}
+  .hero .frame{aspect-ratio:350/300}
+  .hero .frame img{width:220%}
+  .feature,.feature.flip{flex-direction:column;align-items:stretch;gap:20px;padding:32px 0}
+  .f-text,.f-vis{flex:none}
+  .f-text h2,.place h2{font-size:24px;line-height:30px}
+  .place{padding:32px 0}
+  .cards{flex-direction:column}
+  .card{min-width:0}
+  .install{flex-direction:column;gap:20px;padding:32px 0}
+  .install h2{width:auto}
+  .steps{grid-template-columns:1fr}
+  footer{flex-direction:column;align-items:flex-start;gap:12px}
+  footer .sp{display:none}
+  footer .right{align-items:flex-start}
+}
+@media (max-width:440px){
+  .term-bar .pr-chip,.term-bar .dim{display:none}
+  .import,.prefs{padding:12px}
+  .imp-row .m{font-size:10px}
+  .pref{flex-direction:column;align-items:flex-start;gap:6px}
+  .pref .l{width:auto}
+  .sw-th{width:36px;height:26px}
+  .restore .sb{width:190px}
+  .r-prog{width:190px}
+  .r-pill-wrap{left:0}
+  .restore{height:300px}
+  .r-pill{font-size:10.5px;padding:0 10px}
+}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="spinner" viewBox="0 0 11 11"><circle cx="5.5" cy="5.5" r="4.75" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="22.38 7.46"/></symbol>
+    <symbol id="shell" viewBox="0 0 24 24"><path d="M6.5 8.5l3.5 3.5-3.5 3.5M12 16h5.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+
+  <header class="nav">
+    <a class="brand" href="./" aria-label="T1K home">
+      <img class="face" src="site/face.svg" width="20" height="26" alt="">
+      <span class="wordmark">T1K</span>
+    </a>
+    <span class="sp"></span>
+    <span class="links">
+      <a href="https://github.com/erango/t1k/releases">Releases</a>
+      <a href="https://github.com/erango/t1k">GitHub</a>
+    </span>
+  </header>
+
+</div>
+
+<main>
+<div class="hero-band">
+<div class="wrap">
+  <section class="hero">
+    <div class="hero-text">
+      <h1>Run ten agents without holding ten in your head.</h1>
+      <p class="lede">T1K is a macOS terminal built to lower the load of running many coding agents at once. It shows which session needs you and takes you there, so you stop checking tabs.</p>
+      <div class="cta">
+        <a id="download" class="dl" href="https://github.com/erango/t1k/releases/latest">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 2v8M4.5 7L8 10.5 11.5 7M3 13.5h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Download for macOS
+          <span id="download-meta" class="dl-meta"></span>
+        </a>
+        <span class="req">macOS 13 or later · Apple silicon · Notarized, updates itself</span>
+        <a class="gh" href="https://github.com/erango/t1k">View on GitHub →</a>
+      </div>
+    </div>
+
+    <div class="shot">
+      <div class="frame"><picture><source srcset="screenshots/hero-light.png" media="(prefers-color-scheme: light)"><img src="screenshots/hero.png" width="2880" height="1754" alt="T1K’s main window: the sidebar with three sessions that need you, working spinners and project groups, and a finished Claude Code turn in the terminal" fetchpriority="high" onerror="var s=this.closest('.shot');if(s)s.classList.add('no-img');this.remove()"></picture></div>
+      <div class="mock win" role="img" aria-label="T1K with five agent sessions in the sidebar: one working, one done with a PR opened, and one that has needed you for 21 minutes">
+        <div class="sb">
+          <div class="lights"><i></i><i></i><i></i><span class="sp"></span></div>
+          <div class="grp">
+            <div class="grp-h">t1k</div>
+            <span class="grp-bar" style="background:#6CA6F5"></span>
+            <div class="row on">
+              <span class="pi"><img src="site/claude-64.png" width="18" height="18" alt=""></span>
+              <span class="txt"><span class="t b">Link hint mode</span><span class="s">Working · editing view.rs</span></span>
+              <svg class="spin" style="color:var(--spin)"><use href="#spinner"/></svg>
+            </div>
+            <div class="row">
+              <span class="pi"><span class="badge">Cx</span><i class="dot unread"></i></span>
+              <span class="txt"><span class="t b">Migrate charts to v5</span><span class="s">Done · PR #421 opened</span></span>
+            </div>
+            <div class="row">
+              <span class="pi faded"><svg style="color:var(--t2)"><use href="#shell"/></svg></span>
+              <span class="txt"><span class="t">cargo watch</span><span class="s">main</span></span>
+            </div>
+          </div>
+          <div class="grp">
+            <div class="grp-h">infra-terraform</div>
+            <span class="grp-bar" style="background:#5FC6D0"></span>
+            <div class="row">
+              <span class="pi"><img src="site/claude-64.png" width="18" height="18" alt=""><i class="dot amber"></i></span>
+              <span class="txt"><span class="t">Upgrade EKS to 1.31</span><span class="s amber">Needs you · approve apply</span></span>
+              <span class="age">21m</span>
+            </div>
+            <div class="row">
+              <span class="pi"><span class="badge">Gm</span></span>
+              <span class="txt"><span class="t">Explain the cache layer</span><span class="s">Working</span></span>
+              <svg class="spin" style="color:var(--spin)"><use href="#spinner"/></svg>
+            </div>
+          </div>
+        </div>
+        <div class="term">
+          <div class="term-bar"><b>Link hint mode</b><span class="dim">t1k › feat/hints</span><span class="sp"></span><span class="pr-chip"><span class="ok">✓</span><span class="mono">#2504</span></span></div>
+<pre class="out">⏺ Hint labels now stay stable across redraws.
+⏺ <b>Bash</b>(cargo test -p t1k-terminal hints)
+  ⎿  test result: <span class="ok">ok</span>. 6 passed; 0 failed
+⏺ Next: wire the labels into the overlay.
+
+
+<span class="dim">✻ Pondering… (12s · esc to interrupt)</span></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+</div>
+
+<div class="wrap">
+  <section class="sec place" aria-labelledby="place-h">
+    <h2 id="place-h">One place to look</h2>
+    <div class="cards">
+      <div class="card">
+        <div class="card-vis" aria-hidden="true">
+          <span class="pi"><img src="site/claude-64.png" width="18" height="18" alt=""><i class="dot amber"></i></span>
+          Upgrade EKS to 1.31
+          <span class="age" style="font-size:10.5px">21m</span>
+        </div>
+        <h3>Amber means it needs you</h3>
+        <p>Every tab shows its agent’s state. Only a tab waiting on you turns amber; the rest stay quiet.</p>
+      </div>
+      <div class="card">
+        <div class="card-vis" aria-hidden="true"><span class="kbd">⌘</span><span class="kbd">J</span></div>
+        <h3>⌘J goes there</h3>
+        <p>Jump to the tab that has waited longest. Press again for the next.</p>
+      </div>
+      <div class="card">
+        <div class="card-vis" aria-hidden="true"><span class="kbd">⌘</span><span class="kbd">O</span></div>
+        <h3>⌘O shows them all</h3>
+        <p>One screen with every session: what it’s doing, its goal and its last recap.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec feature" aria-labelledby="f1">
+    <div class="f-text">
+      <h2 id="f1">Switch without starting over</h2>
+      <p>T1K finds the sessions open in your old terminal, whether that’s Warp, iTerm2, Terminal, Ghostty, kitty, WezTerm or tmux, and brings them over with Claude sessions resumed. It can match that terminal’s font and colors too.</p>
+    </div>
+    <div class="f-vis">
+      <div class="panel import" role="img" aria-label="Import sheet: Found 14 tabs in iTerm2 and Warp, with Claude sessions that resume, a Bring 11 tabs button and an offer to match Warp’s theme and font">
+        <div class="imp-h">
+          <span class="badge lg">iT2</span>
+          <img class="ico" src="site/warp-64.png" width="22" height="22" alt="">
+          <span>Found 14 tabs in iTerm2 and Warp</span>
+        </div>
+        <div class="imp-row"><span class="check">✓</span><img class="ico" src="site/claude-64.png" width="16" height="16" alt=""><span class="n">Upgrade EKS to 1.31</span><span class="m">Claude · resumes</span></div>
+        <div class="imp-row"><span class="check">✓</span><img class="ico" src="site/claude-64.png" width="16" height="16" alt=""><span class="n">Link hint mode</span><span class="m">Claude · resumes</span></div>
+        <div class="imp-row"><span class="check">✓</span><svg width="16" height="16" style="color:var(--t2);flex:none"><use href="#shell"/></svg><span class="n">npm run dev</span><span class="m">web-dashboard</span></div>
+        <div style="display:flex;justify-content:flex-end;padding-top:10px"><span class="btn">Bring 11 tabs</span></div>
+        <div class="match">
+          <img class="ico" src="site/warp-64.png" width="18" height="18" alt="">
+          <span>Look like Warp? Solarized Dark, 13 pt</span>
+          <span class="sp"></span>
+          <span class="btn sm">Match</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec feature flip" aria-labelledby="f2">
+    <div class="f-text">
+      <h2 id="f2">Everything each session made</h2>
+      <p>PRs with their title, checks and review (“Approved by ana”, “Changes requested”), artifacts and docs by type, tickets and changed files, per session, one click away.</p>
+    </div>
+    <div class="f-vis">
+      <div class="shot outputs">
+        <div class="frame"><img src="screenshots/outputs.png" width="2880" height="1754" alt="The outputs panel beside a Claude Code session: two PRs with their checks and approvals, a doc, a ticket, a deploy and edited files" loading="lazy" onerror="var s=this.closest('.shot');if(s)s.classList.add('no-img');this.remove()"></div>
+        <div class="mock" role="img" aria-label="The outputs panel: two pull requests with checks and review state, a dashboard, slides, a doc, a Linear ticket and a changed file">
+          <div class="o-h">PULL REQUESTS</div>
+          <div class="o-pr">
+            <div class="top"><span class="num">#2504</span><span class="pill-open">Open</span></div>
+            <span class="ti">Score coding outcomes per turn</span>
+            <span class="st"><span class="ok">✓</span> 6 checks <span class="dim">·</span> <span class="ok">✓</span> Approved by ana</span>
+          </div>
+          <div class="o-pr">
+            <div class="top"><span class="num">#2511</span><span class="pill-open">Open</span></div>
+            <span class="ti">Fix stale hint labels after a resize</span>
+            <span class="st">● Checks running <span class="dim">·</span> <span class="amber-t">◆ Changes requested by jr</span></span>
+          </div>
+          <div class="o-h">ARTIFACTS + DOCS</div>
+          <div class="o-it"><span class="o-ic"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 13.5h11M4.5 11V8M7.5 11V5M10.5 11V7"/></svg></span><span class="tx"><span class="a">Q3 retention dashboard</span><span class="b">Weekly retention by cohort</span></span></div>
+          <div class="o-it"><span class="o-ic"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3.5h11v7h-11z"/><path d="M8 10.5v2.5M5.5 13.5h5"/></svg></span><span class="tx"><span class="a">Launch plan</span><span class="b">Twelve slides for Thursday</span></span></div>
+          <div class="o-it"><span class="o-ic"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.5h8v11H4z"/><path d="M6 5.5h4M6 8h4M6 10.5h2.5"/></svg></span><span class="tx"><span class="a">Hint mode design notes</span><span class="b">Google Doc</span></span></div>
+          <div class="o-h">TICKETS + FILES</div>
+          <div class="o-it"><span class="o-ic"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 5h11v2a1.5 1.5 0 000 3v2h-11v-2a1.5 1.5 0 000-3z"/></svg></span><span class="tx"><span class="a">T1K-142 · Stable hint labels</span><span class="b">Linear · In review</span></span></div>
+          <div class="o-it"><span class="o-ic"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.5h5.5L12 5v8.5H4z"/><path d="M9.5 2.5V5H12"/></svg></span><span class="tx"><span class="a">crates/t1k-terminal/src/view.rs</span><span class="b">+48 −12</span></span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec feature" aria-labelledby="f3">
+    <div class="f-text">
+      <h2 id="f3">Find a tab by what you remember</h2>
+      <p>⌘P searches titles, projects, branches, PRs and files. With the optional helper it ranks by meaning: “the tab where I was fixing login”.</p>
+    </div>
+    <div class="f-vis">
+      <div class="shot switcher">
+        <div class="frame"><img src="screenshots/switcher.png" width="2880" height="1758" alt="⌘P with “pay” typed: tabs that need you first, then matches by title, project, recap and PR" loading="lazy" onerror="var s=this.closest('.shot');if(s)s.classList.add('no-img');this.remove()"></div>
+        <div class="mock sw" role="img" aria-label="The ⌘P switcher with the query “the tab where I was fixing login” and Fix login redirect loop as the best match">
+          <div class="sw-q">the tab where I was fixing login<span class="sp"></span><span class="k">⌘P</span></div>
+          <div class="sw-r sel"><img class="ico" src="site/claude-64.png" width="22" height="22" alt=""><span class="tx"><span class="a">Fix login redirect loop</span><span class="b">web-dashboard · fix/auth-redirect</span></span><span class="best">best match</span></div>
+          <div class="sw-r"><span class="badge">Cx</span><span class="tx"><span class="a">Session cookie expiry</span><span class="b">api · feat/sessions</span></span></div>
+          <div class="sw-r"><img class="ico" src="site/claude-64.png" width="22" height="22" alt=""><span class="tx"><span class="a">OAuth callback tests</span><span class="b">web-dashboard · main</span></span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec feature flip" aria-labelledby="f4">
+    <div class="f-text">
+      <h2 id="f4">Restart without losing your place</h2>
+      <p>Tabs and scrollback come back after a quit or an update, and Claude sessions pick up where they stopped. You see “Restoring 12 of 31” while they return.</p>
+    </div>
+    <div class="f-vis">
+      <div class="win restore" role="img" aria-label="T1K restoring its tabs after a restart: Restoring 12 of 31, with Claude sessions resuming">
+        <div class="sb">
+          <div class="lights"><i></i><i></i><i></i><span class="sp"></span><span>Restoring 12 of 31</span></div>
+          <div class="grp">
+            <div class="grp-h">t1k</div>
+            <span class="grp-bar" style="background:#6CA6F5"></span>
+            <div class="row on">
+              <span class="pi faded"><img src="site/claude-64.png" width="18" height="18" alt=""></span>
+              <span class="txt"><span class="t b">Link hint mode</span><span class="s">resuming…</span></span>
+            </div>
+            <div class="row">
+              <span class="pi faded"><span class="badge">Cx</span></span>
+              <span class="txt"><span class="t">Migrate charts to v5</span><span class="s">Done · PR #421</span></span>
+            </div>
+            <div class="row">
+              <span class="pi faded"><svg style="color:var(--t2)"><use href="#shell"/></svg></span>
+              <span class="txt"><span class="t">cargo watch</span><span class="s">main</span></span>
+            </div>
+          </div>
+          <div class="grp">
+            <div class="grp-h">infra-terraform</div>
+            <span class="grp-bar" style="background:#5FC6D0"></span>
+            <div class="row">
+              <span class="pi faded"><img src="site/claude-64.png" width="18" height="18" alt=""></span>
+              <span class="txt"><span class="t">Upgrade EKS to 1.31</span><span class="s">resuming…</span></span>
+            </div>
+          </div>
+        </div>
+        <div class="r-prog"><i></i></div>
+        <div class="term">
+<pre class="out">⏺ Hint labels now stay stable.
+⏺ Bash(cargo test hints)
+  ⎿  6 passed</pre>
+        </div>
+        <div class="r-pill-wrap"><span class="r-pill"><svg class="spin" style="color:var(--spin)"><use href="#spinner"/></svg>Resuming Claude session…</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec feature" aria-labelledby="f5">
+    <div class="f-text">
+      <h2 id="f5">Make it yours</h2>
+      <p>22 themes plus import, coding fonts installed in one click, sidebar density and detail, session colors, emoji, app or image tab icons, your own keys, and a short setup that walks through it.</p>
+    </div>
+    <div class="f-vis">
+      <div class="shot themes">
+        <div class="frame"><img src="screenshots/themes.png" width="2880" height="1754" alt="The theme picker with a live preview of the sidebar and terminal" loading="lazy" onerror="var s=this.closest('.shot');if(s)s.classList.add('no-img');this.remove()"></div>
+        <div class="mock panel prefs" role="img" aria-label="T1K’s look settings: themes, fonts, sidebar density, tab icons, session colors, keys and the setup wizard">
+          <div class="pref"><span class="l">Themes</span><span class="v">
+            <span class="sw-th" style="background:#121316"></span><span class="sw-th" style="background:#FBFBFC"></span><span class="sw-th" style="background:#002B36"></span><span class="sw-th" style="background:#1A1B26"></span><span class="sw-th" style="background:#FDF6E3"></span><span class="sw-th" style="background:#282A36"></span>
+          </span></div>
+          <div class="pref"><span class="l">Fonts</span><span class="v">
+            <span class="chip mono">JetBrains Mono</span><span class="chip" style="font-family:'Fira Code',Menlo,monospace">Fira Code</span><span class="chip" style="font-family:Hack,Menlo,monospace">Hack</span><span class="chip">Install more…</span>
+          </span></div>
+          <div class="pref"><span class="l">Sidebar</span><span class="v"><span class="seg"><span>Compact</span><span class="on">Comfortable</span><span>Spacious</span></span></span></div>
+          <div class="pref"><span class="l">Tab icons</span><span class="v" style="gap:8px">
+            <span style="font-size:18px;line-height:22px">🦀</span><span style="font-size:18px;line-height:22px">🚀</span><img class="ico" src="site/warp-64.png" width="22" height="22" alt=""><span style="width:22px;height:22px;border-radius:5px;background:linear-gradient(180deg,#F7B267,#5B4B8A)"></span>
+          </span></div>
+          <div class="pref"><span class="l">Session colors</span><span class="v"><span class="corner"><img src="site/claude-64.png" width="22" height="22" alt=""><i></i></span></span></div>
+          <div class="pref"><span class="l">Keys</span><span class="v"><span class="key">⌘J</span><span class="key">⌘P</span><span class="key">⌘O</span><span class="key">⌘D</span></span></div>
+          <div class="pref"><span class="l">Setup</span><span class="v"><span style="font-size:12px;color:var(--t2)">A 2-minute wizard walks through all of it</span></span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec works" aria-labelledby="works-h">
+    <h2 id="works-h" class="lab" style="font-weight:400">Works with</h2>
+    <ul class="agents">
+      <li class="agent"><img src="site/claude-64.png" width="24" height="24" alt="">Claude Code</li>
+      <li class="agent">Codex</li>
+      <li class="agent">Gemini CLI</li>
+      <li class="agent">Antigravity</li>
+      <li class="agent">Grok</li>
+    </ul>
+  </section>
+
+  <section class="sec install" aria-labelledby="install-h">
+    <h2 id="install-h">Install</h2>
+    <ol class="steps">
+      <li class="step"><span class="n">1</span><span class="tx"><b>Download and unzip</b><span>Get the zip above.</span></span></li>
+      <li class="step"><span class="n">2</span><span class="tx"><b>Move T1K to Applications</b><span>Then open it like any app.</span></span></li>
+      <li class="step"><span class="n">3</span><span class="tx"><b>Bring your tabs over</b><span>Setup finds your old terminal’s sessions and connects your agents. Or run <code>t1k setup-agents</code>.</span></span></li>
+    </ol>
+  </section>
+
+</div>
+</main>
+
+<div class="wrap">
+  <footer class="sec">
+    <span class="fbrand"><img src="site/t1k-64.png" width="22" height="22" alt=""><span class="wordmark">T1K</span></span>
+    <a href="https://github.com/erango/t1k">GitHub</a>
+    <a href="https://github.com/erango/t1k/releases">Releases</a>
+    <a href="https://github.com/erango/t1k/tree/main/docs/releases">Changelog</a>
+    <span class="sp"></span>
+    <span class="right">
+      <a href="https://github.com/erango">Built by @erango</a>
+      <span class="tm">Trademarks belong to their owners.</span>
+    </span>
+  </footer>
+</div>
+
+<script>
+// Point the button at the latest zip and show its version and size. The static
+// href (releases/latest) stays whenever anything here fails.
+(function () {
+  var link = document.getElementById('download');
+  var meta = document.getElementById('download-meta');
+  var KEY = 't1k-latest-release';
+  var HOUR = 3600 * 1000;
+
+  function apply(r) {
+    if (!r || !r.href) return;
+    link.href = r.href;
+    meta.textContent = r.label || '';
+  }
+
+  try {
+    var cached = JSON.parse(sessionStorage.getItem(KEY) || 'null');
+    if (cached && Date.now() - cached.at < HOUR) { apply(cached); return; }
+  } catch (e) {}
+
+  if (!window.fetch) return;
+  var ctrl = window.AbortController ? new AbortController() : null;
+  var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, 3000);
+
+  fetch('https://api.github.com/repos/erango/t1k/releases/latest', {
+    headers: { Accept: 'application/vnd.github+json' },
+    signal: ctrl ? ctrl.signal : undefined
+  }).then(function (res) {
+    if (!res.ok) throw new Error(res.status);
+    return res.json();
+  }).then(function (rel) {
+    clearTimeout(timer);
+    var asset = (rel.assets || []).filter(function (a) { return /^T1K-.+\.zip$/.test(a.name); })[0];
+    if (!asset || !asset.browser_download_url) return;
+    var r = {
+      at: Date.now(),
+      href: asset.browser_download_url,
+      label: 'v' + String(rel.tag_name || '').replace(/^v/, '') + ' · ' + (asset.size / 1e6).toFixed(1) + ' MB'
+    };
+    apply(r);
+    try { sessionStorage.setItem(KEY, JSON.stringify(r)); } catch (e) {}
+  }).catch(function () { clearTimeout(timer); });
+})();
+</script>
+</body>
+</html>
