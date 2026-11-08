@@ -126,9 +126,9 @@ git push origin HEAD
 # Sparkle (the cask says auto_updates), so this is what new `brew install`s get.
 TAP="${T1K_TAP:-$HOME/git-repos/homebrew-tap}"
 if [ -z "$CHANNEL" ] && [ -f "$TAP/Casks/t1k.rb" ]; then
+  git -C "$TAP" pull -q --rebase
   SHA="$(shasum -a 256 "$ZIP" | cut -d' ' -f1)"
   sed -i '' -e "s/^  version \".*\"/  version \"$VERSION\"/" -e "s/^  sha256 \".*\"/  sha256 \"$SHA\"/" "$TAP/Casks/t1k.rb"
-  git -C "$TAP" pull -q --rebase
   git -C "$TAP" add Casks/t1k.rb
   git -C "$TAP" commit -q -m "t1k $VERSION"
   git -C "$TAP" push -q
