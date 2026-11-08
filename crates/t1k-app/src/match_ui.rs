@@ -7,6 +7,7 @@ use std::time::Instant;
 use gpui::{div, prelude::*, px, AnyElement, Context, FontWeight, KeyDownEvent, MouseButton, SharedString, Window};
 use t1k_themes::Theme;
 
+use crate::fonts::Phase;
 use crate::import_ui::{button, checkbox, mono};
 use crate::match_term::{self, Current, Found, Item, Kind, ThemeSrc};
 use crate::overlay::Overlay;
@@ -227,7 +228,7 @@ fn preview(t: &Theme, font: &str, size: f32, lh: f32, w: f32, h: f32) -> gpui::D
 fn summary(f: &Found, items: &[Item]) -> String {
     let mut parts = Vec::new();
     for k in [Kind::Theme, Kind::Font, Kind::Size, Kind::LineHeight] {
-        if let Some(i) = items.iter().find(|i| i.kind == k && i.applies()) {
+        if let Some(i) = items.iter().find(|i| i.kind == k && (i.applies() || i.download.is_some())) {
             let to = i.to.clone().unwrap_or_default();
             parts.push(match k {
                 Kind::Size => format!("{to} pt"),
@@ -237,11 +238,49 @@ fn summary(f: &Found, items: &[Item]) -> String {
         }
     }
     let mut s = format!("{}.", parts.join(", "));
-    if items.iter().any(|i| i.kind == Kind::Font && i.to.is_some() && i.reason.as_deref().is_some_and(|r| r.contains("isn't installed"))) {
+    if let Some((font, icons)) = items.iter().find_map(|i| i.download) {
+        s += &format!(" {} is a {} download from GitHub.", font.asset(icons).family, crate::fonts::mb(font.asset(icons).bytes));
+    } else if items.iter().any(|i| i.kind == Kind::Font && i.to.is_some() && i.reason.as_deref().is_some_and(|r| r.contains("isn't installed"))) {
         s += &format!(" {}'s font isn't installed, so the font stays.", f.app.label());
     }
     let mut c = s.chars();
     c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or(s)
+}
+
+/// The font row's second line when T1K can get the font (canvas v3-ac): an Install button, the
+/// install's progress or failure, or where it came from once it's in.
+fn font_note(ws: &Workspace, it: &Item, cx: &mut Context<Workspace>) -> Option<AnyElement> {
+    let ui = ws.ui;
+    if it.kind != Kind::Font {
+        return None;
+    }
+    let text = |s: String, c| div().text_size(px(11.5)).text_color(c).child(s);
+    if let Some((font, icons)) = it.download {
+        let name = font.asset(icons).family;
+        let job = ws.fonts.job(font.id).cloned();
+        let row = div().flex().items_center().gap(px(8.));
+        return Some(match job.as_ref().map(|j| j.phase()) {
+            Some(Phase::Downloading) | Some(Phase::Installing) => {
+                let j = job.unwrap();
+                row.child(text(format!("Installing {name}… {}", crate::fonts_ui::job_progress(&j)), ui.text_secondary).font(crate::fonts_ui::tabular())).into_any_element()
+            }
+            Some(Phase::Failed(r)) => row
+                .child(text(r, ui.status_error))
+                .child(crate::fonts_ui::small_button(ui, "match-font-retry", "Retry", false).on_click(cx.listener(move |this, _, window, cx| this.install_font(font, icons, false, window, cx))))
+                .into_any_element(),
+            _ => row
+                .child(text(it.reason.clone().unwrap_or_default(), ui.text_tertiary))
+                .child(
+                    crate::fonts_ui::small_button(ui, "match-font-install", format!("Install {name} ({})", crate::fonts::mb(font.asset(icons).bytes)), false)
+                        .on_click(cx.listener(move |this, _, window, cx| this.install_font(font, icons, false, window, cx))),
+                )
+                .into_any_element(),
+        });
+    }
+    // Installed by this sheet (or the picker) this session.
+    let (font, _) = it.to.as_deref().filter(|_| it.applies()).and_then(crate::fonts::find)?;
+    let done = ws.fonts.job(font.id).is_some_and(|j| matches!(j.phase(), Phase::Done(_)));
+    done.then(|| text(format!("Installed just now from {}", font.repo), ui.text_tertiary).into_any_element())
 }
 
 /// The welcome card's section, when another terminal's look differs from T1K's.
@@ -251,7 +290,7 @@ pub fn welcome_section(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<An
         return None;
     }
     let (f, items) = ws.match_plan()?;
-    if !items.iter().any(|i| i.applies()) {
+    if !items.iter().any(|i| i.applies() || i.download.is_some()) {
         return None;
     }
     let app = f.app.label();
@@ -288,7 +327,8 @@ pub fn welcome_section(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<An
                             .child(div().flex_1())
                             .child(button(ui, "match-details", "Details…", false, true).on_click(cx.listener(|this, _, window, cx| this.open_match(window, cx))))
                             .child(button(ui, "match-go", format!("Match {app}"), true, true).on_click(cx.listener(|this, _, window, cx| {
-                                this.apply_match(window, cx);
+                                // Includes the font's download when it needs one.
+                                this.match_with_download(window, cx);
                                 this.match_hidden = true;
                                 cx.notify();
                             }))),
@@ -360,16 +400,20 @@ pub fn sheet(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         let on = ok && !off.contains(&it.kind);
         let k = it.kind;
         let to = it.to.clone().unwrap_or_else(|| "—".into());
+        let note = font_note(ws, it, cx);
+        let job = it.download.and_then(|(font, _)| ws.fonts.job(font.id)).filter(|j| matches!(j.phase(), Phase::Downloading)).cloned();
         rows = rows.child(
             div()
                 .id(SharedString::from(format!("match-{}", k.label())))
+                .relative()
+                .overflow_hidden()
                 .min_h(px(40.))
                 .py(px(8.))
                 .px(px(8.))
                 .rounded(px(8.))
                 .flex()
                 .gap(px(10.))
-                .when(!ok, |d| d.opacity(0.62))
+                .when(!ok && it.download.is_none(), |d| d.opacity(0.62))
                 .when(ok, |d| d.cursor_pointer().hover(move |d| d.bg(ui.bg_hover)).on_click(cx.listener(move |this, _, _, cx| this.toggle_match(k, cx))))
                 .child(div().pt(px(1.)).child(checkbox(ui, Some(on))))
                 .child(
@@ -386,8 +430,9 @@ pub fn sheet(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                                 .child(div().w(px(84.)).flex_none().text_size(px(12.5)).text_color(ui.text_primary).child(k.label()))
                                 .child(mono(format!("{} → {to}", it.now), if ok { ui.text_secondary } else { ui.text_tertiary }).text_size(px(11.5)).truncate()),
                         )
-                        .children(it.reason.clone().map(|r| div().pl(px(84.)).text_size(px(11.5)).text_color(ui.text_tertiary).child(r))),
-                ),
+                        .children(note.or_else(|| it.reason.clone().map(|r| div().text_size(px(11.5)).text_color(ui.text_tertiary).child(r).into_any_element())).map(|n| div().pl(px(84.)).child(n))),
+                )
+                .children(job.map(|j| crate::fonts_ui::progress_line(ui, crate::fonts_ui::job_fraction(&j)))),
         );
     }
 

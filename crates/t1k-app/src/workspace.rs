@@ -214,6 +214,8 @@ pub struct Workspace {
     pub match_undo: Option<crate::match_ui::MatchUndo>,
     /// The welcome card's match section was used or dismissed.
     pub match_hidden: bool,
+    /// The font picker and "Get more fonts" installs.
+    pub fonts: crate::fonts_ui::FontPicker,
     /// Files being dragged over a pane or a sidebar row.
     pub drop_hover: Option<crate::drop::DropHover>,
     /// ⌘A in the emoji picker's search: the whole query is selected.
@@ -441,6 +443,7 @@ impl Workspace {
             matcher: None,
             match_undo: None,
             match_hidden: false,
+            fonts: Default::default(),
             drop_hover: None,
             icon_query_all: false,
             restore: None,
@@ -734,6 +737,10 @@ impl Workspace {
                 "settings" => Some(Overlay::Settings { section: crate::settings::Section::Appearance }),
                 "settings-interface" => Some(Overlay::Settings { section: crate::settings::Section::Interface }),
                 "settings-terminal" => Some(Overlay::Settings { section: crate::settings::Section::Terminal }),
+                "settings-fonts" => {
+                    this.fonts.open = true;
+                    Some(Overlay::Settings { section: crate::settings::Section::Terminal })
+                }
                 "settings-advanced" => Some(Overlay::Settings { section: crate::settings::Section::Advanced }),
                 "settings-tabs" => Some(Overlay::Settings { section: crate::settings::Section::Tabs }),
                 "update" => {
@@ -803,6 +810,7 @@ impl Workspace {
                 this.open_overlay(o, window, cx);
             }
         }
+        this.debug_fonts(window, cx);
         this
     }
 

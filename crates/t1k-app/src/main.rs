@@ -8,6 +8,8 @@ mod drop;
 mod restore;
 mod session_color;
 mod match_ui;
+mod fonts;
+mod fonts_ui;
 mod agent_setup;
 mod app_icon;
 mod brand;
