@@ -216,6 +216,10 @@ pub fn program_badge(program: Option<&str>, ui: UiColors, size: f32) -> Div {
     if let Some(png) = app_icon(program) {
         return base.relative().child(crate::custom_icon::overscaled(png, size));
     }
+    // Agent CLIs without an app icon: their mark alone, no tinted tile.
+    if let Some(mark) = crate::icons::agent_mark(program, size) {
+        return base.rounded_none().child(mark);
+    }
     let (glyph, color): (String, Hsla) = match known(program) {
         Some((g, c)) => (g.to_string(), rgb(c).into()),
         None => {

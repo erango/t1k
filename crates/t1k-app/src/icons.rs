@@ -299,3 +299,74 @@ pub fn artifact(kind: &str, color: Hsla, size: f32) -> impl IntoElement {
         }
     }, color)
 }
+
+/// The mark of an agent CLI that has no Mac app icon to borrow (Codex, Gemini, Antigravity,
+/// Grok), drawn bare at `size` px so it reads as large as Claude's app icon. None for others.
+pub fn agent_mark(program: &str, size: f32) -> Option<gpui::AnyElement> {
+    use gpui::rgb;
+    let p = program.trim_start_matches('-').to_ascii_lowercase();
+    let kind = match p.as_str() {
+        "codex" => 0,
+        "gemini" => 1,
+        "agy" | "antigravity" => 2,
+        "grok" => 3,
+        _ => return None,
+    };
+    let color: Hsla = match kind {
+        0 => rgb(0x10A37F).into(),
+        1 | 2 => rgb(0x4C8BF5).into(),
+        _ => rgb(0x9AA0A8).into(),
+    };
+    Some(
+        canvas(|_, _, _| {}, move |b, _, window, _| {
+            // Drawn in a 24-unit space, like the landing page's SVGs.
+            let k = size / 24.;
+            let o = b.origin;
+            let pt = move |x: f32, y: f32| point(o.x + px(x * k), o.y + px(y * k));
+            let mut paint = |mut p: PathBuilder, build: &dyn Fn(&mut PathBuilder)| {
+                build(&mut p);
+                if let Ok(path) = p.build() {
+                    window.paint_path(path, color);
+                }
+            };
+            let circle = |p: &mut PathBuilder, r: f32| {
+                let pts: Vec<_> = (0..=40).map(|i| {
+                    let a = i as f32 / 40. * std::f32::consts::TAU;
+                    pt(12. + r * a.cos(), 12. + r * a.sin())
+                }).collect();
+                p.add_polygon(&pts, true);
+            };
+            match kind {
+                // Codex: a ring around a dot.
+                0 => {
+                    paint(PathBuilder::stroke(px(2.4 * k)), &|p| circle(p, 9.5));
+                    paint(PathBuilder::fill(), &|p| circle(p, 4.2));
+                }
+                // Gemini: a four-pointed star with curved sides.
+                1 => paint(PathBuilder::fill(), &|p| {
+                    p.move_to(pt(12., 1.5));
+                    p.curve_to(pt(22.5, 12.), pt(13.4, 10.6));
+                    p.curve_to(pt(12., 22.5), pt(13.4, 13.4));
+                    p.curve_to(pt(1.5, 12.), pt(10.6, 13.4));
+                    p.curve_to(pt(12., 1.5), pt(10.6, 10.6));
+                    p.close();
+                }),
+                // Antigravity: a triangle, its left half filled.
+                2 => {
+                    paint(PathBuilder::stroke(px(2.2 * k)), &|p| p.add_polygon(&[pt(12., 2.5), pt(22., 20.5), pt(2., 20.5)], true));
+                    paint(PathBuilder::fill(), &|p| p.add_polygon(&[pt(12., 2.5), pt(12., 20.5), pt(2., 20.5)], true));
+                }
+                // Grok: an X.
+                _ => paint(PathBuilder::stroke(px(2.6 * k)), &|p| {
+                    p.move_to(pt(4., 3.5));
+                    p.line_to(pt(20., 20.5));
+                    p.move_to(pt(20., 3.5));
+                    p.line_to(pt(4., 20.5));
+                }),
+            }
+        })
+        .size(px(size))
+        .flex_none()
+        .into_any_element(),
+    )
+}
