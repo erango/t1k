@@ -6133,6 +6133,7 @@ dependencies = [
  "log",
  "nucleo-matcher",
  "objc",
+ "plist",
  "pulldown-cmark",
  "sentry",
  "serde",
