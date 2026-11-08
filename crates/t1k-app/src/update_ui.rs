@@ -263,7 +263,8 @@ pub fn dialog(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             .child(div().text_size(px(13.)).line_height(px(18.)).text_color(ui.text_secondary).child(format!("{msg} T1K will try again at the next check.")))
             .child(
                 row()
-                    .justify_end()
+                    .child(report_link(ws, &v, msg, cx))
+                    .child(div().flex_1())
                     .child(button(ws, "upd-retry", "Try again", false).on_click(cx.listener(|this, _, window, cx| this.check_for_updates(window, cx))))
                     .child(close("Close", true)),
             ),
@@ -328,6 +329,25 @@ pub fn dialog(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         }
     };
     body.into_any_element()
+}
+
+/// "Report this…" on a failed update: a bug report that names the version and the reason.
+fn report_link(ws: &Workspace, version: &str, reason: &str, cx: &Context<Workspace>) -> impl IntoElement {
+    let ui = ws.ui;
+    let title = if version.is_empty() { format!("Update failed: {reason}") } else { format!("Update to {version} failed: {reason}") };
+    let prefill = crate::bug_report::Prefill { title, source: "updater".into(), error: reason.to_string() };
+    div()
+        .id("upd-report")
+        .text_size(px(12.))
+        .text_color(ui.accent)
+        .cursor_pointer()
+        .hover(|d| d.underline())
+        .on_click(cx.listener(move |this, _, window, cx| {
+            // Leaving the dialog this way still counts as having seen the error.
+            updater::acknowledge();
+            this.open_report_bug(Some(prefill.clone()), window, cx)
+        }))
+        .child("Report this…")
 }
 
 /// ⌘Q with an update waiting.

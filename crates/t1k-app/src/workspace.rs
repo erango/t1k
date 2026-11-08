@@ -811,6 +811,10 @@ impl Workspace {
                     this.open_match(window, cx);
                     None
                 }
+                "bug" | "bug-open" | "bug-long" => {
+                    crate::bug_report::debug_open(&mut this, &which, window, cx);
+                    None
+                }
                 s if s == "setup" || s.starts_with("setup-") => crate::setup::debug_overlay(&mut this, s, cx),
                 "waiting" => {
                     // A Claude session "still open in iTerm2" (this process stands in for it).
@@ -2461,6 +2465,7 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &GoBack, window, cx| this.navigate(true, window, cx)))
             .on_action(cx.listener(|this, _: &ShowAbout, window, cx| this.open_overlay(Overlay::About, window, cx)))
             .on_action(cx.listener(|this, _: &CheckForUpdates, window, cx| this.check_for_updates(window, cx)))
+            .on_action(cx.listener(|this, _: &ReportBug, window, cx| this.open_report_bug(None, window, cx)))
             .on_action(cx.listener(|this, _: &ShowUpdate, window, cx| this.open_update(window, cx)))
             .on_action(cx.listener(|this, _: &ToggleCommandPalette, window, cx| {
                 if this.setup_intercept(crate::setup::Try::Palette, window, cx) {
