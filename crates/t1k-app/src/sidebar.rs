@@ -617,8 +617,12 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         div().flex_none().text_size(px(11. * k)).text_color(ui.text_tertiary).child("◷")
     });
 
-    // ⌥ swaps the title for the status line in place, so nothing moves.
-    let alt = ws.alt_held;
+    // ⌥ shows what the row isn't already showing, in place, so nothing moves: on one-line rows
+    // the title swaps for the status line; on two-line rows the title stays and the second line
+    // swaps (status for the facts, or branch/folder for the status).
+    let two_lines = ws.config.sidebar.second_line != "none";
+    let alt = ws.alt_held && !two_lines;
+    let alt_second = ws.alt_held && two_lines;
     let title = div()
         .flex_1()
         .min_w_0()
@@ -633,8 +637,11 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         && matches!(ws.overlay, crate::overlay::Overlay::None);
     // Optional always-on second line: every row gets it, so heights stay equal and nothing moves.
     let icons = ws.config.sidebar.app_icons;
-    let second = tab.second_line(&ws.config.sidebar.second_line);
-    let two_lines = ws.config.sidebar.second_line != "none";
+    let second = if alt_second {
+        Some(if ws.config.sidebar.second_line == "status" { facts(ws, tab) } else { tab.subtitle() })
+    } else {
+        tab.second_line(&ws.config.sidebar.second_line)
+    };
     let height = if two_lines { ws.config.interface.two_line_height() } else { ws.config.interface.row_height() } * k.max(1.);
     let icon_size = ws.config.interface.icon_size(two_lines);
     let hover_id = tab.id.clone();
@@ -1152,6 +1159,34 @@ fn ago(unix: u64) -> String {
         3600..=86399 => format!("{}h", s / 3600),
         _ => format!("{}d", s / 86400),
     }
+}
+
+/// The facts line for ⌥ on two-line rows: branch, the latest PR and its checks, how full the
+/// context is, and how long it's been in its state. Missing pieces are skipped.
+fn facts(ws: &Workspace, tab: &crate::workspace::Tab) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    match tab.branch() {
+        Some(b) => parts.push(format!("⎇ {b}")),
+        None => parts.extend(tab.cwd.as_deref().map(crate::groups::tilde)),
+    }
+    if let Some(a) = &tab.agent {
+        if let Some((n, url)) = a.prs.last() {
+            let checks = match ws.panel.prs.get(url).cloned().flatten().map(|i| i.checks) {
+                Some((_, bad, _)) if bad > 0 => " ✗",
+                Some((_, _, wait)) if wait > 0 => " ●",
+                Some((ok, _, _)) if ok > 0 => " ✓",
+                _ => "",
+            };
+            parts.push(format!("#{n}{checks}"));
+        }
+        if let Some(p) = a.context_percent() {
+            parts.push(format!("{p}% context"));
+        }
+        if a.status != t1k_agent::Status::Ended {
+            parts.push(elapsed(a.since));
+        }
+    }
+    parts.join(" · ")
 }
 
 fn elapsed(since: Instant) -> String {
