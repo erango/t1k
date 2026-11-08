@@ -719,6 +719,7 @@ impl Workspace {
                 "settings-interface" => Some(Overlay::Settings { section: crate::settings::Section::Interface }),
                 "settings-terminal" => Some(Overlay::Settings { section: crate::settings::Section::Terminal }),
                 "settings-advanced" => Some(Overlay::Settings { section: crate::settings::Section::Advanced }),
+                "settings-tabs" => Some(Overlay::Settings { section: crate::settings::Section::Tabs }),
                 "update" => {
                     crate::updater::check_now();
                     Some(Overlay::Update)
@@ -1021,10 +1022,8 @@ impl Workspace {
         if ix >= self.tabs.len() {
             return;
         }
-        // Move focus to the neighbor in visual order, not in creation order.
-        let order = self.visual_order();
-        let pos = order.iter().position(|&i| i == ix).unwrap_or(0);
-        let next = order.get(pos + 1).or_else(|| pos.checked_sub(1).and_then(|p| order.get(p))).copied();
+        // Closing a tab you're not on keeps you where you are.
+        let next = if ix == self.active { self.after_close_target(ix) } else { Some(self.active) };
         self.remember_session(ix);
         self.tabs.remove(ix);
         if self.tabs.is_empty() {
@@ -1034,6 +1033,56 @@ impl Workspace {
         }
         let next = next.map(|n| if n > ix { n - 1 } else { n }).unwrap_or(0);
         self.activate(next.min(self.tabs.len() - 1), window, cx);
+        self.save();
+    }
+
+    /// Where to land after closing tab `ix` ([tabs] after_close, close_stays_in_group): the
+    /// neighbor in sidebar order, in the chosen direction first; with "stay in the group", the
+    /// nearest tab left in its group, if any.
+    fn after_close_target(&self, ix: usize) -> Option<usize> {
+        let order = self.visual_order();
+        let pos = order.iter().position(|&i| i == ix)?;
+        let above_first = self.config.tabs.after_close == "above";
+        // Every other tab, nearest first, the preferred direction winning ties.
+        let mut near: Vec<(usize, usize)> = order
+            .iter()
+            .enumerate()
+            .filter(|&(p, _)| p != pos)
+            .map(|(p, &i)| {
+                let dist = p.abs_diff(pos) * 2;
+                let away = (p < pos) != above_first; // the other direction ranks second at equal distance
+                (dist + away as usize, i)
+            })
+            .collect();
+        near.sort();
+        let group = &self.tabs[ix].group;
+        if self.config.tabs.close_stays_in_group {
+            if let Some(&(_, i)) = near.iter().find(|(_, i)| &self.tabs[*i].group == group) {
+                return Some(i);
+            }
+        }
+        near.first().map(|&(_, i)| i)
+    }
+
+    /// Put the tab just opened at `new` where [tabs] new_tab says, next to `anchor` (the tab you
+    /// were on) when both are in the same group. Groups order tabs by `created`.
+    pub fn place_new_tab(&mut self, new: usize, anchor: Option<usize>) {
+        let Some(a) = anchor.filter(|&a| a != new && a < self.tabs.len() && new < self.tabs.len()) else { return };
+        if self.tabs[a].group != self.tabs[new].group {
+            return;
+        }
+        let c = self.tabs[a].created;
+        let (shift_from, at) = match self.config.tabs.new_tab.as_str() {
+            "after" => (c + 1, c + 1),
+            "before" => (c, c),
+            _ => return,
+        };
+        for (i, t) in self.tabs.iter_mut().enumerate() {
+            if i != new && t.created >= shift_from {
+                t.created += 1;
+            }
+        }
+        self.tabs[new].created = at;
         self.save();
     }
 
@@ -1951,10 +2000,12 @@ impl Workspace {
     fn new_tab(&mut self, _: &NewTab, window: &mut Window, cx: &mut Context<Self>) {
         let custom = self.tabs.get(self.active).map(|t| t.group.clone()).filter(|g| groups::is_custom(g));
         let cwd = self.tabs.get(self.active).and_then(|t| t.view.read(cx).terminal.cwd());
+        let anchor = (!self.tabs.is_empty()).then_some(self.active);
         self.open_tab(cwd, None, window, cx);
         if let Some(g) = custom {
             self.move_tab(self.active, Some(g), cx);
         }
+        self.place_new_tab(self.active, anchor);
     }
 
     fn close_tab(&mut self, _: &CloseTab, window: &mut Window, cx: &mut Context<Self>) {

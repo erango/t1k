@@ -74,6 +74,15 @@ peek_ms = 400
 # "auto" (blue, magenta or cyan by name; neighbors differ) or "manual" (only colors you pick).
 group_colors = "auto"
 
+[tabs]
+# Where ⌘T and + put a new tab in its group: "after" the current tab, "before" it, or at the
+# "end" of the group. (A group sorted by attention still lifts tabs that need you to the top.)
+new_tab = "end"
+# Which tab you land on after closing one: the one "below" it, or "above" it in the sidebar.
+after_close = "below"
+# Stay in the closed tab's group while it has tabs left (else the nearest tab in any group).
+close_stays_in_group = false
+
 [links]
 # ⌘-click a file path to open it. Empty picks the first of Zed, Cursor, VS Code, else the
 # default app. Otherwise a command, with {path}, {line} and {col}: "code -g {path}:{line}:{col}".
@@ -137,6 +146,7 @@ pub struct Config {
     pub terminal: TerminalCfg,
     pub interface: InterfaceCfg,
     pub sidebar: SidebarCfg,
+    pub tabs: TabsCfg,
     pub links: LinksCfg,
     pub notify: NotifyCfg,
     pub updates: UpdatesCfg,
@@ -328,6 +338,7 @@ impl Default for Config {
             terminal: TerminalCfg::default(),
             interface: InterfaceCfg::default(),
             sidebar: SidebarCfg::default(),
+            tabs: TabsCfg::default(),
             links: LinksCfg::default(),
             notify: NotifyCfg::default(),
             updates: UpdatesCfg::default(),
@@ -359,6 +370,22 @@ impl Default for FontCfg {
         }
     }
 }
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[serde(default)]
+pub struct TabsCfg {
+    /// "after", "before" or "end".
+    pub new_tab: String,
+    /// "below" or "above".
+    pub after_close: String,
+    pub close_stays_in_group: bool,
+}
+
+impl Default for TabsCfg {
+    fn default() -> Self {
+        Self { new_tab: "end".into(), after_close: "below".into(), close_stays_in_group: false }
+    }
+}
+
 impl Default for SidebarCfg {
     fn default() -> Self {
         Self {

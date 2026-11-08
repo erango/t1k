@@ -202,7 +202,9 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                     ghost("new-tab", ui)
                         .on_click(cx.listener(|this, _, window, cx| {
                             let cwd = this.tabs.get(this.active).and_then(|t| t.cwd.clone());
+                            let anchor = (!this.tabs.is_empty()).then_some(this.active);
                             this.open_tab(cwd, None, window, cx);
+                            this.place_new_tab(this.active, anchor);
                         }))
                         .tooltip(crate::tooltip::text(ui, "New tab  ⌘T"))
                         .child(crate::icons::plus_at(ui.text_secondary, 16.)),
@@ -458,7 +460,9 @@ fn group_header(ws: &Workspace, key: &std::path::Path, tabs: &[usize], sticky: b
                         .on_click(cx.listener(move |this, _, window, cx| {
                             cx.stop_propagation();
                             let cwd = k1.is_dir().then(|| k1.clone());
+                            let anchor = (!this.tabs.is_empty()).then_some(this.active);
                             this.open_tab(cwd, None, window, cx);
+                            this.place_new_tab(this.active, anchor);
                         }))
                         .tooltip(crate::tooltip::text(ui, "New tab in this project"))
                         .child(crate::icons::plus(ui.text_secondary)),
