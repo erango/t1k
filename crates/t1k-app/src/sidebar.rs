@@ -119,8 +119,9 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                             }
                             cx.notify();
                         }))
-                        .child(format!("Recent {}", recent.len()))
-                        .child(div().text_color(ui.text_disabled).child(if open { "⌄" } else { "›" })),
+                        .child(format!("Recently closed {}", recent.len()))
+                        // The drawn caret (as on group headers): text glyphs sit off the line.
+                        .child(crate::icons::caret(ui.text_disabled, open)),
                 );
                 if open {
                     for r in recent {
