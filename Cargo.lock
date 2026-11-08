@@ -6138,6 +6138,7 @@ dependencies = [
  "sentry",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "t1k-agent",
  "t1k-terminal",
  "t1k-themes",

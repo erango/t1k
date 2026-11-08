@@ -6,6 +6,8 @@ mod import_ui;
 mod match_term;
 mod drop;
 mod match_ui;
+mod fonts;
+mod fonts_ui;
 mod agent_setup;
 mod app_icon;
 mod brand;

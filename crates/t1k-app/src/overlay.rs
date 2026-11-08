@@ -214,6 +214,7 @@ impl Workspace {
         self.key_recording = None;
         self.settings_return = None;
         self.settings_query.clear();
+        self.fonts.close();
         if let Some(t) = self.tabs.get(self.active) {
             let h = gpui::Focusable::focus_handle(t.view.read(cx), cx);
             window.focus(&h);
@@ -382,6 +383,18 @@ impl Workspace {
             Overlay::QuitUpdate => (ev.keystroke.key != "escape").then_some(Overlay::QuitUpdate),
             Overlay::QuitRunning { expanded, selected } => self.quit_key(expanded, selected, ev, window, cx),
             Overlay::ThemePicker { query, selected, dark } => self.theme_picker_key(query, selected, dark, ev, window, cx),
+            // The open font picker takes the typing for its own search; Esc clears that, then
+            // closes the picker.
+            Overlay::Settings { section } if self.fonts.open => {
+                if let Key::Cancel = input::handle(&mut self.fonts.query, ev) {
+                    if self.fonts.query.is_empty() {
+                        self.fonts.close();
+                    } else {
+                        self.fonts.query.clear();
+                    }
+                }
+                Some(Overlay::Settings { section })
+            }
             // Typing searches; Esc clears the search, then closes.
             Overlay::Settings { section } => match input::handle(&mut self.settings_query, ev) {
                 Key::Cancel if !self.settings_query.is_empty() => {

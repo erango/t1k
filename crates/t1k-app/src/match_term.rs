@@ -341,6 +341,9 @@ pub struct Item {
     /// None when the other terminal's value can't be used.
     pub to: Option<String>,
     pub reason: Option<String>,
+    /// The font isn't installed but T1K can get it: the catalog entry, and whether it's the
+    /// Nerd Font build.
+    pub download: Option<(&'static crate::fonts::Font, bool)>,
 }
 
 impl Item {
@@ -383,33 +386,40 @@ pub fn plan(f: &Found, cur: &Current, fonts: &[String]) -> Vec<Item> {
     // Font.
     let now = cur.font.clone();
     out.push(match &f.font {
-        None => Item { kind: Kind::Font, to: None, reason: Some(unread(now.clone())), now },
+        None => Item { download: None, kind: Kind::Font, to: None, reason: Some(unread(now.clone())), now },
         Some(name) => match installed_family(name, fonts) {
-            Some(fam) if fam == cur.font => Item { kind: Kind::Font, to: Some(fam), reason: Some("Already the same.".into()), now },
-            Some(fam) => Item { kind: Kind::Font, to: Some(fam), reason: None, now },
-            None => Item { kind: Kind::Font, to: Some(name.clone()), reason: Some(format!("{name} isn't installed on this Mac. Keeping {now}.")), now },
+            Some(fam) if fam == cur.font => Item { download: None, kind: Kind::Font, to: Some(fam), reason: Some("Already the same.".into()), now },
+            Some(fam) => Item { download: None, kind: Kind::Font, to: Some(fam), reason: None, now },
+            // One T1K can download: say so, and the sheet offers to install it.
+            None => match crate::fonts::find(name) {
+                Some((font, icons)) => {
+                    let fam = font.asset(icons).family.to_string();
+                    Item { download: Some((font, icons)), kind: Kind::Font, reason: Some(format!("{fam} isn't installed on this Mac.")), to: Some(fam), now }
+                }
+                None => Item { download: None, kind: Kind::Font, to: Some(name.clone()), reason: Some(format!("{name} isn't installed on this Mac. Keeping {now}.")), now },
+            },
         },
     });
     let same = |a: f32, b: f32| (a - b).abs() < 0.01;
     // Size.
     let now = num(cur.size);
     out.push(match f.size {
-        None => Item { kind: Kind::Size, to: None, reason: Some(unread(now.clone())), now },
-        Some(s) => Item { kind: Kind::Size, to: Some(num(s)), reason: same(s, cur.size).then(|| "Already the same.".into()), now },
+        None => Item { download: None, kind: Kind::Size, to: None, reason: Some(unread(now.clone())), now },
+        Some(s) => Item { download: None, kind: Kind::Size, to: Some(num(s)), reason: same(s, cur.size).then(|| "Already the same.".into()), now },
     });
     // Line height.
     let now = num(cur.line_height);
     out.push(match f.line_height {
-        None => Item { kind: Kind::LineHeight, to: None, reason: Some(unread(now.clone())), now },
-        Some(l) => Item { kind: Kind::LineHeight, to: Some(num(l)), reason: same(l, cur.line_height).then(|| "Already the same.".into()), now },
+        None => Item { download: None, kind: Kind::LineHeight, to: None, reason: Some(unread(now.clone())), now },
+        Some(l) => Item { download: None, kind: Kind::LineHeight, to: Some(num(l)), reason: same(l, cur.line_height).then(|| "Already the same.".into()), now },
     });
     // Colors.
     let now = cur.theme.clone();
     out.push(match &f.theme {
-        None => Item { kind: Kind::Theme, to: None, reason: Some(unread(now.clone())), now },
-        Some(ThemeSrc::Builtin(n)) => Item { kind: Kind::Theme, to: Some(n.clone()), reason: (n == &cur.theme).then(|| "Already the same.".into()), now },
-        Some(ThemeSrc::Colors { name, .. }) => Item { kind: Kind::Theme, to: Some(name.clone()), reason: (name == &cur.theme).then(|| "Already the same.".into()), now },
-        Some(ThemeSrc::Unknown(n)) => Item { kind: Kind::Theme, to: Some(n.clone()), reason: Some(format!("No matching T1K theme. Keeping {now}.")), now },
+        None => Item { download: None, kind: Kind::Theme, to: None, reason: Some(unread(now.clone())), now },
+        Some(ThemeSrc::Builtin(n)) => Item { download: None, kind: Kind::Theme, to: Some(n.clone()), reason: (n == &cur.theme).then(|| "Already the same.".into()), now },
+        Some(ThemeSrc::Colors { name, .. }) => Item { download: None, kind: Kind::Theme, to: Some(name.clone()), reason: (name == &cur.theme).then(|| "Already the same.".into()), now },
+        Some(ThemeSrc::Unknown(n)) => Item { download: None, kind: Kind::Theme, to: Some(n.clone()), reason: Some(format!("No matching T1K theme. Keeping {now}.")), now },
     });
     out
 }
@@ -455,5 +465,15 @@ mod tests {
         assert!(p[1].applies() && p[1].to.as_deref() == Some("11"));
         assert!(p[2].applies() && p[2].to.as_deref() == Some("1.5"));
         assert!(!p[3].applies());
+        // Hack is in "Get more fonts", so the row offers the download.
+        assert_eq!(p[0].download.map(|(f, icons)| (f.id, icons)), Some(("hack", false)));
+        assert_eq!(p[0].reason.as_deref(), Some("Hack isn't installed on this Mac."));
+        // Once it's installed, it's an ordinary change.
+        let p = plan(&f, &cur, &["JetBrains Mono".to_string(), "Hack".to_string()]);
+        assert!(p[0].applies() && p[0].download.is_none() && p[0].to.as_deref() == Some("Hack"));
+        // A font T1K can't get keeps the old wording.
+        let f = Found { font: Some("Comic Code".into()), ..f };
+        let p = plan(&f, &cur, &["JetBrains Mono".to_string()]);
+        assert!(p[0].download.is_none() && p[0].reason.as_deref().unwrap().contains("Keeping JetBrains Mono"));
     }
 }

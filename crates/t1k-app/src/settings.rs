@@ -382,16 +382,7 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
             }
         }))
         .into_any_element();
-    let mut fonts = div().flex().flex_wrap().justify_end().max_w(px(420.)).gap(px(6.));
-    for f in monospace_fonts(window) {
-        let on = f == c.terminal.font.family;
-        let name = f.clone();
-        fonts = fonts.child(
-            pill(ui, format!("font-{f}"), f.clone(), on)
-                .font_family(SharedString::from(f.clone()))
-                .on_click(cx.listener(move |_, _, _, _| set(&["terminal", "font", "family"], name.as_str()))),
-        );
-    }
+    let fonts = crate::fonts_ui::family_control(ws, window, cx);
     let text = |v: &str| div().max_w(px(260.)).truncate().text_size(px(12.)).font_family("JetBrains Mono").text_color(ui.text_secondary).child(if v.is_empty() { "auto".to_string() } else { v.to_string() }).into_any_element();
     use Section::*;
     let mut out = vec![
@@ -427,7 +418,7 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
             text(&c.links.editor)),
         e(Tabs, "Links", "Ticket links", "Where keys like ENG-42 open; empty learns it from sessions", "links.tickets", "jira linear tracker",
             text(&c.links.tickets)),
-        e(Terminal, "Font", "Family", "", "terminal.font.family", "font typeface monospace", fonts.into_any_element()),
+        e(Terminal, "Font", "Family", "Any monospace font on this Mac, or get one", "terminal.font.family", "font typeface monospace install download get more nerd icons", fonts),
         e(Terminal, "Font", "Size", "⌘+ / ⌘− / ⌘0", "terminal.font.size", "font size zoom",
             stepper(ui, "size", c.terminal.font.size as f64, 1., (8., 32.), &["terminal", "font", "size"], |v| format!("{v:.0} px"), cx).into_any_element()),
         e(Terminal, "Font", "Line height", "", "terminal.font.line_height", "spacing",
@@ -682,7 +673,8 @@ type Cached<T> = std::cell::RefCell<Option<(std::time::Instant, T)>>;
 
 thread_local! {
     static AGENTS: Cached<Vec<(bool, bool)>> = const { std::cell::RefCell::new(None) };
-    static FONTS: Cached<Vec<String>> = const { std::cell::RefCell::new(None) };
+    /// Every installed family, and the monospaced ones.
+    static FONTS: Cached<(Vec<String>, Vec<String>)> = const { std::cell::RefCell::new(None) };
 }
 
 /// (found on this Mac, hooks installed) for an agent, re-read at most every 3 s.
@@ -702,33 +694,42 @@ fn forget_agent_status() {
     AGENTS.with(|c| *c.borrow_mut() = None);
 }
 
-fn monospace_fonts(window: &Window) -> Vec<String> {
+/// (every installed family, the monospaced ones), re-read at most every 30 s or after a font
+/// install.
+pub fn font_lists(window: &Window) -> (Vec<String>, Vec<String>) {
     FONTS.with(|c| {
         let mut c = c.borrow_mut();
         if c.as_ref().is_none_or(|(at, _)| at.elapsed().as_secs() >= 30) {
-            *c = Some((std::time::Instant::now(), list_monospace_fonts(window)));
+            let mut all = window.text_system().all_font_names();
+            all.sort();
+            all.dedup();
+            let mono = monospace(&all);
+            *c = Some((std::time::Instant::now(), (all, mono)));
         }
         c.as_ref().map(|(_, v)| v.clone()).unwrap_or_default()
     })
 }
 
-/// Installed font families that look monospaced (by name), with the configured one first.
-fn list_monospace_fonts(window: &Window) -> Vec<String> {
-    const HINTS: [&str; 12] =
-        ["mono", "menlo", "monaco", "courier", "code", "consolas", "iosevka", "hack", "fira", "meslo", "jetbrains", "sf mono"];
-    let mut names: Vec<String> = window
-        .text_system()
-        .all_font_names()
-        .into_iter()
+pub fn forget_fonts() {
+    FONTS.with(|c| *c.borrow_mut() = None);
+}
+
+/// Installed font families that look monospaced (by name).
+fn monospace(all: &[String]) -> Vec<String> {
+    const HINTS: [&str; 16] = [
+        "mono", "menlo", "monaco", "courier", "code", "consolas", "iosevka", "hack", "fira", "meslo", "jetbrains", "sf mono", "monaspace",
+        "monaspice", "caskaydia", "cascadia",
+    ];
+    let mut names: Vec<String> = all
+        .iter()
         .filter(|n| !n.starts_with('.'))
         .filter(|n| {
             let l = n.to_lowercase();
             HINTS.iter().any(|h| l.contains(h)) && !l.contains("symbols") && !l.contains("nerd font propo")
         })
+        .cloned()
         .collect();
-    names.sort();
-    names.dedup();
-    names.truncate(40);
+    names.truncate(60);
     names
 }
 
@@ -817,6 +818,7 @@ fn render_inner(ws: &Workspace, section: Section, window: &mut Window, cx: &mut 
                 .hover(move |d| d.bg(ui.bg_hover))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.settings_query.clear();
+                    this.fonts.close();
                     this.overlay = Overlay::Settings { section: s };
                     cx.notify();
                 }))
