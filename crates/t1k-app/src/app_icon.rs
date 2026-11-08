@@ -72,6 +72,38 @@ fn find_app(name: &str) -> Option<PathBuf> {
         .find(|p| p.is_dir())
 }
 
+/// The window's backing scale (1 on a regular external display, 2 on Retina), set each frame,
+/// so icons are rasterized for the pixels they land on.
+pub static SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(2);
+
+/// The app icon at exactly `px` pixels. The base PNG is 1024 px; GPUI scales images with plain
+/// bilinear filtering, which turns a 1024 → 27 px reduction jagged (most visible at 1×), so a
+/// size-specific copy is made once with sips (proper resampling) and cached next to it.
+fn sized_icon(base: &Path, px: u32) -> Option<PathBuf> {
+    let out = base.with_file_name(format!("{}-{px}.png", base.file_stem()?.to_string_lossy()));
+    if out.is_file() {
+        return Some(out);
+    }
+    // Made off the main thread; until it's there (a frame or two), the base image stands in.
+    static PENDING: Mutex<Option<std::collections::HashSet<PathBuf>>> = Mutex::new(None);
+    let mut pending = PENDING.lock().ok()?;
+    if pending.get_or_insert_with(Default::default).insert(out.clone()) {
+        let (base, tmp) = (base.to_path_buf(), out.with_extension("tmp.png"));
+        std::thread::spawn(move || {
+            let ok = std::process::Command::new("/usr/bin/sips")
+                .args(["-Z", &px.to_string(), &base.display().to_string(), "--out", &tmp.display().to_string()])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success());
+            if ok {
+                let _ = std::fs::rename(&tmp, &out);
+            }
+        });
+    }
+    None
+}
+
 /// Cached PNG of a program's Mac app icon, if it has one. Computed once per program.
 fn app_icon(program: &str) -> Option<PathBuf> {
     static CACHE: Mutex<Option<HashMap<String, Option<PathBuf>>>> = Mutex::new(None);
@@ -169,6 +201,8 @@ pub fn badge(tab: &Tab, ui: UiColors, size: f32) -> Div {
     // ~10% transparent margin; drawing them 1.22× and clipping to the tile removes it.
     if let Some(png) = app_icon(program) {
         let over = (size * 1.22).round();
+        let scale = SCALE.load(std::sync::atomic::Ordering::Relaxed).max(1);
+        let png = sized_icon(&png, (over * scale as f32).round() as u32).unwrap_or(png);
         let shift = -((over - size) / 2.);
         return base.relative().child(div().absolute().left(px(shift)).top(px(shift)).child(img(png).size(px(over))));
     }

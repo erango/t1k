@@ -2301,6 +2301,7 @@ impl Render for Workspace {
         window.set_window_title(&format!("{badge}{title} — T1K"));
         // Cached: sidebar spinners and other workspace repaints reuse the terminal's last frame
         // unless the terminal itself changed.
+        crate::app_icon::SCALE.store(window.scale_factor().round().max(1.) as u32, std::sync::atomic::Ordering::Relaxed);
         // A drag that left the window (or was cancelled) leaves no outline behind.
         if self.drop_hover.is_some() && !cx.has_active_drag() && std::env::var_os("T1K_DEBUG_DROP").is_none() {
             self.drop_hover = None;
