@@ -682,6 +682,8 @@ pub fn notice(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement>
                         .id("notice-undo")
                         .flex_none()
                         .flex()
+                        // Centered: the shortcut is smaller mono text and otherwise rides high.
+                        .items_center()
                         .gap(px(6.))
                         .text_color(ui.accent)
                         .font_weight(FontWeight::MEDIUM)
