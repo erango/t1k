@@ -323,10 +323,32 @@ impl Workspace {
 
     #[allow(clippy::too_many_arguments)]
     pub fn icon_picker_key(&mut self, key: IconFor, at: Point<Pixels>, mut query: String, mut selected: usize, cat: usize, ev: &KeyDownEvent, cx: &mut Context<Self>) -> Option<Overlay> {
-        if ev.keystroke.modifiers.platform && ev.keystroke.key == "backspace" {
-            self.set_icon(&key, None, cx);
-            return None;
+        // The search field edits like any text field: ⌘A selects it all (typing or ⌫ replaces
+        // it), ⌘V pastes, ⌘⌫ clears it. Removing the icon is the button's job.
+        let m = &ev.keystroke.modifiers;
+        if m.platform && ev.keystroke.key == "a" {
+            self.icon_query_all = !query.is_empty();
+            cx.notify();
+            return Some(Overlay::IconPicker { key, at, query, selected, cat });
         }
+        if m.platform && ev.keystroke.key == "v" {
+            if let Some(t) = cx.read_from_clipboard().and_then(|c| c.text()) {
+                if std::mem::take(&mut self.icon_query_all) {
+                    query.clear();
+                }
+                query.push_str(t.lines().next().unwrap_or_default());
+            }
+            return Some(Overlay::IconPicker { key, at, query, selected: 0, cat });
+        }
+        let editing = !matches!(ev.keystroke.key.as_str(), "left" | "right" | "up" | "down" | "enter" | "escape") && !m.platform || ev.keystroke.key == "backspace";
+        if editing && std::mem::take(&mut self.icon_query_all) {
+            // Replace the selection: a backspace just clears it, a character starts over.
+            query.clear();
+            if ev.keystroke.key == "backspace" {
+                return Some(Overlay::IconPicker { key, at, query, selected: 0, cat });
+            }
+        }
+        self.icon_query_all = false;
         let (sugg, grid) = items(self, &key, &query, cat);
         let n = sugg.len() + grid.len();
         // Arrows: ← → by one, ↑ ↓ by a row; the suggestions row counts as its own row.
@@ -425,7 +447,13 @@ pub fn render(ws: &Workspace, key: &IconFor, at: Point<Pixels>, query: &str, sel
             .child(if query.is_empty() {
                 div().flex().items_center().child(caret).child(div().ml(px(1.)).text_color(ui.text_tertiary).child("Search emoji"))
             } else {
-                div().flex().items_center().text_color(ui.text_primary).child(query.to_string()).child(caret)
+                let all = ws.icon_query_all;
+                div()
+                    .flex()
+                    .items_center()
+                    .text_color(ui.text_primary)
+                    .child(div().when(all, |d| d.bg(ui.accent.opacity(0.3)).rounded(px(2.))).child(query.to_string()))
+                    .when(!all, |d| d.child(caret))
             }),
     );
     if query.trim().is_empty() {
@@ -488,8 +516,7 @@ pub fn render(ws: &Workspace, key: &IconFor, at: Point<Pixels>, query: &str, sel
                     this.set_icon(&k, None, cx);
                     this.close_overlay(window, cx);
                 }))
-                .child(div().flex_1().child("Remove icon"))
-                .child(div().text_size(px(11.)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child("⌘⌫")),
+                .child(div().flex_1().child("Remove icon")),
         );
     }
     let vh = f32::from(window.viewport_size().height);

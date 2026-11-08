@@ -216,6 +216,8 @@ pub struct Workspace {
     pub match_hidden: bool,
     /// Files being dragged over a pane or a sidebar row.
     pub drop_hover: Option<crate::drop::DropHover>,
+    /// ⌘A in the emoji picker's search: the whole query is selected.
+    pub icon_query_all: bool,
     /// Tabs coming back after a quit (canvas v3-ab).
     pub restore: Option<crate::restore::Restore>,
     /// Automatic group hue (ANSI 4-6), by name, bumped so neighbors differ.
@@ -440,6 +442,7 @@ impl Workspace {
             match_undo: None,
             match_hidden: false,
             drop_hover: None,
+            icon_query_all: false,
             restore: None,
             auto_hues: HashMap::new(),
             hues_for: Vec::new(),
