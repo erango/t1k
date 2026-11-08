@@ -78,6 +78,11 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             group = group.child(div().absolute().left(px(LINE_X)).top(px(28.)).bottom_0().w(px(2.)).rounded(px(1.)).bg(c.opacity(a)));
         }
         group = group.child(group_header(ws, &key, &tabs, false, cx));
+        // A folded group still shows the tab you're on (say, picked from ⌘P), on its own under
+        // the header: the selected tab is never hidden, and the group stays folded.
+        if folded && has_active {
+            group = group.child(row(ws, ws.active, cx));
+        }
         if !folded {
             // Mixed groups fold their quiet tabs into one "+N quiet" row.
             let quiet: Vec<usize> = tabs.iter().copied().filter(|&i| ws.is_quiet(i)).collect();

@@ -1038,7 +1038,22 @@ impl Workspace {
         }
         let handle = self.tabs[ix].view.read(cx).focus_handle(cx);
         window.focus(&handle);
+        self.reveal_in_sidebar(ix);
         cx.notify();
+    }
+
+    /// Arriving at a tab whose group is scrolled out of the sidebar (⌘P, back/forward, ⌘J):
+    /// bring the group into view. A group that's partly visible is left alone, so clicking a row
+    /// never jumps the list.
+    fn reveal_in_sidebar(&self, ix: usize) {
+        let Some(gi) = self.grouped().iter().position(|(g, _)| *g == self.tabs[ix].group) else { return };
+        let sh = &self.sidebar_scroll;
+        let (Some(b), view) = (sh.bounds_for_item(gi), sh.bounds()) else { return };
+        let off = sh.offset().y;
+        let (top, bottom) = (b.top() + off, b.bottom() + off);
+        if bottom <= view.top() || top >= view.bottom() {
+            sh.scroll_to_item(gi);
+        }
     }
 
     /// ⌘[ (`back`) / ⌘]: return to the previously visited tab, skipping closed ones.
