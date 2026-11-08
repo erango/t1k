@@ -286,6 +286,17 @@ fn font_note(ws: &Workspace, it: &Item, cx: &mut Context<Workspace>) -> Option<A
     done.then(|| text(format!("Installed just now from {}", font.repo), ui.text_tertiary).into_any_element())
 }
 
+/// The offer's question: about the font when that's part of it, else the settings in general.
+/// Plain, and about what you're used to, not about copying the other app.
+fn offer_title(app: &str, items: &[Item]) -> String {
+    let font = items.iter().any(|i| i.kind == Kind::Font && (i.applies() || i.download.is_some()));
+    if font {
+        format!("Same font as in {app}?")
+    } else {
+        format!("Same settings as in {app}?")
+    }
+}
+
 /// The welcome card's section, when another terminal's look differs from T1K's.
 pub fn welcome_section(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement> {
     let ui = ws.ui;
@@ -320,7 +331,7 @@ pub fn welcome_section(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<An
                     .flex()
                     .flex_col()
                     .gap(px(6.))
-                    .child(div().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).child(format!("Look like {app}?")))
+                    .child(div().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).child(offer_title(app, &items)))
                     .child(div().text_size(px(12.)).line_height(px(17.)).text_color(ui.text_secondary).child(summary(f, &items)))
                     .child(
                         div()
@@ -341,7 +352,7 @@ pub fn welcome_section(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<An
     )
 }
 
-/// The launch offer for people past the welcome card: "Make T1K look like Warp?", once, at the
+/// The launch offer for people past the welcome card ("Same font as in Warp?"), once, at the
 /// bottom of the sidebar like the tab offer (and after it, never both at once).
 pub fn offer(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement> {
     let ui = ws.ui;
@@ -373,7 +384,7 @@ pub fn offer(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement> 
             .flex()
             .flex_col()
             .gap(px(8.))
-            .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(ui.text_primary).child(format!("Make T1K look like {app}?")))
+            .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(ui.text_primary).child(offer_title(app, &items)))
             .child(div().text_size(px(12.)).line_height(px(17.)).text_color(ui.text_tertiary).child(summary(f, &items)))
             .child(
                 div()
