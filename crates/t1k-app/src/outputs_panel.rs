@@ -382,7 +382,8 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                                 .child(div().text_size(px(13. * k)).font_family("JetBrains Mono").font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).child(o.label.clone()))
                                 .child(
                                     // GitHub's solid state pill, white on the state color, in every theme.
-                                    div().px(px(7.)).h(px(18.)).flex().items_center().rounded(px(9.)).bg(state_color).text_size(px(10.5)).font_weight(FontWeight::SEMIBOLD).text_color(gpui::white()).child(state),
+                                    // The line box matches the pill (an inherited taller line height sat the text low).
+                                    div().px(px(7.)).h(px(18.)).flex().items_center().rounded(px(9.)).bg(state_color).text_size(px(10.5)).line_height(px(18.)).font_weight(FontWeight::SEMIBOLD).text_color(gpui::white()).child(state),
                                 )
                                 .child(div().flex_1())
                                 .child(hover_buttons),

@@ -597,7 +597,7 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                                 .child(div().truncate().text_size(px(12.)).text_color(sub_color).child(t.subtitle())),
                         )
                         .children(tag.map(|f| {
-                            div().flex_none().px(px(6.)).h(px(18.)).flex().items_center().rounded(px(4.)).border_1().border_color(ui.border).text_size(px(10.5)).text_color(ui.text_tertiary).child(f)
+                            div().flex_none().px(px(6.)).h(px(18.)).flex().items_center().rounded(px(4.)).border_1().border_color(ui.border).text_size(px(10.5)).line_height(px(16.)).text_color(ui.text_tertiary).child(f)
                         }))
                         .child(div().w(px(44.)).flex_none().flex().justify_end().text_size(px(11.)).font_family("JetBrains Mono").text_color(ui.text_tertiary).children(age))
                         .into_any_element(),
