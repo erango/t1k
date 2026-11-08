@@ -912,7 +912,10 @@ impl TerminalView {
         let (metrics, eligible) = {
             let term = self.terminal.term.lock();
             let grid = term.grid();
-            let m = Metrics { history: grid.history_size(), rows: term.screen_lines(), offset: grid.display_offset() };
+            // Rows that bottom gravity hides aren't content: leave them out, so the thumb sits
+            // where the view is (and at the bottom when the view is).
+            let (hidden, shift) = if self.terminal.bottom_gravity { (crate::terminal::gravity_hidden(&term), crate::terminal::gravity_shift(&term)) } else { (0, 0) };
+            let m = Metrics { history: grid.history_size() - hidden, rows: term.screen_lines(), offset: (grid.display_offset() + shift).saturating_sub(hidden) };
             (m, !term.mode().contains(TermMode::ALT_SCREEN) && m.history > 0)
         };
         let finding = self.search.as_ref().is_some_and(|f| !f.matches.is_empty());
@@ -1335,6 +1338,16 @@ fn build_frame(view: &TerminalView, focused: bool) -> Frame {
     let mut term = view.terminal.term.lock();
     // Bottom gravity: draw as if scrolled up past blank rows under the cursor (reverted below,
     // under the same lock, so the terminal's real scroll position never changes).
+    // Scrolled back, the shift already shows the hidden rows' worth of extra history, so the
+    // last steps up to the very top would move nothing: stop there instead.
+    if view.terminal.bottom_gravity {
+        use alacritty_terminal::grid::Dimensions;
+        let top = term.grid().history_size() - crate::terminal::gravity_hidden(&term);
+        let over = term.grid().display_offset().saturating_sub(top);
+        if over > 0 {
+            term.scroll_display(alacritty_terminal::grid::Scroll::Delta(-(over as i32)));
+        }
+    }
     let shift = if view.terminal.bottom_gravity { crate::terminal::gravity_shift(&term) } else { 0 };
     if shift > 0 {
         term.scroll_display(alacritty_terminal::grid::Scroll::Delta(shift as i32));
@@ -2128,7 +2141,7 @@ mod prompt_tests {
     /// shown; it used to jump to the blank rows first.
     #[test]
     fn gravity_shift_carries_into_scrollback() {
-        use alacritty_terminal::grid::Scroll;
+        use alacritty_terminal::grid::{Dimensions, Scroll};
         let mut term = Term::new(Config::default(), &TermSize::new(20, 10), VoidListener);
         let mut parser: Processor = Processor::new();
         let text = (0..100).map(|i| format!("line {i}\r\n")).collect::<String>();
@@ -2143,5 +2156,12 @@ mod prompt_tests {
             term.scroll_display(Scroll::Delta(1));
             assert_eq!(shown(&term), at_bottom + step);
         }
+        // The top of history is reached 5 steps early, with the whole shift still applied.
+        let hidden = crate::terminal::gravity_hidden(&term);
+        assert_eq!(hidden, 5);
+        term.scroll_display(Scroll::Top);
+        let top = term.grid().history_size() - hidden;
+        term.scroll_display(Scroll::Delta(top as i32 - term.grid().display_offset() as i32));
+        assert_eq!(shown(&term), term.grid().history_size());
     }
 }

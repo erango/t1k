@@ -84,6 +84,13 @@ pub struct Terminal {
 /// blank rows.
 pub fn gravity_shift<T: EventListener>(term: &Term<T>) -> usize {
     use alacritty_terminal::grid::Dimensions;
+    gravity_hidden(term).min(term.grid().history_size().saturating_sub(term.grid().display_offset()))
+}
+
+/// The blank rows under the cursor that gravity hides at the bottom (at most the history), so
+/// the scrollbar can leave them out.
+pub fn gravity_hidden<T: EventListener>(term: &Term<T>) -> usize {
+    use alacritty_terminal::grid::Dimensions;
     use alacritty_terminal::index::{Column, Line};
     if term.mode().contains(TermMode::ALT_SCREEN) {
         return 0;
@@ -105,7 +112,7 @@ pub fn gravity_shift<T: EventListener>(term: &Term<T>) -> usize {
     if blank * 2 > term.screen_lines() {
         return 0;
     }
-    blank.min(grid.history_size().saturating_sub(grid.display_offset()))
+    blank.min(grid.history_size())
 }
 
 /// The user's shell as a login session, without the "Last login" banner.
