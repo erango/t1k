@@ -91,8 +91,10 @@ impl Palette {
 }
 
 /// Faint text: blend 40% toward the background, so it fades on dark and light themes alike.
+/// Faint (SGR 2) text: 70% of the way from the background to the color. Agents print a lot
+/// of it (hints, timings, collapsed output), so it has to stay readable.
 pub fn dim(c: Rgb, bg: Rgb) -> Rgb {
-    let m = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * 0.4).round() as u8;
+    let m = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * 0.3).round() as u8;
     Rgb { r: m(c.r, bg.r), g: m(c.g, bg.g), b: m(c.b, bg.b) }
 }
 
