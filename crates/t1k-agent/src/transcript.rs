@@ -94,6 +94,11 @@ fn output_text(v: &Value, out: &mut String) {
     if !matches!(kind, Some("assistant") | Some("user")) {
         return;
     }
+    // Text Claude Code injects (a skill's instructions, command output) isn't the session's
+    // work, and skill docs are full of example links.
+    if v.get("isMeta").and_then(Value::as_bool) == Some(true) {
+        return;
+    }
     if let Some(r) = v.get("toolUseResult").and_then(Value::as_object) {
         // File reads/edits/writes, and shell output (greps, test logs) mention URLs in passing.
         // PRs opened from the shell still arrive as `pr-link` entries.

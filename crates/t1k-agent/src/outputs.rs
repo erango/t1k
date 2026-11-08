@@ -91,6 +91,16 @@ pub fn urls_in(line: &str) -> Vec<String> {
     out
 }
 
+/// Example repos in docs and instructions ("github.com/owner/repo/pull/13"), not real ones.
+fn placeholder(owner: &str, repo: &str) -> bool {
+    let o = owner.to_ascii_lowercase();
+    let r = repo.to_ascii_lowercase();
+    let templated = |s: &str| s.contains(['<', '>', '{', '}', '$']) || s.starts_with(':');
+    const OWNERS: &[&str] = &["owner", "org", "organization", "orgname", "user", "username", "your-org", "your-username", "yourname", "you", "me", "example", "foo", "acme"];
+    const REPOS: &[&str] = &["repo", "repository", "repo-name", "reponame", "your-repo", "project", "example", "foo", "bar", "my-repo", "myrepo"];
+    templated(&o) || templated(&r) || (OWNERS.contains(&o.as_str()) && REPOS.contains(&r.as_str()))
+}
+
 /// Classify a URL into an output, normalizing it (drop query/fragment and PR sub-pages).
 /// Unknown kinds of links return None: the panel lists things a session produced, not every URL.
 pub fn classify(url: &str) -> Option<(Kind, String, String)> {
@@ -98,6 +108,9 @@ pub fn classify(url: &str) -> Option<(Kind, String, String)> {
     let after = base.strip_prefix("https://")?;
     let (host, path) = after.split_once('/').unwrap_or((after, ""));
     let seg: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    if host == "github.com" && seg.len() >= 2 && placeholder(seg[0], seg[1]) {
+        return None;
+    }
     match host {
         "github.com" if seg.len() >= 4 && seg[2] == "pull" && seg[3].chars().all(|c| c.is_ascii_digit()) => {
             let canon = format!("https://github.com/{}/{}/pull/{}", seg[0], seg[1], seg[3]);
@@ -152,6 +165,9 @@ mod tests {
         assert_eq!(u, ["https://github.com/erango/t1k/pull/12/files?x=1", "https://claude.ai/artifact/Fm4Hyv7MYFsH7ACopnt1Ka"]);
         assert_eq!(classify(&u[0]).unwrap(), (Kind::Pr, "https://github.com/erango/t1k/pull/12".into(), "t1k#12".into()));
         assert_eq!(classify(&u[1]).unwrap().0, Kind::Artifact);
+        assert!(classify("https://github.com/owner/repo/pull/13").is_none());
+        assert!(classify("https://github.com/<org>/<repo>/pull/1").is_none());
+        assert!(classify("https://github.com/bizzabo/fred-agent/pull/13").is_some());
     }
 
     #[test]
