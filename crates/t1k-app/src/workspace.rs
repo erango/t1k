@@ -220,6 +220,10 @@ pub struct Workspace {
     pub drop_hover: Option<crate::drop::DropHover>,
     /// ⌘A in the emoji picker's search: the whole query is selected.
     pub icon_query_all: bool,
+    /// ⌘J found nothing but offered an unread tab: (its id, when), for a second ⌘J.
+    unread_offer: Option<(String, Instant)>,
+    /// The notice is a passing remark (gone in 2 s, not 5).
+    pub notice_brief: bool,
     /// The icon picker's tab, scroll and cropper.
     pub icon_ui: crate::group_icons::PickerUi,
     /// The window isn't key (its chrome dims), and the pointer is over the sidebar (it doesn't).
@@ -451,6 +455,8 @@ impl Workspace {
             fonts: Default::default(),
             drop_hover: None,
             icon_query_all: false,
+            unread_offer: None,
+            notice_brief: false,
             icon_ui: Default::default(),
             window_inactive: false,
             sidebar_hover: false,
@@ -1203,6 +1209,7 @@ impl Workspace {
         }
         let (title, to) = (t.title(), t.group.clone());
         self.move_undo.push(before);
+        self.notice_brief = false;
         self.notice = Some((format!("Moved {title} to {}", self.group_label(&to)), Instant::now()));
         self.notice_undo = true;
         self.match_undo = None;
@@ -1232,6 +1239,7 @@ impl Workspace {
         if self.move_undo.len() > 20 {
             self.move_undo.remove(0);
         }
+        self.notice_brief = false;
         self.notice = Some((format!("Moved {what} to {name}"), Instant::now()));
         self.notice_undo = true;
         self.match_undo = None;
@@ -1291,6 +1299,7 @@ impl Workspace {
                 t.pinned_group = pinned;
             }
         }
+        self.notice_brief = false;
         self.notice = Some(("Moved back".into(), Instant::now()));
         self.notice_undo = false;
         self.save();
@@ -1887,8 +1896,10 @@ impl Workspace {
     fn walk_needs(&mut self, dir: isize, window: &mut Window, cx: &mut Context<Self>) {
         let q = self.needs_queue();
         if q.is_empty() {
+            self.nothing_needs_you(window, cx);
             return;
         }
+        self.unread_offer = None;
         let n = q.len() as isize;
         let next = match q.iter().position(|&i| i == self.active) {
             Some(p) => q[((p as isize + dir).rem_euclid(n)) as usize],
@@ -1896,6 +1907,36 @@ impl Workspace {
             None => q[(n - 1) as usize],
         };
         self.activate(next, window, cx);
+    }
+
+    /// ⌘J with nothing waiting: say so (a key that does nothing feels broken). With unread tabs,
+    /// offer the newest, and a second ⌘J within a few seconds opens it.
+    fn nothing_needs_you(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some((id, at)) = self.unread_offer.take() {
+            if at.elapsed() < Duration::from_secs(5) {
+                if let Some(ix) = self.tabs.iter().position(|t| t.id == id) {
+                    self.notice = None;
+                    self.activate(ix, window, cx);
+                    return;
+                }
+            }
+        }
+        let unread: Vec<usize> = (0..self.tabs.len()).filter(|&i| self.tabs[i].unread && i != self.active).collect();
+        let working = self.tabs.iter().filter(|t| t.status() == Some(&Status::Working)).count();
+        let key = crate::keymap::display_for(&JumpToNeeds, &self.config.keys);
+        let text = if let Some(&newest) = unread.iter().max_by_key(|&&i| self.tabs[i].last_active) {
+            self.unread_offer = Some((self.tabs[newest].id.clone(), Instant::now()));
+            format!("Nothing needs you · {} unread, {key} again to open the newest", unread.len())
+        } else if working > 0 {
+            format!("Nothing needs you · {working} working")
+        } else {
+            "Nothing needs you right now".to_string()
+        };
+        self.notice_brief = false;
+        self.notice = Some((text, Instant::now()));
+        self.notice_undo = false;
+        self.notice_brief = self.unread_offer.is_none();
+        cx.notify();
     }
 
     /// Tabs folded into "+N quiet" in calm mode: nothing to see, not selected.
@@ -2470,6 +2511,13 @@ impl Render for Workspace {
         )
         .children(panel)
         .children(peek)
+        // With the sidebar folded away, its notices ("Nothing needs you", Undo) show as a small
+        // toast at the bottom of the window instead.
+        .when(!matches!(shown, Shown::Full(_)) && self.notice.is_some(), |d| {
+            d.children(crate::import_ui::notice(self, cx).map(|n| {
+                div().absolute().left_0().right_0().bottom(px(16.)).flex().justify_center().child(div().relative().w(px(400.)).h(px(54.)).child(n))
+            }))
+        })
         .children(readout)
         .children(overlay)
     }

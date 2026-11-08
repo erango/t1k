@@ -117,6 +117,7 @@ impl Workspace {
                 self.apply_match(window, cx);
                 if let Phase::Failed(r) = &phase {
                     let said = self.notice.take().map(|(s, _)| s).unwrap_or_default();
+                    self.notice_brief = false;
                     self.notice = Some((format!("{} {}", r, said).trim().to_string(), Instant::now()));
                 }
             }
@@ -130,6 +131,7 @@ impl Workspace {
         match dl {
             Some((font, icons)) => {
                 self.install_font(font, icons, true, window, cx);
+                self.notice_brief = false;
                 self.notice = Some((format!("Installing {}, then matching…", font.name), Instant::now()));
                 self.notice_undo = false;
             }

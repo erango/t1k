@@ -156,6 +156,7 @@ impl Workspace {
                 Kind::Theme => to,
             });
         }
+        self.notice_brief = false;
         self.notice = Some((format!("Matched {}: {}", f.app.label(), said.join(", ")), Instant::now()));
         self.notice_undo = true;
         cx.notify();
@@ -169,6 +170,7 @@ impl Workspace {
                 None => crate::config::remove(&keys),
             }
         }
+        self.notice_brief = false;
         self.notice = Some(("Put back your previous look".into(), Instant::now()));
         self.notice_undo = false;
         cx.notify();

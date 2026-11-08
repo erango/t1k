@@ -268,6 +268,7 @@ impl Workspace {
         if n > 0 {
             self.activate(first, window, cx);
             self.import_last = Some((n, crate::usage::now()));
+            self.notice_brief = false;
             self.notice = Some((format!("Brought {n} tab{} over", if n == 1 { "" } else { "s" }), Instant::now()));
             self.notice_undo = false;
             self.import_found = Some(Vec::new());
@@ -294,11 +295,14 @@ impl Workspace {
             self.tabs[i].waiting = None;
             self.tabs[i].view.read(cx).terminal.write(format!("claude --resume {}\r", w.session_id).into_bytes());
             let title = self.tabs[i].title();
+            self.notice_brief = false;
             self.notice = Some((format!("Resumed {title} from {}", w.source.label()), Instant::now()));
             self.notice_undo = false;
             changed = true;
         }
-        if self.notice.as_ref().is_some_and(|(_, at)| at.elapsed().as_secs() >= if self.notice_undo { 8 } else { 5 }) {
+        let ttl = if self.notice_undo { 8000 } else if self.notice_brief { 2000 } else { 5000 };
+        if self.notice.as_ref().is_some_and(|(_, at)| at.elapsed().as_millis() >= ttl) {
+            self.notice_brief = false;
             self.notice = None;
             changed = true;
         }
