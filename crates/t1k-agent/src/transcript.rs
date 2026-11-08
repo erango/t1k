@@ -16,6 +16,8 @@ const READ_CHUNK: u64 = 2 << 20;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Entry {
+    /// The session's `/color` (None: reset).
+    Color(Option<String>),
     AiTitle(String),
     CustomTitle(String),
     AwaySummary(String),
@@ -79,7 +81,7 @@ impl Tail {
 }
 
 const INTERESTING: &[&str] =
-    &["\"ai-title\"", "\"custom-title\"", "away_summary", "api_error", "pr-link", "turn_duration", "\"gitBranch\"", "\"usage\"", "[Request interrupted by user"];
+    &["\"ai-title\"", "\"custom-title\"", "\"agent-color\"", "away_summary", "api_error", "pr-link", "turn_duration", "\"gitBranch\"", "\"usage\"", "[Request interrupted by user"];
 
 /// Text that can mention session outputs: Claude's replies, the user's prompts, and tool
 /// results from tools like artifact publishing, but not file contents or shell output.
@@ -134,6 +136,8 @@ pub fn parse_line(line: &[u8]) -> Option<Vec<Entry>> {
     match v.get("type").and_then(Value::as_str) {
         Some("ai-title") => out.extend(str_of("aiTitle").map(Entry::AiTitle)),
         Some("custom-title") => out.extend(str_of("customTitle").map(Entry::CustomTitle)),
+        // `/color red`: the session's color, chosen to tell sessions apart.
+        Some("agent-color") => out.push(Entry::Color(str_of("agentColor").filter(|c| !c.is_empty() && c != "default"))),
         Some("pr-link") => {
             if let Some(url) = str_of("prUrl") {
                 let number = v.get("prNumber").and_then(Value::as_u64).unwrap_or(0);
@@ -191,6 +195,8 @@ mod tests {
             parse_line(l),
             Some(vec![Entry::AwaySummary("Done; next ship it.".into()), Entry::Branch("main".into())])
         );
+        let l = br#"{"type":"agent-color","agentColor":"red","sessionId":"x"}"#;
+        assert_eq!(parse_line(l), Some(vec![Entry::Color(Some("red".into()))]));
         let l = br#"{"type":"pr-link","prNumber":23,"prUrl":"https://github.com/a/b/pull/23"}"#;
         assert_eq!(
             parse_line(l),

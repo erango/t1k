@@ -62,6 +62,8 @@ pub struct AgentState {
     /// Tokens in context as of the latest reply, and the model that answered.
     pub context_tokens: Option<u64>,
     pub model: Option<String>,
+    /// The session's `/color` (red, blue, green, yellow, purple, orange, pink, cyan).
+    pub color: Option<String>,
     custom_title: bool,
     tail: Option<Tail>,
 }
@@ -84,6 +86,7 @@ impl AgentState {
             outputs: Vec::new(),
             context_tokens: None,
             model: None,
+            color: None,
             custom_title: false,
             tail: None,
         }
@@ -216,6 +219,7 @@ impl AgentState {
                     self.goal = Some(t);
                 }
                 Entry::AwaySummary(s) => self.recap = Some(s),
+                Entry::Color(c) => self.color = c,
                 Entry::ApiError(m) => {
                     if self.status == Status::Working {
                         self.set_status(Status::Error { message: m });

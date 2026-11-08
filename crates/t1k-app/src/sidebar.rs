@@ -614,6 +614,9 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
     let confirming = ws.confirm_close.as_deref() == Some(tab.id.as_str());
 
     let (drag_id, drag_label, drop_group) = (tab.id.clone(), tab.title(), tab.group.clone());
+    // The session's /color, shown the way Settings says (canvas v3-ad).
+    let scolor = tab.agent.as_ref().and_then(|a| a.color.as_deref()).and_then(|n| crate::session_color::color(n, ws.theme));
+    let smode = ws.config.sidebar.session_color.as_str();
     let (file_id, file_drop_id) = (tab.id.clone(), tab.id.clone());
     let file_hover = ws.drop_hover.as_ref().filter(|h| h.target == crate::drop::DropTarget::Row(tab.id.clone())).map(|h| h.paths.clone());
     let ws_handle = cx.entity().downgrade();
@@ -654,7 +657,21 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         // v3: the program icon carries status in its corner (and spans both lines when there's
         // a second one); without icons, the glyph slot sits on the title line.
         // Not back yet after a quit: the icon waits at 55% (canvas v3-ab).
-        .when(icons, |d| d.child(status_icon(tab, ui, ws.ui.bg_sidebar, selected, icon_size).when(ws.is_resuming(&tab.id), |d| d.opacity(0.55))))
+        .when(icons, |d| {
+            d.child(
+                status_icon(tab, ui, ws.ui.bg_sidebar, selected, icon_size)
+                    .when(ws.is_resuming(&tab.id), |d| d.opacity(0.55))
+                    .when_some(scolor.filter(|_| smode == "corner"), |d, c| {
+                        // Clipped to the icon's rounded corner.
+                        d.child(div().absolute().top_0().left_0().size(px(icon_size)).rounded(px((icon_size * 0.24).round())).overflow_hidden().child(crate::session_color::corner(c, icon_size)))
+                    }),
+            )
+        })
+        // B: the row tinted; C: the group line beside it in the session's color.
+        .when_some(scolor.filter(|_| smode == "tint"), |d, c| d.bg(c.opacity(0.10)))
+        .when_some(scolor.filter(|_| smode == "line"), |d, c| {
+            d.child(div().absolute().left(px(LINE_X - ROW_LEFT)).top(px(-(ROW_GAP / 2.).floor())).bottom(px(-(ROW_GAP / 2.).ceil())).w(px(2.)).bg(c))
+        })
         .child(
             div()
                 .flex_1()
@@ -672,6 +689,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
                         .items_center()
                         .gap(px(9.))
                         .when(!icons, |d| d.child(glyph))
+                        .when_some(scolor.filter(|_| smode == "swatch"), |d, c| d.child(crate::session_color::swatch(c)))
                         .child(title)
                         // Still open in the terminal it came from (v3-v: neutral, not amber).
                         .children(tab.waiting.as_ref().map(|w| {

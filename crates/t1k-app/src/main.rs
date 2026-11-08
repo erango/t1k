@@ -6,6 +6,7 @@ mod import_ui;
 mod match_term;
 mod drop;
 mod restore;
+mod session_color;
 mod match_ui;
 mod agent_setup;
 mod app_icon;

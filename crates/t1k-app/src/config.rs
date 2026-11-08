@@ -73,6 +73,9 @@ peek_ms = 400
 # Group colors (the line down a group's tabs and along the top of the title bar):
 # "auto" (blue, magenta or cyan by name; neighbors differ) or "manual" (only colors you pick).
 group_colors = "auto"
+# How a Claude session's /color shows on its tab: "swatch" (a small bar before the title),
+# "corner" (a triangle on the icon), "tint" (the row), "line" (the group line beside it), "off".
+session_color = "swatch"
 
 [tabs]
 # Where ⌘T and + put a new tab in its group: "after" the current tab, "before" it, or at the
@@ -328,6 +331,7 @@ pub struct SidebarCfg {
     pub collapsed: String,
     pub peek_ms: u64,
     pub group_colors: String,
+    pub session_color: String,
 }
 
 impl Default for Config {
@@ -398,6 +402,7 @@ impl Default for SidebarCfg {
             collapsed: "rail".into(),
             peek_ms: 400,
             group_colors: "auto".into(),
+            session_color: "swatch".into(),
         }
     }
 }

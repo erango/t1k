@@ -417,6 +417,8 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
             seg(ui, "title", &c.sidebar.title, &[("auto", "Auto"), ("command", "Command"), ("folder", "Folder"), ("branch", "Branch")], &["sidebar", "title"], cx)),
         e(Tabs, "Titles", "Second line", "Always on for every row, so nothing moves", "sidebar.second_line", "subtitle detail",
             seg(ui, "second", &c.sidebar.second_line, &[("none", "None"), ("status", "Status"), ("branch", "Branch"), ("folder", "Folder")], &["sidebar", "second_line"], cx)),
+        e(Tabs, "Titles", "Session color", "How a Claude session's /color shows on its tab", "sidebar.session_color", "color agent claude color tint swatch",
+            seg(ui, "sesscolor", &c.sidebar.session_color, &[("swatch", "Swatch"), ("corner", "Corner"), ("tint", "Tint"), ("line", "Line"), ("off", "Off")], &["sidebar", "session_color"], cx)),
         e(Tabs, "Opening and closing", "New tab goes", "Where ⌘T and + put it in its group", "tabs.new_tab", "new tab position insert order place",
             seg(ui, "newtab", &c.tabs.new_tab, &[("after", "After current"), ("before", "Before current"), ("end", "End of group")], &["tabs", "new_tab"], cx)),
         e(Tabs, "Opening and closing", "After closing a tab, go to", "The tab next to it in the sidebar", "tabs.after_close", "close next previous focus",
