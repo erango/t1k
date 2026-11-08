@@ -66,7 +66,7 @@ pub fn about(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 .flex()
                 .gap(px(8.))
                 .child(button(ws, "about-repo", "GitHub", false).on_click(|_, _, cx| cx.open_url(REPO)))
-                .child(button(ws, "about-issue", "Report a bug", false).on_click(|_, _, cx| cx.open_url(&format!("{REPO}/issues"))))
+                .child(button(ws, "about-issue", "Report a bug", false).on_click(cx.listener(|this, _, window, cx| this.open_report_bug(None, window, cx))))
                 .child(button(ws, "about-close", "Close", true).on_click(cx.listener(|this, _, window, cx| this.close_overlay(window, cx)))),
         )
         .child(

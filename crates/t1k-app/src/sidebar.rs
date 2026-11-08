@@ -842,8 +842,17 @@ pub(crate) fn card(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> im
         Some(Status::Error { message }) => Some(message.chars().take(60).collect()),
         _ => None,
     };
+    // An agent error can go straight into a bug report, named in its title.
+    let report = match (agent, tab.status()) {
+        (Some(a), Some(Status::Error { message })) => Some(crate::bug_report::Prefill {
+            title: format!("Error in {}: {message}", a.kind.label()),
+            source: a.kind.id().into(),
+            error: message.clone(),
+        }),
+        _ => None,
+    };
     let needs = matches!(tab.status(), Some(Status::NeedsInput { .. }));
-    let working = matches!(tab.status(), Some(Status::Working) | Some(Status::Error { .. }));
+    let working =matches!(tab.status(), Some(Status::Working) | Some(Status::Error { .. }));
     // Screen excerpt: Claude's question while it waits, the last lines while it works.
     let screen = (needs || working).then(|| tab.view.read(cx).terminal.last_output_lines(if needs { 6 } else { 3 }));
     let recap = agent.and_then(|a| a.recap.clone()).filter(|_| !needs);
@@ -969,7 +978,25 @@ pub(crate) fn card(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> im
                 .child(button("card-remind", "Remind me…", None).on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
                     this.hide_card(cx);
                     this.open_overlay(crate::overlay::Overlay::Menu { tab: ix, at: ev.position() }, window, cx);
-                }))),
+                })))
+                .children(report.map(|prefill| {
+                    div()
+                        .id("card-report")
+                        .ml_auto()
+                        .flex_none()
+                        .h(px(26.))
+                        .flex()
+                        .items_center()
+                        .text_size(px(12. * k))
+                        .text_color(ui.accent)
+                        .cursor_pointer()
+                        .hover(|d| d.underline())
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.hide_card(cx);
+                            this.open_report_bug(Some(prefill.clone()), window, cx);
+                        }))
+                        .child("Report this…")
+                })),
         )
 }
 

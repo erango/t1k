@@ -65,6 +65,8 @@ pub enum Overlay {
     ThemePicker { query: String, selected: usize, dark: bool },
     /// "Set up T1K" (canvas v3-ah, A): `step` 0-6, or `setup::DONE` for "All set".
     Setup { step: usize },
+    /// Help › Report a Bug… (canvas v3-ai, A).
+    ReportBug(Box<crate::bug_report::Sheet>),
 }
 
 /// Switcher filter chips.
@@ -400,6 +402,7 @@ impl Workspace {
             Overlay::QuitRunning { expanded, selected } => self.quit_key(expanded, selected, ev, window, cx),
             Overlay::ThemePicker { query, selected, dark } => self.theme_picker_key(query, selected, dark, ev, window, cx),
             Overlay::Setup { step } => self.setup_key(step, ev, window, cx),
+            Overlay::ReportBug(s) => self.report_bug_key(s, ev, cx),
             // The open font picker takes the typing for its own search; Esc clears that, then
             // closes the picker.
             Overlay::Settings { section } if self.fonts.open => {
@@ -922,6 +925,10 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
         Overlay::QuitRunning { expanded, selected } => {
             let p = crate::quit::render(ws, *expanded, *selected, cx);
             Some(scrim(ws, false, cx).bg(gpui::black().opacity(0.3)).flex().justify_center().items_start().child(div().mt(px(140.)).child(p)).into_any_element())
+        }
+        Overlay::ReportBug(s) => {
+            let c = crate::bug_report::sheet(ws, s, window, cx);
+            Some(scrim(ws, false, cx).bg(gpui::black().opacity(0.35)).flex().justify_center().items_start().child(c).into_any_element())
         }
         Overlay::QuitUpdate => {
             let c = crate::update_ui::quit_prompt(ws, cx);
