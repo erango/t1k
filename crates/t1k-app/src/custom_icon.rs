@@ -33,7 +33,9 @@ struct Tagged {
 impl Serialize for Icon {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         let (kind, value) = match self {
-            Icon::Emoji(v) => ("emoji", v),
+            // Emoji stay plain strings, as before app and image icons: an older T1K (a
+            // rollback, or a slower Mac on the previous release) then still reads the session.
+            Icon::Emoji(v) => return s.serialize_str(v),
             Icon::App(v) => ("app", v),
             Icon::Image(v) => ("image", v),
         };
@@ -632,7 +634,8 @@ mod tests {
         assert_eq!(app, Icon::App("com.figma.Desktop".into()));
         for i in [Icon::Emoji("🐳".into()), Icon::App("/Applications/X.app".into()), Icon::Image("ab".repeat(32))] {
             let s = serde_json::to_string(&i).unwrap();
-            assert!(s.starts_with("{\"kind\":"));
+            // Emoji stay plain strings (older builds read them); the rest are tagged.
+            assert_eq!(s.starts_with("{\"kind\":"), !matches!(i, Icon::Emoji(_)));
             assert_eq!(serde_json::from_str::<Icon>(&s).unwrap(), i);
         }
     }
