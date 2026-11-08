@@ -121,4 +121,19 @@ gh release create "v$VERSION" "$ZIP" --repo "$REPO" --title "T1K $VERSION" "${NO
 git add appcast.xml
 git commit -m "release: appcast for $VERSION"
 git push origin HEAD
+
+# 7. Homebrew cask (erango/homebrew-tap), stable releases only. The app updates itself with
+# Sparkle (the cask says auto_updates), so this is what new `brew install`s get.
+TAP="${T1K_TAP:-$HOME/git-repos/homebrew-tap}"
+if [ -z "$CHANNEL" ] && [ -f "$TAP/Casks/t1k.rb" ]; then
+  SHA="$(shasum -a 256 "$ZIP" | cut -d' ' -f1)"
+  sed -i '' -e "s/^  version \".*\"/  version \"$VERSION\"/" -e "s/^  sha256 \".*\"/  sha256 \"$SHA\"/" "$TAP/Casks/t1k.rb"
+  git -C "$TAP" pull -q --rebase
+  git -C "$TAP" add Casks/t1k.rb
+  git -C "$TAP" commit -q -m "t1k $VERSION"
+  git -C "$TAP" push -q
+  echo "==> cask: t1k $VERSION"
+else
+  echo "==> skipped cask (beta, or no $TAP/Casks/t1k.rb)"
+fi
 echo "==> released $VERSION"

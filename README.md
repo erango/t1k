@@ -5,6 +5,7 @@ See which one needs you, without switching tabs.</p>
 
 <p align="center">
 <a href="https://github.com/erango/t1k/releases/latest"><b>Download</b></a> ·
+<code>brew install --cask erango/tap/t1k</code> ·
 <a href="#install">Install</a> ·
 <a href="#keys">Keys</a> ·
 <a href="#configure">Configure</a> ·
@@ -39,7 +40,13 @@ More screenshots, and how they're made, are in [docs/screenshots](docs/screensho
 
 ## Install
 
-1. [Download](https://github.com/erango/t1k/releases/latest) `T1K-<version>.zip`, unzip it, and move T1K.app to Applications. It's signed and notarized, and keeps itself up to date (Settings › Advanced › Updates).
+1. Install with Homebrew:
+
+   ```sh
+   brew install --cask erango/tap/t1k
+   ```
+
+   Or [download](https://github.com/erango/t1k/releases/latest) `T1K-<version>.zip`, unzip it, and move T1K.app to Applications. It's signed and notarized, and keeps itself up to date either way (Settings › Advanced › Updates), so `brew upgrade` leaves it alone.
 2. Open it. The welcome sheet offers **Set up T1K**: seven short steps for agents, look, sidebar, tabs, attention, the helper and keys. You can run it again any time from the T1K menu.
 3. Connect your agents, so T1K hears their status. The setup's Agents step and Settings › Agents do this with a click, or from a terminal:
 
@@ -96,7 +103,7 @@ t1k theme import ~/Downloads/Dracula.itermcolors   # Ghostty, iTerm2, Alacritty,
 t1k theme list
 ```
 
-(`t1k` is `/Applications/T1K.app/Contents/MacOS/t1k`; a source build with `--install` links it onto your PATH.)
+(`t1k` is `/Applications/T1K.app/Contents/MacOS/t1k`. Homebrew links it onto your PATH, and so does a source build with `--install`.)
 
 **Optional helper.** Codex, Antigravity and Grok sessions don't name themselves or write recaps. Turn on `[helper]` (Settings › Agents) and a small model, run through an agent CLI you already use, fills those in, and ⌘↵ in Find tab ranks tabs by meaning. It's off by default. `t1k helper bench` compares the CLIs you have, and `t1k helper stats` shows what it used.
 
