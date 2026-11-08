@@ -79,6 +79,7 @@ pub const ALL: &[Bind] = &[
     b!(term "next_prompt", "Next prompt", "Terminal", ["cmd-down"], term::NextPrompt),
     b!(term "page_up", "Scroll page up", "Terminal", ["shift-pageup"], term::ScrollPageUp),
     b!(term "page_down", "Scroll page down", "Terminal", ["shift-pagedown"], term::ScrollPageDown),
+    b!(term "scroll_to_bottom", "Scroll to bottom", "Terminal", ["cmd-shift-down"], term::ScrollToBottom),
 ];
 
 /// `[keys]` values: one shortcut, several separated by commas, or "" for none.

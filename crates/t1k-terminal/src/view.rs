@@ -22,9 +22,10 @@ use gpui::{
 use crate::input::to_esc;
 use crate::links::{find_path_candidates, find_pr_refs, find_tickets, find_urls, Link, LinkRules};
 use crate::palette::{dim, Palette};
+use crate::scrollbar::{Fade, Metrics, BUTTON_DELAY, IDLE};
 use crate::terminal::{GridSize, SpawnOptions, Terminal};
 
-actions!(terminal, [Copy, Paste, ClearScrollback, ScrollPageUp, ScrollPageDown, ShowLinkHints, Find, FindNext, FindPrevious, PreviousPrompt, NextPrompt]);
+actions!(terminal, [Copy, Paste, ClearScrollback, ScrollPageUp, ScrollPageDown, ShowLinkHints, Find, FindNext, FindPrevious, PreviousPrompt, NextPrompt, ScrollToBottom]);
 
 /// Events the terminal view emits to its container (tab/workspace).
 #[derive(Clone, Debug)]
@@ -123,7 +124,85 @@ pub struct TerminalView {
     /// Output to show once the grid has its real size, made for that size (demo screens,
     /// whose full-width rules must fit the pane).
     pub feed_on_size: Option<FeedOnSize>,
+    scroll_ui: ScrollUi,
     _events: Task<()>,
+}
+
+/// The overlay scrollbar and the scroll-to-bottom button (see `scrollbar`).
+struct ScrollUi {
+    bar: Fade,
+    /// The wider hover track, while the pointer is near the right edge.
+    wide: Fade,
+    button: Fade,
+    near_edge: bool,
+    /// Last scroll or edge hover: the scrollbar fades out `IDLE` after it.
+    last_active: std::time::Instant,
+    hide_armed: bool,
+    hide_task: Option<Task<()>>,
+    button_task: Option<Task<()>>,
+    /// A thumb drag: how far below the thumb's top it was grabbed.
+    drag: Option<f32>,
+    /// Display offset at the last sync. Output while scrolled up raises the real one (alacritty
+    /// keeps the view still), and that difference is the button's "new lines".
+    seen_offset: usize,
+    new_lines: usize,
+    /// Prompt starts for the hover track's ticks; None after new output.
+    prompts: Option<Vec<i32>>,
+    metrics: Metrics,
+    /// Main screen with some history: the only time either one shows.
+    eligible: bool,
+    /// T1K_DEBUG_SCROLL, until it's applied; then everything stays shown (`pinned`).
+    debug: Option<DebugScroll>,
+    pinned: bool,
+}
+
+struct DebugScroll {
+    up: usize,
+    new: usize,
+    hover: bool,
+    /// The shell's startup output has to land first, or the view scrolls into the blank lines
+    /// that bottom gravity puts in history.
+    after: std::time::Instant,
+}
+
+/// How long T1K_DEBUG_SCROLL waits for the shell's startup output.
+const DEBUG_SCROLL_WAIT: std::time::Duration = std::time::Duration::from_millis(1500);
+
+impl ScrollUi {
+    fn new() -> Self {
+        // Debug aid for screenshots: `T1K_DEBUG_SCROLL=up:300,new:128,hover` starts scrolled up
+        // 300 lines (once there is that much history) with "128 new lines" on the button.
+        let debug = std::env::var("T1K_DEBUG_SCROLL").ok().map(|v| {
+            let mut d = DebugScroll { up: 200, new: 0, hover: false, after: std::time::Instant::now() + DEBUG_SCROLL_WAIT };
+            for part in v.split(',').map(str::trim) {
+                match part.split_once(':') {
+                    Some(("up", n)) => d.up = n.parse().unwrap_or(d.up),
+                    Some(("new", n)) => d.new = n.parse().unwrap_or(0),
+                    _ if part == "hover" => d.hover = true,
+                    _ => {}
+                }
+            }
+            d
+        });
+        Self {
+            bar: Fade::new(100., 300.),
+            wide: Fade::new(100., 100.),
+            button: Fade::new(150., 150.),
+            near_edge: false,
+            last_active: std::time::Instant::now(),
+            hide_armed: false,
+            hide_task: None,
+            button_task: None,
+            drag: None,
+            seen_offset: 0,
+            new_lines: 0,
+            prompts: None,
+            metrics: Metrics::default(),
+            eligible: false,
+            debug,
+            pinned: false,
+        }
+    }
 }
 
 impl EventEmitter<TerminalEvent> for TerminalView {}
@@ -182,6 +261,14 @@ impl TerminalView {
         })
         .detach();
 
+        if std::env::var_os("T1K_DEBUG_SCROLL").is_some() {
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(DEBUG_SCROLL_WAIT).await;
+                let _ = this.update(cx, |_, cx| cx.notify());
+            })
+            .detach();
+        }
+
         Ok(Self {
             terminal,
             focus_handle,
@@ -207,6 +294,7 @@ impl TerminalView {
             pending_size: None,
             resize_task: None,
             feed_on_size: None,
+            scroll_ui: ScrollUi::new(),
             _events: task,
         })
     }
@@ -235,6 +323,7 @@ impl TerminalView {
                 self.terminal.feed(&f(g.cols, g.rows));
                 cx.notify();
             }
+            self.sync_offset(true);
             return;
         }
         if self.pending_size == Some(g) {
@@ -247,6 +336,7 @@ impl TerminalView {
                 if view.pending_size == Some(g) {
                     view.pending_size = None;
                     view.terminal.resize(g);
+                    view.sync_offset(true);
                     cx.notify();
                 }
             });
@@ -259,6 +349,8 @@ impl TerminalView {
                 if let Some(s) = self.search.as_mut() {
                     s.dirty = true;
                 }
+                self.scroll_ui.prompts = None;
+                self.sync_offset(false);
                 cx.notify();
             }
             AlacEvent::MouseCursorDirty | AlacEvent::CursorBlinkingChange => cx.notify(),
@@ -371,7 +463,7 @@ impl TerminalView {
         if let Some(m) = s.step(forward).cloned() {
             self.terminal.term.lock().scroll_to_point(*m.start());
         }
-        cx.notify();
+        self.scrolled(cx);
     }
 
     /// Open the find bar on `query` and go to its newest match (used to show where an output
@@ -383,7 +475,7 @@ impl TerminalView {
             self.terminal.term.lock().scroll_to_point(*m.start());
         }
         self.search = Some(s);
-        cx.notify();
+        self.scrolled(cx);
     }
 
     fn previous_prompt(&mut self, _: &PreviousPrompt, _: &mut Window, cx: &mut Context<Self>) {
@@ -412,7 +504,7 @@ impl TerminalView {
             None => {}
         }
         drop(term);
-        cx.notify();
+        self.scrolled(cx);
     }
 
     fn close_search(&mut self, cx: &mut Context<Self>) {
@@ -454,7 +546,7 @@ impl TerminalView {
             self.terminal.term.lock().scroll_to_point(*m.start());
         }
         cx.stop_propagation();
-        cx.notify();
+        self.scrolled(cx);
         true
     }
 
@@ -480,6 +572,7 @@ impl TerminalView {
             if (dx, dy) != (0, 0) {
                 if let Some(head) = self.sel_head {
                     self.sel_head = self.terminal.extend_selection(head, dx, dy, m.alt, m.platform);
+                    self.sync_offset(true);
                     cx.stop_propagation();
                     cx.notify();
                     return;
@@ -490,6 +583,7 @@ impl TerminalView {
         if let Some(bytes) = to_esc(&ev.keystroke, mode, self.style.option_as_meta) {
             self.terminal.clear_selection();
             self.terminal.scroll_to_bottom();
+            self.sync_offset(true);
             self.terminal.write(bytes);
             cx.stop_propagation();
             cx.notify();
@@ -505,6 +599,8 @@ impl TerminalView {
     fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) {
             self.terminal.paste(&text);
+            self.sync_offset(true);
+            cx.notify();
         }
     }
 
@@ -518,13 +614,13 @@ impl TerminalView {
     fn page_up(&mut self, _: &ScrollPageUp, _: &mut Window, cx: &mut Context<Self>) {
         let rows = self.terminal.size.rows as i32;
         self.terminal.scroll(rows);
-        cx.notify();
+        self.scrolled(cx);
     }
 
     fn page_down(&mut self, _: &ScrollPageDown, _: &mut Window, cx: &mut Context<Self>) {
         let rows = self.terminal.size.rows as i32;
         self.terminal.scroll(-rows);
-        cx.notify();
+        self.scrolled(cx);
     }
 
     /// Map a window position to (col, row, side) inside the grid.
@@ -605,6 +701,10 @@ impl TerminalView {
             cx.notify();
         }
         window.focus(&self.focus_handle);
+        if self.scrollbar_mouse_down(ev.position, cx) {
+            cx.stop_propagation();
+            return;
+        }
         let Some((col, row, side)) = self.cell_at(ev.position) else { return };
         if ev.modifiers.platform {
             if let Some(link) = self.link_at(col, row) {
@@ -680,6 +780,13 @@ impl TerminalView {
     }
 
     fn on_mouse_move(&mut self, ev: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if self.scroll_ui.drag.is_some() {
+            return;
+        }
+        if ev.pressed_button.is_none() {
+            let near = self.pane_bounds().is_some_and(|p| crate::scrollbar::near_edge(p, ev.position));
+            self.set_near_edge(near, cx);
+        }
         let cell = self.cell_at(ev.position).map(|(c, r, _)| (c, r));
         self.set_hover(cell, ev.modifiers.platform, cx);
         self.update_link_tip(cell, ev.modifiers.platform, ev.position, cx);
@@ -699,6 +806,10 @@ impl TerminalView {
     }
 
     fn on_mouse_up(&mut self, ev: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if self.scroll_ui.drag.is_some() {
+            self.end_drag(ev.position, cx);
+            return;
+        }
         let Some((col, row, _)) = self.cell_at(ev.position) else { return };
         if self.mouse_reporting(ev.modifiers.shift) {
             self.report_mouse(0, col, row, false);
@@ -757,6 +868,256 @@ impl TerminalView {
         self.terminal.write(bytes);
     }
 
+    // ---- scrollbar and scroll-to-bottom button ----------------------------------------------
+
+    /// The whole pane (grid plus padding), where the overlays are placed.
+    fn pane_bounds(&self) -> Option<Bounds<Pixels>> {
+        let (b, _) = self.layout?;
+        let (pad_x, pad_y) = (self.style.padding_x, self.style.padding);
+        Some(Bounds::new(point(b.origin.x - pad_x, b.origin.y - pad_y), size(b.size.width + pad_x * 2., b.size.height + pad_y * 2.)))
+    }
+
+    /// Note the display offset. `user`: the change was a scroll; otherwise a rise is output
+    /// arriving while scrolled up (alacritty keeps the view still) and counts as new lines.
+    fn sync_offset(&mut self, user: bool) {
+        let off = self.terminal.term.lock().grid().display_offset();
+        let s = &mut self.scroll_ui;
+        if !user && s.seen_offset > 0 && off > s.seen_offset {
+            s.new_lines += off - s.seen_offset;
+        }
+        s.seen_offset = off;
+        if off == 0 {
+            s.new_lines = 0;
+        }
+    }
+
+    /// The user scrolled: show the scrollbar and restart its idle timer.
+    fn scrolled(&mut self, cx: &mut Context<Self>) {
+        self.sync_offset(true);
+        self.scroll_ui.last_active = std::time::Instant::now();
+        self.update_bar(cx);
+        cx.notify();
+    }
+
+    /// Show or hide the scrollbar for the current state, and arm the idle timer while it shows
+    /// only because of a recent scroll.
+    fn update_bar(&mut self, cx: &mut Context<Self>) {
+        let (metrics, eligible) = {
+            let term = self.terminal.term.lock();
+            let grid = term.grid();
+            let m = Metrics { history: grid.history_size(), rows: term.screen_lines(), offset: grid.display_offset() };
+            (m, !term.mode().contains(TermMode::ALT_SCREEN) && m.history > 0)
+        };
+        let finding = self.search.as_ref().is_some_and(|f| !f.matches.is_empty());
+        let s = &mut self.scroll_ui;
+        s.metrics = metrics;
+        s.eligible = eligible;
+        if !eligible {
+            // A full-screen program took over: nothing to scroll, nothing to fade.
+            s.bar.snap(false);
+            s.wide.snap(false);
+            s.drag = None;
+            return;
+        }
+        let held = s.near_edge || s.drag.is_some() || finding || s.pinned;
+        let recent = s.last_active.elapsed() < IDLE;
+        if s.bar.set(held || recent) {
+            cx.notify();
+        }
+        if recent && !held && !s.hide_armed {
+            s.hide_armed = true;
+            s.hide_task = Some(cx.spawn(async move |this, cx| {
+                let mut wait = IDLE;
+                loop {
+                    cx.background_executor().timer(wait).await;
+                    let Ok(left) = this.update(cx, |v, _| IDLE.saturating_sub(v.scroll_ui.last_active.elapsed())) else { return };
+                    if left.is_zero() {
+                        break;
+                    }
+                    wait = left;
+                }
+                let _ = this.update(cx, |v, cx| {
+                    v.scroll_ui.hide_armed = false;
+                    v.update_bar(cx);
+                    cx.notify();
+                });
+            }));
+        }
+    }
+
+    fn set_near_edge(&mut self, near: bool, cx: &mut Context<Self>) {
+        let s = &mut self.scroll_ui;
+        let near = near && s.eligible;
+        if s.near_edge == near || s.pinned {
+            return;
+        }
+        s.near_edge = near;
+        s.wide.set(near);
+        // Leaving the edge starts the idle countdown.
+        s.last_active = std::time::Instant::now();
+        self.update_bar(cx);
+        cx.notify();
+    }
+
+    /// A press on the scrollbar: grab the thumb, or page toward the press. Returns whether the
+    /// scrollbar took it.
+    fn scrollbar_mouse_down(&mut self, pos: Point<Pixels>, cx: &mut Context<Self>) -> bool {
+        use crate::scrollbar::{hit, Hit};
+        let s = &self.scroll_ui;
+        if !s.eligible || !(s.near_edge || s.bar.on()) {
+            return false;
+        }
+        let Some(pane) = self.pane_bounds() else { return false };
+        let Some(h) = hit(pane, s.metrics, pos) else { return false };
+        let rows = self.terminal.size.rows as i32;
+        match h {
+            Hit::Thumb(grab) => {
+                self.scroll_ui.drag = Some(grab);
+                self.scroll_ui.last_active = std::time::Instant::now();
+                self.update_bar(cx);
+                cx.notify();
+            }
+            Hit::Above => {
+                self.terminal.scroll(rows);
+                self.scrolled(cx);
+            }
+            Hit::Below => {
+                self.terminal.scroll(-rows);
+                self.scrolled(cx);
+            }
+        }
+        true
+    }
+
+    fn drag_to(&mut self, y: Pixels, cx: &mut Context<Self>) {
+        let (Some(grab), Some(pane)) = (self.scroll_ui.drag, self.pane_bounds()) else { return };
+        let target = crate::scrollbar::drag_offset(pane, self.scroll_ui.metrics, grab, y) as i32;
+        let current = self.terminal.term.lock().grid().display_offset() as i32;
+        if target != current {
+            self.terminal.scroll(target - current);
+            self.scrolled(cx);
+        }
+    }
+
+    fn end_drag(&mut self, pos: Point<Pixels>, cx: &mut Context<Self>) {
+        if self.scroll_ui.drag.take().is_none() {
+            return;
+        }
+        // Released away from the edge: the track narrows and the idle countdown starts.
+        let near = self.pane_bounds().is_some_and(|p| crate::scrollbar::near_edge(p, pos));
+        self.scroll_ui.near_edge = !near;
+        self.set_near_edge(near, cx);
+        cx.notify();
+    }
+
+    fn scroll_to_bottom(&mut self, _: &ScrollToBottom, _: &mut Window, cx: &mut Context<Self>) {
+        self.jump_to_bottom(cx);
+    }
+
+    /// The button and ⌘⇧↓: back to the newest output, at once.
+    fn jump_to_bottom(&mut self, cx: &mut Context<Self>) {
+        let was_up = self.terminal.term.lock().grid().display_offset() > 0;
+        self.terminal.scroll_to_bottom();
+        if was_up {
+            self.scrolled(cx);
+        }
+    }
+
+    /// Per-frame upkeep: count new lines, apply the debug state, show or hide the button.
+    fn sync_scroll_ui(&mut self, cx: &mut Context<Self>) {
+        self.sync_offset(false);
+        if let Some(d) = self.scroll_ui.debug.as_ref() {
+            let history = self.terminal.term.lock().grid().history_size();
+            if history >= d.up && std::time::Instant::now() >= d.after {
+                let (up, new, hover) = (d.up, d.new, d.hover);
+                self.scroll_ui.debug = None;
+                self.terminal.scroll(up as i32);
+                self.sync_offset(true);
+                let s = &mut self.scroll_ui;
+                s.new_lines = new;
+                s.pinned = true;
+                s.near_edge = hover;
+                s.wide.snap(hover);
+                s.bar.snap(true);
+                s.button.snap(true);
+            }
+        }
+        self.update_bar(cx);
+        let s = &mut self.scroll_ui;
+        if s.metrics.offset == 0 || !s.eligible {
+            s.button.set(false);
+            s.button_task = None;
+            s.pinned = false;
+        } else if !s.button.on() && s.button_task.is_none() {
+            s.button_task = Some(cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(BUTTON_DELAY).await;
+                let _ = this.update(cx, |v, cx| {
+                    if v.terminal.term.lock().grid().display_offset() > 0 {
+                        v.scroll_ui.button.set(true);
+                        cx.notify();
+                    }
+                });
+            }));
+        }
+    }
+
+    /// The scrollbar's frame, or None while it's invisible.
+    fn scrollbar_paint(&mut self) -> Option<crate::scrollbar::Paint> {
+        let opacity = self.scroll_ui.bar.value();
+        if !self.scroll_ui.eligible || opacity <= 0. {
+            return None;
+        }
+        let wide = self.scroll_ui.wide.value();
+        // Prompt ticks only show on the hover track, so the scan waits until it's there.
+        let prompts = if wide > 0. {
+            let term = &self.terminal.term;
+            self.scroll_ui.prompts.get_or_insert_with(|| prompt_starts(&term.lock())).clone()
+        } else {
+            Vec::new()
+        };
+        let matches = self
+            .search
+            .as_ref()
+            .map(|f| f.matches.iter().enumerate().map(|(i, m)| (m.start().line.0, f.current == Some(i))).collect())
+            .unwrap_or_default();
+        let s = &self.scroll_ui;
+        Some(crate::scrollbar::Paint {
+            metrics: s.metrics,
+            opacity,
+            wide,
+            dragging: s.drag.is_some(),
+            fg: hsla(self.palette.foreground),
+            accent: hsla(self.palette.link),
+            prompts,
+            matches,
+        })
+    }
+
+    /// Distance of the button's bottom from the pane's bottom edge.
+    fn button_bottom(&self) -> f32 {
+        let pad = f32::from(self.style.padding);
+        let mut bottom = pad + 16.;
+        let Some(pane) = self.pane_bounds() else { return bottom };
+        // Bottom-center belongs to the drop label and the resume pill; in a narrow pane they
+        // reach the corner, so the button steps up instead.
+        if f32::from(pane.size.width) < 360. {
+            bottom += 40.;
+        }
+        // Never cover the line being typed when it's on screen.
+        let term = self.terminal.term.lock();
+        let row = term.grid().cursor.point.line.0 + term.grid().display_offset() as i32;
+        if row >= 0 && (row as usize) < term.screen_lines() {
+            let ch = self.terminal.size.cell_height;
+            let pane_h = f32::from(pane.size.height);
+            let line_top = pad + row as f32 * ch;
+            let button_top = pane_h - bottom - 30.;
+            if line_top < pane_h - bottom && line_top + ch > button_top {
+                bottom = pane_h - line_top + 8.;
+            }
+        }
+        bottom
+    }
+
     fn on_scroll(&mut self, ev: &ScrollWheelEvent, _: &mut Window, cx: &mut Context<Self>) {
         let line_h = self.terminal.size.cell_height.max(1.);
         let dy = match ev.delta {
@@ -789,7 +1150,7 @@ impl TerminalView {
             self.terminal.write(bytes);
         } else {
             self.terminal.scroll(lines);
-            cx.notify();
+            self.scrolled(cx);
         }
     }
 }
@@ -1211,9 +1572,18 @@ impl Render for TerminalView {
             s.scan(&self.terminal.term.lock());
         }
         let focused = self.focus_handle.is_focused(window) && window.is_window_active();
+        self.sync_scroll_ui(cx);
         let t0 = std::time::Instant::now();
         let frame = build_frame(self, focused);
         profile::record("build_frame", t0.elapsed());
+        let scrollbar = self.scrollbar_paint();
+        let dragging = self.scroll_ui.drag.is_some();
+        let button = self.scroll_ui.button.value();
+        let button = (self.scroll_ui.eligible && button > 0.).then(|| scroll_button(self.scroll_ui.new_lines, button, self.button_bottom(), &self.palette, cx));
+        let s = &self.scroll_ui;
+        if !(s.bar.settled() && s.wide.settled() && s.button.settled()) {
+            cx.on_next_frame(window, |_, _, cx| cx.notify());
+        }
         self.links = frame.links.clone();
         self.link_map = frame.link_map.clone();
         self.hint_labels = frame.hints.as_ref().map(|(_, l)| l.iter().map(|(s, id, _)| (s.clone(), *id)).collect()).unwrap_or_default();
@@ -1244,6 +1614,7 @@ impl Render for TerminalView {
             .on_action(cx.listener(Self::find_previous))
             .on_action(cx.listener(Self::page_up))
             .on_action(cx.listener(Self::page_down))
+            .on_action(cx.listener(Self::scroll_to_bottom))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right_mouse_down))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
@@ -1284,11 +1655,35 @@ impl Render for TerminalView {
                     move |bounds, g, window, cx| {
                         let t0 = std::time::Instant::now();
                         paint_frame(bounds, g, &frame, &palette, &style, window, cx);
+                        if let Some(sb) = &scrollbar {
+                            let pane = Bounds::new(
+                                point(bounds.origin.x - style.padding_x, bounds.origin.y - style.padding),
+                                size(bounds.size.width + style.padding_x * 2., bounds.size.height + style.padding * 2.),
+                            );
+                            crate::scrollbar::paint(pane, sb, window);
+                        }
                         profile::record("paint", t0.elapsed());
+                        // A thumb drag follows the pointer anywhere in the window, not just over
+                        // this pane.
+                        if dragging {
+                            let e = entity.clone();
+                            window.on_mouse_event(move |ev: &MouseMoveEvent, phase, _, cx| {
+                                if phase == gpui::DispatchPhase::Bubble {
+                                    e.update(cx, |v, cx| v.drag_to(ev.position.y, cx));
+                                }
+                            });
+                            let e = entity.clone();
+                            window.on_mouse_event(move |ev: &MouseUpEvent, phase, _, cx| {
+                                if phase == gpui::DispatchPhase::Bubble {
+                                    e.update(cx, |v, cx| v.end_drag(ev.position, cx));
+                                }
+                            });
+                        }
                     },
                 )
                 .size_full(),
             )
+            .children(button)
             .children(self.search.as_ref().map(|s| find_bar(s, &self.palette, cx)))
             .children(self.hints.as_ref().map(|typed| hint_bar(typed, self.hint_labels.len(), &self.palette)))
             .children(
@@ -1301,8 +1696,57 @@ impl Render for TerminalView {
                     this.link_tip_task = None;
                     cx.notify();
                 }
+                if !hovered && this.scroll_ui.drag.is_none() {
+                    this.set_near_edge(false, cx);
+                }
             }))
     }
+}
+
+/// Mix `t` of the way from `a` to `b`.
+fn mix(a: Rgb, b: Rgb, t: f32) -> Hsla {
+    let m = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
+    hsla(Rgb { r: m(a.r, b.r), g: m(a.g, b.g), b: m(a.b, b.b) })
+}
+
+/// The scroll-to-bottom button, bottom-right: a round ↓, widening into "↓ 128 new lines"
+/// when output arrived while scrolled up.
+fn scroll_button(new_lines: usize, opacity: f32, bottom: f32, palette: &Palette, cx: &mut Context<TerminalView>) -> impl IntoElement {
+    let fg = hsla(palette.foreground);
+    let rest = mix(palette.background, palette.foreground, 0.10);
+    let hover = mix(palette.background, palette.foreground, 0.16);
+    let pill = new_lines > 0;
+    div()
+        .id("scroll-to-bottom")
+        .absolute()
+        .right(px(24.))
+        .bottom(px(bottom))
+        .h(px(30.))
+        .min_w(px(30.))
+        .when(pill, |d| d.pl(px(10.)).pr(px(12.)).gap(px(6.)))
+        .rounded(px(15.))
+        .bg(rest)
+        .hover(move |d| d.bg(hover))
+        .border_1()
+        .border_color(fg.opacity(0.12))
+        .shadow(vec![gpui::BoxShadow {
+            color: gpui::hsla(0., 0., 0., 0.25),
+            offset: point(px(0.), px(4.)),
+            blur_radius: px(12.),
+            spread_radius: px(0.),
+        }])
+        .opacity(opacity)
+        .flex()
+        .items_center()
+        .justify_center()
+        .font_family(".SystemUIFont")
+        .text_size(px(12.))
+        .text_color(fg)
+        .cursor(CursorStyle::PointingHand)
+        .child(div().text_color(fg.opacity(0.85)).child("↓"))
+        .when(pill, |d| d.child(crate::scrollbar::new_lines_label(new_lines)))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_click(cx.listener(|v, _, _, cx| v.jump_to_bottom(cx)))
 }
 
 /// "⌘ + click to open", just below the pointer, while it rests on a link.
@@ -1650,5 +2094,26 @@ mod prompt_tests {
         let text = format!("{open}$ ls{close}\r\na\r\nb\r\n{open}$ git status{close}\r\nclean\r\n{open}$ ");
         parser.advance(&mut term, text.as_bytes());
         assert_eq!(prompt_starts(&term), vec![0, 3, 5]);
+    }
+
+    /// The scroll-to-bottom button's count relies on this: output while scrolled up leaves the
+    /// view where it is and raises the display offset by the lines that went into history.
+    #[test]
+    fn output_while_scrolled_up_keeps_the_view() {
+        use alacritty_terminal::grid::{Dimensions, Scroll};
+        use alacritty_terminal::index::{Column, Line};
+        let mut term = Term::new(Config::default(), &TermSize::new(20, 10), VoidListener);
+        let mut parser: Processor = Processor::new();
+        let lines = |a: usize, b: usize| (a..b).map(|i| format!("line {i}\r\n")).collect::<String>();
+        parser.advance(&mut term, lines(0, 100).as_bytes());
+        term.scroll_display(Scroll::Delta(30));
+        let top = |t: &Term<VoidListener>| {
+            let line = Line(-(t.grid().display_offset() as i32));
+            (0..8).map(|c| t.grid()[line][Column(c)].c).collect::<String>()
+        };
+        let before = top(&term);
+        parser.advance(&mut term, lines(100, 128).as_bytes());
+        assert_eq!(term.grid().display_offset(), 30 + 28);
+        assert_eq!(top(&term), before);
     }
 }

@@ -52,6 +52,7 @@ pub fn commands(ws: &Workspace) -> Vec<Command> {
         act("Open Link…", "⌘⇧U", term::ShowLinkHints),
         act("Previous Prompt", "⌘↑", term::PreviousPrompt),
         act("Next Prompt", "⌘↓", term::NextPrompt),
+        act("Scroll to Bottom", "⌘⇧↓", term::ScrollToBottom),
         act("Clear Terminal", "⌘K", term::ClearScrollback),
         act("Copy", "⌘C", term::Copy),
         act("Paste", "⌘V", term::Paste),
