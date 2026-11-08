@@ -1698,11 +1698,19 @@ impl Workspace {
     fn apply_envelope(&mut self, env: Envelope, window: &Window) -> bool {
         // Plan usage limits are per account, not per tab: keep the latest from any tab.
         if env.payload.get("hook_event_name").and_then(|v| v.as_str()) == Some(t1k_agent::statusline::EVENT) {
-            let Some(usage) = t1k_agent::statusline::parse(&env.payload) else { return false };
+            // How full this tab's context is, as the agent itself reports it.
+            let mut ctx_changed = false;
+            if let Some(ctx) = t1k_agent::statusline::context(&env.payload) {
+                if let Some(a) = self.tabs.iter_mut().find(|t| t.id == env.tab_id).and_then(|t| t.agent.as_mut()) {
+                    ctx_changed = a.context_reported != Some(ctx);
+                    a.context_reported = Some(ctx);
+                }
+            }
+            let Some(usage) = t1k_agent::statusline::parse(&env.payload) else { return ctx_changed };
             let kind = env.payload.get("t1k_agent").and_then(|v| v.as_str()).and_then(t1k_agent::agents::AgentKind::from_id).unwrap_or_default();
             let changed = self.usage.get(&kind).is_none_or(|u| u.windows != usage.windows);
             self.usage.insert(kind, usage);
-            return changed;
+            return changed || ctx_changed;
         }
         // Codex writes its limits into its rollout file after each reply.
         let mut usage_changed = false;

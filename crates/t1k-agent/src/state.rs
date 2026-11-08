@@ -64,6 +64,8 @@ pub struct AgentState {
     pub model: Option<String>,
     /// The session's `/color` (red, blue, green, yellow, purple, orange, pink, cyan).
     pub color: Option<String>,
+    /// The context window as the agent's status line reports it: (percent, window size).
+    pub context_reported: Option<(f64, Option<u64>)>,
     custom_title: bool,
     tail: Option<Tail>,
 }
@@ -87,6 +89,7 @@ impl AgentState {
             context_tokens: None,
             model: None,
             color: None,
+            context_reported: None,
             custom_title: false,
             tail: None,
         }
@@ -122,12 +125,18 @@ impl AgentState {
     /// Share of the context window in use, 0-100. The window is 200k tokens unless the model
     /// says 1M or usage has already passed 200k (then the session must be on a 1M window).
     pub fn context_percent(&self) -> Option<u32> {
+        if let Some((p, _)) = self.context_reported {
+            return Some(p.round().clamp(0., 100.) as u32);
+        }
         let used = self.context_tokens?;
         Some(((used * 100) / self.context_window()?).min(100) as u32)
     }
 
     /// The model's context window in tokens (1M for "[1m]" models or past 200k, else 200k).
     pub fn context_window(&self) -> Option<u64> {
+        if let Some((_, Some(size))) = self.context_reported {
+            return Some(size);
+        }
         let used = self.context_tokens?;
         let big = self.model.as_deref().is_some_and(|m| m.contains("1m")) || used > 200_000;
         Some(if big { 1_000_000 } else { 200_000 })

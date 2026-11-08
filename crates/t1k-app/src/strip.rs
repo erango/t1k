@@ -88,7 +88,13 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
     });
 
     // Context meter: gray, amber from 70%, red from 90%.
-    let ctx = agent.filter(|a| a.status != Status::Ended).and_then(|a| Some((a.context_percent()?, a.context_tokens?, a.context_window()?))).map(|(p, used, window)| {
+    let ctx = agent.filter(|a| a.status != Status::Ended).and_then(|a| {
+        let window = a.context_window()?;
+        let p = a.context_percent()?;
+        // Reported by the agent: the tokens follow from its percent, so the two always agree.
+        let used = if a.context_reported.is_some() { window * p as u64 / 100 } else { a.context_tokens? };
+        Some((p, used, window))
+    }).map(|(p, used, window)| {
         let c = if p >= 90 { ui.status_error } else if p >= 70 { ui.status_needs } else { ui.text_quiet };
         let k = |n: u64| if n >= 1_000_000 { format!("{}M", n / 1_000_000) } else { format!("{}k", n / 1000) };
         let tip = format!("Context window: {} of {} tokens used ({p}%)", k(used), k(window));

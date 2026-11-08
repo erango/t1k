@@ -121,7 +121,8 @@ pub fn codex_rollout(tail: &str) -> Option<Usage> {
     None
 }
 
-/// What `t1k statusline` sends to the app: only the limits, nothing about the session.
+/// What `t1k statusline` sends to the app: the plan limits and how full the context window
+/// is (two numbers), nothing else about the session.
 pub fn forward_payload(kind: AgentKind, statusline_json: &Value) -> Option<Value> {
     let mut out = json!({ "hook_event_name": EVENT, "t1k_agent": kind.id() });
     for key in ["rate_limits", "quota"] {
@@ -129,7 +130,19 @@ pub fn forward_payload(kind: AgentKind, statusline_json: &Value) -> Option<Value
             out[key] = v.clone();
         }
     }
-    parse(&out).map(|_| out)
+    let ctx = context(statusline_json);
+    if let Some((pct, size)) = ctx {
+        out["context_window"] = json!({ "used_percentage": pct, "context_window_size": size });
+    }
+    (parse(&out).is_some() || ctx.is_some()).then_some(out)
+}
+
+/// The context window as the agent reports it: (percent used, window size in tokens). Claude
+/// knows its real window (200k or 1M); guessing it from the model name got it wrong.
+pub fn context(v: &Value) -> Option<(f64, Option<u64>)> {
+    let c = v.get("context_window")?;
+    let pct = c.get("used_percentage").and_then(Value::as_f64)?;
+    Some((pct, c.get("context_window_size").and_then(Value::as_u64)))
 }
 
 /// The status-line command that forwards to T1K and then runs `original` (if any).
@@ -235,6 +248,10 @@ mod tests {
         assert_eq!(u.windows[1], Window { name: "7d".into(), used: 18.0, resets_at: None });
         assert!(parse(&json!({"model": {}})).is_none());
         assert!(parse(&json!({"rate_limits": {}})).is_none());
+        // The context window comes along (two numbers), even without plan limits.
+        let fwd = forward_payload(AgentKind::Claude, &json!({"model": {"id": "x"}, "context_window": {"used_percentage": 19.4, "context_window_size": 1_000_000, "total_input_tokens": 5}})).unwrap();
+        assert_eq!(context(&fwd), Some((19.4, Some(1_000_000))));
+        assert!(fwd.get("model").is_none());
         let v = json!({"quota": {"gemini-weekly": {"remaining_fraction": 0.25, "reset_time": "2026-11-14T09:07:49Z", "reset_in_seconds": 60}}});
         let u = parse(&v).unwrap();
         assert_eq!((u.windows[0].name.as_str(), u.windows[0].used), ("gemini-weekly", 75.0));
