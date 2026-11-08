@@ -45,7 +45,10 @@ pub fn editor_command(template: &str, path: &Path, line: Option<u32>, col: Optio
 
 /// `owner/repo` of the GitHub `origin` remote for a folder.
 pub fn github_repo(cwd: &Path) -> Option<String> {
-    let out = Command::new("git")
+    // Apple's git first: an Intel-only git earlier on PATH (old installers put one in
+    // /usr/local/bin) runs under Rosetta, and macOS blames T1K for it.
+    let git = if Path::new("/usr/bin/git").exists() { "/usr/bin/git" } else { "git" };
+    let out = Command::new(git)
         .env("PATH", tool_path())
         .args(["-C", &cwd.display().to_string(), "remote", "get-url", "origin"])
         .output()
