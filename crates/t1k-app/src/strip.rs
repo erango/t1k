@@ -251,6 +251,8 @@ pub struct TopOutput {
     tooltip: String,
     /// PRs: GitHub's color for the PR's state, on the "PR" label.
     state: Option<gpui::Hsla>,
+    /// Artifacts: the icon kind shown before the title.
+    artifact: Option<String>,
 }
 
 fn top_output(ws: &Workspace, a: &t1k_agent::AgentState) -> Option<TopOutput> {
@@ -271,13 +273,21 @@ fn top_output(ws: &Workspace, a: &t1k_agent::AgentState) -> Option<TopOutput> {
                 Some((ok, _, _)) if ok > 0 => (("✓", crate::github::open()), "checks passed".into()),
                 _ => (("●", ui.text_disabled), "no checks yet".into()),
             };
-            Some(TopOutput { glyph: Some(glyph), kind: "PR", label: format!("#{n}"), url: url.clone(), tooltip: format!("Open PR #{n} · {tip}"), state: Some(gh) })
+            Some(TopOutput { glyph: Some(glyph), kind: "PR", label: format!("#{n}"), url: url.clone(), tooltip: format!("Open PR #{n} · {tip}"), state: Some(gh), artifact: None })
         })
     };
     let other = |kinds: &[Kind], name: &'static str| {
         a.outputs.iter().rev().find(|o| kinds.contains(&o.kind)).map(|o| {
-            let label: String = o.label.chars().take(22).collect();
-            TopOutput { glyph: None, kind: name, label, url: o.target.clone(), tooltip: format!("Open {}", o.label), state: None }
+            // Artifacts (v3-ae): their type's icon and title; the id never shows.
+            let artifact = (o.kind == Kind::Artifact).then(|| o.icon.clone().unwrap_or_else(|| "link".into()));
+            let label: String = if artifact.is_some() { o.label.clone() } else { o.label.chars().take(22).collect() };
+            let tooltip = match (&artifact, &o.detail) {
+                (Some(_), Some(d)) => format!("{}\n{d}\nclaude.ai · click to open", o.label),
+                (Some(_), None) if o.icon.is_none() => "Artifact\nOnly its link was mentioned; it wasn't seen being published.\nclaude.ai · click to open".to_string(),
+                (Some(_), None) => format!("{}\nclaude.ai · click to open", o.label),
+                _ => format!("Open {}", o.label),
+            };
+            TopOutput { glyph: None, kind: name, label, url: o.target.clone(), tooltip, state: None, artifact }
         })
     };
     pr(false).or_else(|| pr(true)).or_else(|| other(&[Kind::Artifact, Kind::Doc], "")).or_else(|| other(&[Kind::Ticket], ""))
@@ -346,9 +356,11 @@ fn outputs_button(ws: &Workspace, n: usize, fresh: bool, top: Option<TopOutput>,
                         .tooltip(crate::tooltip::text(ui, t.tooltip))
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .on_click(move |_, _, cx| cx.open_url(&url))
+                        .gap(px(6.))
                         .children(t.glyph.map(|(g, c)| div().text_size(px(10.)).text_color(c).child(g)))
+                        .children(t.artifact.as_deref().map(|a| crate::icons::artifact(a, ui.text_secondary, 16.)))
                         .when(!t.kind.is_empty(), |d| d.child(div().when_some(t.state, |d, c| d.text_color(c).font_weight(FontWeight::SEMIBOLD)).child(t.kind)))
-                        .child(div().font_family(if t.kind == "PR" { "JetBrains Mono" } else { ".SystemUIFont" }).when(t.kind == "PR", |d| d.text_size(px(11.5)).font_weight(FontWeight::SEMIBOLD)).child(t.label)),
+                        .child(div().max_w(px(180.)).truncate().font_family(if t.kind == "PR" { "JetBrains Mono" } else { ".SystemUIFont" }).when(t.kind == "PR", |d| d.text_size(px(11.5)).font_weight(FontWeight::SEMIBOLD)).child(t.label)),
                 )
         }))
 }

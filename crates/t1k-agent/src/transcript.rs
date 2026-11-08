@@ -16,6 +16,10 @@ const READ_CHUNK: u64 = 2 << 20;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Entry {
+    /// An Artifact publish call: its icon word, description, title and source file.
+    ArtifactCall { tool_id: String, icon: Option<String>, description: Option<String>, title: Option<String>, file: Option<String> },
+    /// The result of a tool call, naming the artifact page it published.
+    ArtifactResult { tool_id: String, url: String },
     /// The session's `/color` (None: reset).
     Color(Option<String>),
     AiTitle(String),
@@ -81,7 +85,7 @@ impl Tail {
 }
 
 const INTERESTING: &[&str] =
-    &["\"ai-title\"", "\"custom-title\"", "\"agent-color\"", "away_summary", "api_error", "pr-link", "turn_duration", "\"gitBranch\"", "\"usage\"", "[Request interrupted by user"];
+    &["\"ai-title\"", "\"custom-title\"", "\"agent-color\"", "\"Artifact\"", "away_summary", "api_error", "pr-link", "turn_duration", "\"gitBranch\"", "\"usage\"", "[Request interrupted by user"];
 
 /// Text that can mention session outputs: Claude's replies, the user's prompts, and tool
 /// results from tools like artifact publishing, but not file contents or shell output.
@@ -117,6 +121,51 @@ fn output_text(v: &Value, out: &mut String) {
     walk(content, out);
 }
 
+/// Artifact tool calls in an assistant message: what each publish says about its page.
+fn artifact_calls(msg: &Value, out: &mut Vec<Entry>) {
+    let Some(items) = msg.get("content").and_then(Value::as_array) else { return };
+    for it in items {
+        if it.get("type").and_then(Value::as_str) != Some("tool_use") || it.get("name").and_then(Value::as_str) != Some("Artifact") {
+            continue;
+        }
+        let input = &it["input"];
+        let s = |k: &str| input.get(k).and_then(Value::as_str).map(str::to_string);
+        // Reads, lists and deletes say nothing about a page.
+        if !matches!(s("action").as_deref(), None | Some("publish")) {
+            continue;
+        }
+        out.push(Entry::ArtifactCall {
+            tool_id: it.get("id").and_then(Value::as_str).unwrap_or_default().to_string(),
+            icon: s("icon"),
+            description: s("description"),
+            title: s("title"),
+            file: s("file_path"),
+        });
+    }
+}
+
+/// Tool results in a user message that name an artifact URL, by the call they answer.
+fn artifact_results(msg: &Value, out: &mut Vec<Entry>) {
+    let Some(items) = msg.get("content").and_then(Value::as_array) else { return };
+    for it in items {
+        if it.get("type").and_then(Value::as_str) != Some("tool_result") {
+            continue;
+        }
+        let Some(id) = it.get("tool_use_id").and_then(Value::as_str) else { continue };
+        let mut text = String::new();
+        let c = &it["content"];
+        match c {
+            Value::String(s) => text.push_str(s),
+            Value::Array(a) => a.iter().filter_map(|x| x.get("text").and_then(Value::as_str)).for_each(|t| text.push_str(t)),
+            _ => {}
+        }
+        // The page it published is the first artifact link (a type's own link comes later).
+        if let Some(url) = crate::outputs::urls_in(&text).into_iter().find(|u| matches!(crate::outputs::classify(u), Some((crate::outputs::Kind::Artifact, _, _)))) {
+            out.push(Entry::ArtifactResult { tool_id: id.to_string(), url });
+        }
+    }
+}
+
 pub fn parse_line(line: &[u8]) -> Option<Vec<Entry>> {
     let s = std::str::from_utf8(line).ok()?;
     let has_url = s.contains("https://");
@@ -147,6 +196,7 @@ pub fn parse_line(line: &[u8]) -> Option<Vec<Entry>> {
         // The main thread's replies carry usage; subagent (sidechain) turns don't count.
         Some("assistant") if v.get("isSidechain").and_then(Value::as_bool) != Some(true) => {
             let msg = &v["message"];
+            artifact_calls(msg, &mut out);
             if let Some(u) = msg.get("usage") {
                 let n = |k: &str| u.get(k).and_then(Value::as_u64).unwrap_or(0);
                 let context_tokens = n("input_tokens") + n("cache_read_input_tokens") + n("cache_creation_input_tokens");
@@ -170,6 +220,9 @@ pub fn parse_line(line: &[u8]) -> Option<Vec<Entry>> {
             _ => {}
         },
         _ => {}
+    }
+    if v.get("type").and_then(Value::as_str) == Some("user") {
+        artifact_results(&v["message"], &mut out);
     }
     if v.get("type").and_then(Value::as_str) == Some("user") && s.contains("[Request interrupted by user") {
         out.push(Entry::Interrupted);

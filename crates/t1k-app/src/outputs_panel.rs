@@ -400,7 +400,21 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                     .gap(px(10.))
                     .hover(move |d| d.bg(ui.bg_hover))
                     .on_click(open)
-                    .child(div().w(px(16.)).flex_none().text_size(px(13. * k)).text_color(ui.text_tertiary).child(icon(o.kind)))
+                    // Artifacts (v3-ae): their type's icon in a tile, the title, the description.
+                    .map(|d| match o.kind {
+                        Kind::Artifact => d.child(
+                            div()
+                                .size(px(28.))
+                                .flex_none()
+                                .rounded(px(6.))
+                                .bg(ui.text_primary.opacity(0.06))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(crate::icons::artifact(o.icon.as_deref().unwrap_or("link"), ui.text_secondary, 16.)),
+                        ),
+                        _ => d.child(div().w(px(16.)).flex_none().text_size(px(13. * k)).text_color(ui.text_tertiary).child(icon(o.kind))),
+                    })
                     .child(
                         div()
                             .flex_1()
@@ -409,7 +423,11 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                             .flex_col()
                             .gap(px(1.))
                             .child(div().truncate().text_size(px(12.5 * k)).text_color(ui.text_primary).child(o.label.clone()))
-                            .child(div().truncate().text_size(px(11. * k)).text_color(ui.text_tertiary).child(format!("{tab_title} · {}", age(o.at)))),
+                            .child(div().truncate().text_size(px(11. * k)).text_color(ui.text_tertiary).child(match (&o.kind, &o.detail, &o.icon) {
+                                (Kind::Artifact, Some(d), _) => d.clone(),
+                                (Kind::Artifact, None, None) => "claude.ai · link mentioned in this session".to_string(),
+                                _ => format!("{tab_title} · {}", age(o.at)),
+                            })),
                     )
                     .child(hover_buttons),
             );

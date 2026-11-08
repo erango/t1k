@@ -202,3 +202,109 @@ pub fn plus_at(color: Hsla, size: f32) -> impl IntoElement {
         p.line_to(pt(11.5, 7.));
     }, color)
 }
+
+/// Artifact type icons (canvas v3-ae), on the 14-unit grid like the rest, drawn at 16 px.
+pub fn artifact(kind: &str, color: Hsla, size: f32) -> impl IntoElement {
+    let kind = kind.to_string();
+    icon_at(size, move |pt, p| {
+        let rect = |p: &mut PathBuilder, x0: f32, y0: f32, x1: f32, y1: f32| {
+            p.move_to(pt(x0, y0));
+            p.line_to(pt(x1, y0));
+            p.line_to(pt(x1, y1));
+            p.line_to(pt(x0, y1));
+            p.close();
+        };
+        let line = |p: &mut PathBuilder, x0: f32, y0: f32, x1: f32, y1: f32| {
+            p.move_to(pt(x0, y0));
+            p.line_to(pt(x1, y1));
+        };
+        // A page with a folded corner (also the base of "doc" and "link").
+        let page = |p: &mut PathBuilder| {
+            p.move_to(pt(3., 1.5));
+            p.line_to(pt(8.5, 1.5));
+            p.line_to(pt(11., 4.));
+            p.line_to(pt(11., 12.5));
+            p.line_to(pt(3., 12.5));
+            p.close();
+            p.move_to(pt(8.5, 1.5));
+            p.line_to(pt(8.5, 4.));
+            p.line_to(pt(11., 4.));
+        };
+        let circle = |p: &mut PathBuilder, cx: f32, cy: f32, r: f32| {
+            p.move_to(pt(cx + r, cy));
+            for k in 1..=20 {
+                let a = k as f32 / 20. * std::f32::consts::TAU;
+                p.line_to(pt(cx + r * a.cos(), cy + r * a.sin()));
+            }
+        };
+        match kind.as_str() {
+            "chart" => {
+                line(p, 2., 2., 2., 12.);
+                line(p, 2., 12., 12.5, 12.);
+                line(p, 5., 12., 5., 8.);
+                line(p, 8., 12., 8., 5.);
+                line(p, 11., 12., 11., 3.);
+            }
+            "slides" => {
+                rect(p, 1.5, 2.5, 12.5, 9.5);
+                line(p, 7., 9.5, 7., 12.);
+                line(p, 4.5, 12., 9.5, 12.);
+            }
+            "doc" => {
+                page(p);
+                line(p, 5., 7., 9., 7.);
+                line(p, 5., 9.5, 9., 9.5);
+            }
+            "design" => {
+                rect(p, 1.5, 5., 8.5, 12.);
+                circle(p, 9., 5., 3.5);
+            }
+            "code" => {
+                line(p, 5., 4., 2., 7.);
+                line(p, 2., 7., 5., 10.);
+                line(p, 9., 4., 12., 7.);
+                line(p, 12., 7., 9., 10.);
+            }
+            "map" => {
+                p.move_to(pt(1.5, 3.5));
+                p.line_to(pt(5., 2.));
+                p.line_to(pt(9., 3.5));
+                p.line_to(pt(12.5, 2.));
+                p.line_to(pt(12.5, 10.5));
+                p.line_to(pt(9., 12.));
+                p.line_to(pt(5., 10.5));
+                p.line_to(pt(1.5, 12.));
+                p.close();
+                line(p, 5., 2., 5., 10.5);
+                line(p, 9., 3.5, 9., 12.);
+            }
+            "calendar" => {
+                rect(p, 1.5, 3., 12.5, 12.5);
+                line(p, 1.5, 6., 12.5, 6.);
+                line(p, 4.5, 1.5, 4.5, 4.);
+                line(p, 9.5, 1.5, 9.5, 4.);
+            }
+            "game" => {
+                p.move_to(pt(3.5, 4.));
+                p.line_to(pt(10.5, 4.));
+                p.line_to(pt(12.5, 10.));
+                p.line_to(pt(10.5, 11.));
+                p.line_to(pt(9., 9.));
+                p.line_to(pt(5., 9.));
+                p.line_to(pt(3.5, 11.));
+                p.line_to(pt(1.5, 10.));
+                p.close();
+                line(p, 4.5, 5.5, 4.5, 7.5);
+                line(p, 3.5, 6.5, 5.5, 6.5);
+                circle(p, 9.5, 6.5, 0.6);
+            }
+            "link" => {
+                page(p);
+                line(p, 5., 10., 8.5, 6.5);
+                line(p, 6., 6.5, 8.5, 6.5);
+                line(p, 8.5, 6.5, 8.5, 9.);
+            }
+            _ => page(p),
+        }
+    }, color)
+}

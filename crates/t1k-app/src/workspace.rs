@@ -594,7 +594,11 @@ impl Workspace {
                 // Re-attach the last Claude session's transcript: title, recap and outputs return.
                 if let Some(sid) = &t.last_session {
                     if let Some(path) = session::find_transcript(sid) {
-                        tab.agent = Some(AgentState::restored(sid.clone(), path));
+                        // Read it now, so titles, recaps and outputs are there in the first frame
+                        // rather than a poll later (relaunching shouldn't look like loss).
+                        let mut a = AgentState::restored(sid.clone(), path);
+                        a.poll_transcript();
+                        tab.agent = Some(a);
                     }
                 }
                 // Claude was mid-session when T1K quit: pick it back up.

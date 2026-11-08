@@ -34,6 +34,35 @@ pub struct Output {
     pub target: String,
     pub label: String,
     pub at: SystemTime,
+    /// Artifacts: the icon kind ("chart", "slides", …; see `artifact_icon`) and the
+    /// description, from the call that published it. None when only its link was seen.
+    pub icon: Option<String>,
+    pub detail: Option<String>,
+}
+
+/// Map the Artifact tool's free-form `icon` word to one of T1K's artifact icons (canvas v3-ae).
+pub fn artifact_icon(word: &str) -> &'static str {
+    let w = word.trim().to_ascii_lowercase();
+    let any = |ws: &[&str]| ws.contains(&w.as_str());
+    if any(&["chart", "graph", "dashboard", "metrics", "analytics", "stats", "kpi"]) {
+        "chart"
+    } else if any(&["slides", "deck", "presentation", "pitch"]) {
+        "slides"
+    } else if any(&["doc", "document", "memo", "notes", "report", "article", "writeup", "text"]) {
+        "doc"
+    } else if any(&["design", "canvas", "mockup", "wireframe", "ui", "palette", "layout", "icon"]) {
+        "design"
+    } else if any(&["code", "terminal", "script", "api", "json", "diff"]) {
+        "code"
+    } else if any(&["map", "location", "route", "travel"]) {
+        "map"
+    } else if any(&["calendar", "schedule", "timeline", "plan", "date", "agenda"]) {
+        "calendar"
+    } else if any(&["game", "play", "puzzle", "quiz"]) {
+        "game"
+    } else {
+        "page"
+    }
 }
 
 /// Find URLs in a raw line (JSON-escaped text is fine: quotes and backslashes end a URL).
@@ -86,11 +115,11 @@ pub fn classify(url: &str) -> Option<(Kind, String, String)> {
             Some((Kind::Doc, base.into(), "Confluence page".into()))
         }
         "claude.ai" => {
-            let id = match seg.as_slice() {
-                ["artifact", id, ..] | ["code", "artifact", id, ..] => *id,
-                _ => return None,
-            };
-            Some((Kind::Artifact, base.into(), format!("Artifact {}", &id[..id.len().min(8)])))
+            if !matches!(seg.as_slice(), ["artifact", _, ..] | ["code", "artifact", _, ..]) {
+                return None;
+            }
+            // The id says nothing to a person; a publish call gives it a title later (v3-ae).
+            Some((Kind::Artifact, base.into(), "Artifact".to_string()))
         }
         "docs.google.com" => {
             let what = match seg.first() {

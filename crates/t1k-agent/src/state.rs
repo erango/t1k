@@ -68,6 +68,8 @@ pub struct AgentState {
     pub context_reported: Option<(f64, Option<u64>)>,
     custom_title: bool,
     tail: Option<Tail>,
+    /// Artifact publish calls waiting for their result, by tool call id.
+    artifact_calls: std::collections::HashMap<String, ArtifactCall>,
 }
 
 impl AgentState {
@@ -92,12 +94,41 @@ impl AgentState {
             context_reported: None,
             custom_title: false,
             tail: None,
+            artifact_calls: Default::default(),
         }
     }
 
     pub fn add_output(&mut self, kind: Kind, target: String, label: String) {
-        self.outputs.retain(|o| o.target != target);
-        self.outputs.push(Output { kind, target, label, at: SystemTime::now() });
+        // Mentioned again: it moves to newest, keeping what a publish call said about it.
+        let old = self.outputs.iter().position(|o| o.target == target).map(|i| self.outputs.remove(i));
+        let (label, icon, detail) = match old {
+            Some(o) if o.icon.is_some() => (o.label, o.icon, o.detail),
+            _ => (label, None, None),
+        };
+        self.outputs.push(Output { kind, target, label, at: SystemTime::now(), icon, detail });
+    }
+
+    /// An Artifact publish call's result named its page: give that output a title, an icon
+    /// and the description instead of "Artifact HLA68hSS" (canvas v3-ae).
+    fn artifact_published(&mut self, url: &str, call: ArtifactCall) {
+        let Some((Kind::Artifact, target, _)) = classify(url) else { return };
+        if !self.outputs.iter().any(|o| o.target == target) {
+            self.add_output(Kind::Artifact, target.clone(), "Artifact".into());
+        }
+        let Some(o) = self.outputs.iter_mut().find(|o| o.target == target) else { return };
+        // Updates to the same page often say less than the first publish; keep what's known.
+        let title = call.title.or_else(|| call.file.as_deref().and_then(html_title));
+        if let Some(t) = title.or_else(|| (o.icon.is_none()).then(|| call.description.as_deref().map(first_words)).flatten()) {
+            o.label = t;
+        }
+        if let Some(i) = call.icon.as_deref() {
+            o.icon = Some(crate::outputs::artifact_icon(i).to_string());
+        } else if o.icon.is_none() {
+            o.icon = Some("page".into());
+        }
+        if call.description.is_some() {
+            o.detail = call.description;
+        }
     }
 
     fn add_url(&mut self, url: &str) {
@@ -250,6 +281,14 @@ impl AgentState {
                     }
                     self.add_url(&u);
                 }
+                Entry::ArtifactCall { tool_id, icon, description, title, file } => {
+                    self.artifact_calls.insert(tool_id, ArtifactCall { icon, description, title, file });
+                }
+                Entry::ArtifactResult { tool_id, url } => {
+                    if let Some(call) = self.artifact_calls.remove(&tool_id) {
+                        self.artifact_published(&url, call);
+                    }
+                }
                 Entry::Branch(b) => self.branch = Some(b),
                 Entry::Usage { context_tokens, model } => {
                     self.context_tokens = Some(context_tokens);
@@ -277,6 +316,30 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn artifacts_get_a_title_and_an_icon() {
+        let dir = std::env::temp_dir().join(format!("t1k-art-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let html = dir.join("q3.html");
+        std::fs::write(&html, "<html><head><title>Q3 retention</title></head></html>").unwrap();
+        let t = dir.join("t.jsonl");
+        let lines = [
+            json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Artifact","input":{"file_path": html, "icon":"deck","description":"Board deck for Q3"}}]}}),
+            json!({"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Published the Artifact at https://claude.ai/artifact/AAAA1111 (version 1)."}]}}),
+            json!({"type":"assistant","message":{"content":[{"type":"text","text":"Old one: https://claude.ai/artifact/LINK99"}]}}),
+        ];
+        std::fs::write(&t, lines.iter().map(|l| l.to_string() + "\n").collect::<String>()).unwrap();
+        let mut a = AgentState::restored("s".into(), t);
+        a.poll_transcript();
+        let pub_ = a.outputs.iter().find(|o| o.target.ends_with("AAAA1111")).unwrap();
+        assert_eq!(pub_.label, "Q3 retention");
+        assert_eq!(pub_.icon.as_deref(), Some("slides"));
+        assert_eq!(pub_.detail.as_deref(), Some("Board deck for Q3"));
+        let link = a.outputs.iter().find(|o| o.target.ends_with("LINK99")).unwrap();
+        assert_eq!((link.label.as_str(), link.icon.as_deref()), ("Artifact", None));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn status_flow() {
         let mut a = AgentState::new("s".into());
         a.apply_hook(Hook::UserPromptSubmit { prompt: "fix the login bug\nmore".into() });
@@ -301,4 +364,35 @@ mod tests {
         let entries = crate::transcript::parse_line(line).unwrap();
         assert!(entries.iter().any(|e| matches!(e, crate::transcript::Entry::Interrupted)));
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct ArtifactCall {
+    icon: Option<String>,
+    description: Option<String>,
+    title: Option<String>,
+    file: Option<String>,
+}
+
+/// The `<title>` of a published HTML file, if it's still there.
+fn html_title(path: &str) -> Option<String> {
+    if !path.ends_with(".html") {
+        return None;
+    }
+    use std::io::Read;
+    let mut buf = vec![0; 16 * 1024];
+    let n = std::fs::File::open(path).ok()?.read(&mut buf).ok()?;
+    let head = String::from_utf8_lossy(&buf[..n]);
+    let lower = head.to_ascii_lowercase();
+    let start = lower.find("<title>")? + 7;
+    let end = start + lower[start..].find("</title>")?;
+    let t = head[start..end].trim();
+    (!t.is_empty()).then(|| t.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">"))
+}
+
+/// The first few words of a description, as a stand-in title.
+fn first_words(s: &str) -> String {
+    let words: Vec<&str> = s.split_whitespace().take(6).collect();
+    let t = words.join(" ");
+    t.trim_end_matches(['.', ',', ':', ';']).to_string()
 }
