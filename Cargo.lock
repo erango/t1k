@@ -6111,7 +6111,7 @@ dependencies = [
 
 [[package]]
 name = "t1k-agent"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "libc",
  "log",
@@ -6121,7 +6121,7 @@ dependencies = [
 
 [[package]]
 name = "t1k-app"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "anyhow",
  "block",
@@ -6149,7 +6149,7 @@ dependencies = [
 
 [[package]]
 name = "t1k-terminal"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
