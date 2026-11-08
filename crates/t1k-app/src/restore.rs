@@ -111,6 +111,11 @@ impl Workspace {
         self.restore.as_ref()?.failed.iter().find(|(f, _)| f == id).map(|(_, why)| *why)
     }
 
+    /// Tabs are still coming back (or just did): the sidebar keeps its saved order meanwhile.
+    pub fn restore_settling(&self) -> bool {
+        self.restore.as_ref().is_some_and(|r| r.done_at.is_none_or(|t| t.elapsed() < DONE_SHOWN + FADE + FOLD_HOLD))
+    }
+
     /// A tab that was resuming stays out of quiet folding until the restore is over and a few
     /// seconds more, so nothing collapses as it comes back.
     pub fn restore_holds(&self, id: &str) -> bool {

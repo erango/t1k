@@ -1141,8 +1141,13 @@ impl Workspace {
         out.sort_by_key(|(g, _)| self.group_order.iter().position(|o| o == g).unwrap_or(usize::MAX));
         // Within a group: by the group's sort mode; attention by default (needs-you first, then
         // unread, working, the rest).
+        // While tabs come back after a quit, keep the order they had (they were saved in it):
+        // resuming sessions pass through working and idle on the way, and sorting by attention
+        // then shuffled the rows until they settled.
+        let settling = self.restore_settling();
         for (g, v) in &mut out {
             match self.group_sort.get(g).copied().unwrap_or_default() {
+                session::GroupSort::Attention if settling => v.sort_by_key(|&i| self.tabs[i].created),
                 session::GroupSort::Attention => v.sort_by_key(|&i| (self.tabs[i].urgency(), self.tabs[i].created)),
                 session::GroupSort::Activity => v.sort_by_key(|&i| std::cmp::Reverse(self.tabs[i].last_active)),
                 session::GroupSort::Opened => v.sort_by_key(|&i| self.tabs[i].created),
