@@ -3,6 +3,16 @@
   <channel>
     <title>T1K</title>
     <item>
+      <title>T1K 0.1.2</title>
+      <pubDate>Sun, 08 Nov 2026 22:36:10 +0200</pubDate>
+      <sparkle:version>0.1.2</sparkle:version>
+      <sparkle:shortVersionString>0.1.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/erango/t1k/releases/tag/v0.1.2</sparkle:fullReleaseNotesLink>
+      <description><![CDATA[<ul><li>⌘Q from the keyboard asks about running tabs again, instead of quitting right away.</li></ul>]]></description>
+      <enclosure url="https://github.com/erango/t1k/releases/download/v0.1.2/T1K-0.1.2.zip" type="application/octet-stream" sparkle:edSignature="RHJVhp5fEv6pinu3YuIq0fLfd1M2R1r/3chQp8yPpjxv3GdBG+KI1JzSrYSAaiT0J7gr2r4yPBG/Od5odVWwDg==" length="11523021" />
+    </item>
+    <item>
       <title>T1K 0.1.1</title>
       <pubDate>Sun, 08 Nov 2026 22:22:25 +0200</pubDate>
       <sparkle:version>0.1.1</sparkle:version>
