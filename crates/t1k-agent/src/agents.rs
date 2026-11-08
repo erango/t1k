@@ -244,6 +244,37 @@ pub fn install(kind: AgentKind, config: &mut Value) -> bool {
     }
 }
 
+/// Whether a config has T1K's hooks (for Claude, without asking about the status line).
+pub fn hooks_installed(kind: AgentKind, config: &Value) -> bool {
+    match kind {
+        AgentKind::Antigravity => config.get("t1k-status").is_some_and(is_t1k),
+        _ => config.get("hooks").is_some_and(is_t1k),
+    }
+}
+
+/// Take T1K's hooks out of an agent's config value, leaving everything else as it was. Event
+/// lists that only held T1K's entry go too. Returns true if anything changed. The status line
+/// is separate (`statusline::unwrap`).
+pub fn uninstall(kind: AgentKind, config: &mut Value) -> bool {
+    let Some(obj) = config.as_object_mut() else { return false };
+    if kind == AgentKind::Antigravity {
+        return obj.remove("t1k-status").is_some();
+    }
+    let Some(hooks) = obj.get_mut("hooks").and_then(Value::as_object_mut) else { return false };
+    let mut changed = false;
+    hooks.retain(|_, list| {
+        let Some(items) = list.as_array_mut() else { return true };
+        let before = items.len();
+        items.retain(|e| !is_t1k(e));
+        changed |= items.len() != before;
+        !(items.is_empty() && before > 0)
+    });
+    if changed && hooks.is_empty() {
+        obj.remove("hooks");
+    }
+    changed
+}
+
 /// Whether a config already has T1K's hooks.
 pub fn installed(kind: AgentKind, config: &Value) -> bool {
     match kind {
@@ -302,6 +333,30 @@ mod tests {
         let mut gem = json!({});
         install(AgentKind::Gemini, &mut gem);
         assert_eq!(gem["hooks"]["BeforeTool"][0]["matcher"], ".*");
+    }
+
+    #[test]
+    fn uninstall_leaves_the_users_own_hooks() {
+        let mine = json!({"model": "opus", "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "other"}]}]}});
+        let mut claude = mine.clone();
+        install(AgentKind::Claude, &mut claude);
+        assert!(hooks_installed(AgentKind::Claude, &claude));
+        assert!(uninstall(AgentKind::Claude, &mut claude));
+        assert!(!uninstall(AgentKind::Claude, &mut claude), "idempotent");
+        assert!(!hooks_installed(AgentKind::Claude, &claude));
+        // The status line is its own switch.
+        assert!(crate::statusline::unwrap(&mut claude));
+        assert_eq!(claude, mine);
+
+        let mut codex = json!({});
+        install(AgentKind::Codex, &mut codex);
+        assert!(uninstall(AgentKind::Codex, &mut codex));
+        assert_eq!(codex, json!({}));
+
+        let mut agy = json!({"orca-status": {"Stop": []}});
+        install(AgentKind::Antigravity, &mut agy);
+        assert!(uninstall(AgentKind::Antigravity, &mut agy));
+        assert_eq!(agy, json!({"orca-status": {"Stop": []}}));
     }
 }
 

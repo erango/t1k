@@ -20,6 +20,7 @@ pub fn install(cx: &mut App) {
                     MenuItem::action("Check for Updates…", CheckForUpdates),
                     MenuItem::separator(),
                     MenuItem::action("Settings…", OpenSettings),
+                    MenuItem::action("Set up T1K…", RunSetup),
                     MenuItem::separator(),
                     MenuItem::action("New Tab", NewTab),
                     MenuItem::action("Quit T1K", Quit),

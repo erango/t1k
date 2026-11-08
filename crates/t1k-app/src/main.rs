@@ -36,6 +36,7 @@ mod reminders;
 mod usage;
 mod session;
 mod settings;
+mod setup;
 mod shell;
 mod split;
 mod strip;

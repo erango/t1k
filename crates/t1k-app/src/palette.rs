@@ -63,6 +63,7 @@ pub fn commands(ws: &Workspace) -> Vec<Command> {
         act("Smaller Text", "⌘−", DecreaseFontSize),
         act("Actual Size", "⌘0", ResetFontSize),
         act("Settings", "⌘,", OpenSettings),
+        act("Set up T1K…", "", RunSetup),
         act("Choose Theme…", "", ShowThemePicker),
         act("Check for Updates…", "", CheckForUpdates),
         act("Report a Bug…", "", ReportBug),

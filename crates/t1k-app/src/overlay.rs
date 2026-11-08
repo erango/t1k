@@ -63,6 +63,8 @@ pub enum Overlay {
     RemindCustom { tab: usize, text: String },
     /// Theme picker: `dark` is the slot being chosen.
     ThemePicker { query: String, selected: usize, dark: bool },
+    /// "Set up T1K" (canvas v3-ah, A): `step` 0-6, or `setup::DONE` for "All set".
+    Setup { step: usize },
 }
 
 /// Switcher filter chips.
@@ -219,6 +221,8 @@ impl Workspace {
             let h = gpui::Focusable::focus_handle(t.view.read(cx), cx);
             window.focus(&h);
         }
+        // Something opened from setup (a key it showed, the theme picker...) goes back to it.
+        self.setup_return(window, cx);
         cx.notify();
     }
 
@@ -383,6 +387,7 @@ impl Workspace {
             Overlay::QuitUpdate => (ev.keystroke.key != "escape").then_some(Overlay::QuitUpdate),
             Overlay::QuitRunning { expanded, selected } => self.quit_key(expanded, selected, ev, window, cx),
             Overlay::ThemePicker { query, selected, dark } => self.theme_picker_key(query, selected, dark, ev, window, cx),
+            Overlay::Setup { step } => self.setup_key(step, ev, window, cx),
             // The open font picker takes the typing for its own search; Esc clears that, then
             // closes the picker.
             Overlay::Settings { section } if self.fonts.open => {
@@ -834,6 +839,10 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                 .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, window, cx| this.import_themes(paths.paths(), window, cx)))
                 .child(crate::theme_picker::render(ws, query, *selected, *dark, window, cx));
             Some(scrim(ws, true, cx).bg(gpui::black().opacity(0.2)).flex().justify_center().items_start().child(panel).into_any_element())
+        }
+        Overlay::Setup { step } => {
+            let sheet = crate::setup::render(ws, *step, window, cx);
+            Some(scrim(ws, false, cx).bg(gpui::black().opacity(0.35)).flex().justify_center().items_center().child(sheet).into_any_element())
         }
         Overlay::Settings { section } => {
             let panel = crate::settings::render(ws, *section, window, cx);

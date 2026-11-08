@@ -94,6 +94,10 @@ pub struct Session {
     /// "Look like Warp?" was answered (matched or Not now): it isn't offered again.
     #[serde(default)]
     pub match_offered: bool,
+    /// "Set up T1K": the last step finished (0 once started, 7 when done or skipped). None:
+    /// never opened.
+    #[serde(default)]
+    pub setup_step: Option<u8>,
     #[serde(default)]
     pub active: usize,
     #[serde(default)]
