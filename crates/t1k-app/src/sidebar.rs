@@ -930,8 +930,9 @@ fn nav_button(ws: &Workspace, back: bool, cx: &mut Context<Workspace>) -> impl I
         .child(crate::icons::chevron(if enabled { ui.text_secondary } else { ui.text_disabled }, back))
 }
 
-/// Title color by state (design v2): bright for selected / unread / due, normal while
-/// something is happening, quieter once done and seen, quietest when idle.
+/// Title color: bright for selected / unread / due, one readable level for everything else.
+/// State lives in the icon (badge, fade), not the title: with many settled tabs, graded title
+/// fades turned the whole list gray and hard to scan.
 fn title_color(tab: &Tab, selected: bool, alt: bool, ui: UiColors) -> gpui::Hsla {
     if alt {
         return ui.text_quiet;
@@ -939,12 +940,7 @@ fn title_color(tab: &Tab, selected: bool, alt: bool, ui: UiColors) -> gpui::Hsla
     if selected || tab.unread || tab.reminder_due {
         return ui.text_primary;
     }
-    match tab.status() {
-        Some(Status::Done) => ui.text_quiet,
-        Some(Status::Idle) | Some(Status::Ended) => ui.text_tertiary,
-        _ if tab.program.is_none() && tab.agent.is_none() => ui.text_tertiary,
-        _ => ui.text_secondary,
-    }
+    ui.text_secondary
 }
 
 /// Program icon (18 px) with a status badge on its corner: turning ring while working,
@@ -963,7 +959,9 @@ fn status_icon(tab: &Tab, ui: UiColors, sidebar_bg: gpui::Hsla, selected: bool, 
         // this small couldn't be seen.
         _ => None,
     };
-    let quiet = matches!(tab.status(), Some(Status::Ended) | Some(Status::Idle)) && !tab.unread;
+    // Idle, ended, and plain shells with nothing running fade the icon; the title stays readable.
+    let quiet = !tab.unread
+        && (matches!(tab.status(), Some(Status::Ended) | Some(Status::Idle)) || (tab.program.is_none() && tab.agent.is_none()));
     let off = -(d / 3.).round();
     div()
         .relative()
