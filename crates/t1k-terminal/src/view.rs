@@ -2116,4 +2116,25 @@ mod prompt_tests {
         assert_eq!(term.grid().display_offset(), 30 + 28);
         assert_eq!(top(&term), before);
     }
+
+    /// Scrolling back from a gravity-shifted bottom moves one line at a time from what was
+    /// shown; it used to jump to the blank rows first.
+    #[test]
+    fn gravity_shift_carries_into_scrollback() {
+        use alacritty_terminal::grid::Scroll;
+        let mut term = Term::new(Config::default(), &TermSize::new(20, 10), VoidListener);
+        let mut parser: Processor = Processor::new();
+        let text = (0..100).map(|i| format!("line {i}\r\n")).collect::<String>();
+        parser.advance(&mut term, text.as_bytes());
+        // A TUI shrinks its live region: up 5 rows, erase below.
+        parser.advance(&mut term, b"\x1b[5A\x1b[J");
+        let shift = crate::terminal::gravity_shift(&term);
+        assert_eq!(shift, 5);
+        let shown = |t: &Term<VoidListener>| t.grid().display_offset() + crate::terminal::gravity_shift(t);
+        let at_bottom = shown(&term);
+        for step in 1..=3 {
+            term.scroll_display(Scroll::Delta(1));
+            assert_eq!(shown(&term), at_bottom + step);
+        }
+    }
 }

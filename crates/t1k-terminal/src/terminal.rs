@@ -78,12 +78,14 @@ pub struct Terminal {
 /// With prompt gravity at the bottom, blank rows under the cursor are hidden by showing that
 /// many earlier lines at the top instead. A TUI that shrinks its live region (Claude Code after a
 /// tall permission prompt is answered) erases lines and leaves the screen's bottom empty, which
-/// otherwise stays empty until more output scrolls it. Only on the main screen, at the bottom of
-/// scrollback, and never more than the history there is.
-pub fn gravity_shift(term: &Term<Listener>) -> usize {
+/// otherwise stays empty until more output scrolls it. Only on the main screen, and never more
+/// than the history there is. Scrolled back, the shift still applies (capped by the history
+/// left above), so scrolling moves on from what was shown instead of first jumping to the
+/// blank rows.
+pub fn gravity_shift<T: EventListener>(term: &Term<T>) -> usize {
     use alacritty_terminal::grid::Dimensions;
     use alacritty_terminal::index::{Column, Line};
-    if term.mode().contains(TermMode::ALT_SCREEN) || term.grid().display_offset() != 0 {
+    if term.mode().contains(TermMode::ALT_SCREEN) {
         return 0;
     }
     let grid = term.grid();
@@ -103,7 +105,7 @@ pub fn gravity_shift(term: &Term<Listener>) -> usize {
     if blank * 2 > term.screen_lines() {
         return 0;
     }
-    blank.min(grid.history_size())
+    blank.min(grid.history_size().saturating_sub(grid.display_offset()))
 }
 
 /// The user's shell as a login session, without the "Last login" banner.
