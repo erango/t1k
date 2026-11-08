@@ -329,6 +329,13 @@ impl Terminal {
         snapshot_term(&term, max_lines, cut)
     }
 
+    /// The last `n` lines of output, skipping an agent's input box and status line at the
+    /// bottom (Claude Code, Codex and others draw a box between two full-width rules, with the
+    /// status line under it). Without that, a preview showed only the status line.
+    pub fn last_output_lines(&self, n: usize) -> Vec<String> {
+        without_agent_chrome(self.last_lines(n + 24), n)
+    }
+
     /// The last `n` non-blank lines of the screen (for previews), oldest first.
     pub fn last_lines(&self, n: usize) -> Vec<String> {
         use alacritty_terminal::grid::Dimensions;
@@ -543,5 +550,34 @@ mod snapshot_tests {
         let src = term_with(format!("{long}\r\n").as_bytes(), 10);
         let text = String::from_utf8(snapshot_term(&src, 100, None)).unwrap();
         assert!(text.contains(&long), "{text:?}");
+    }
+}
+
+/// Drop an agent's input box and what's under it (status line, hints), then keep the last `n`.
+pub fn without_agent_chrome(mut lines: Vec<String>, n: usize) -> Vec<String> {
+    let is_rule = |l: &str| {
+        let t = l.trim();
+        t.chars().count() >= 20 && t.chars().filter(|&c| matches!(c, '─' | '━' | '═' | '-' | '—')).count() * 10 >= t.chars().count() * 9
+    };
+    // The box's top rule is the second rule from the bottom, within the last few lines.
+    let rules: Vec<usize> = lines.iter().enumerate().rev().take(12).filter(|(_, l)| is_rule(l)).map(|(i, _)| i).collect();
+    if rules.len() >= 2 {
+        lines.truncate(rules[1]);
+    }
+    lines.retain(|l| !is_rule(l));
+    let skip = lines.len().saturating_sub(n);
+    lines.split_off(skip)
+}
+
+#[cfg(test)]
+mod chrome_tests {
+    #[test]
+    fn previews_skip_the_input_box_and_status_line() {
+        let rule = "─".repeat(60);
+        let l = |s: &str| s.to_string();
+        let screen = vec![l("● Done: tests pass"), l("✻ Worked for 38s"), rule.clone(), l("❯ "), rule.clone(), l("  Opus 5.5  [██░░] 40% used"), l("  ▸▸ auto mode on")];
+        assert_eq!(super::without_agent_chrome(screen, 3), vec![l("● Done: tests pass"), l("✻ Worked for 38s")]);
+        let plain = vec![l("a"), l("b"), l("c"), l("d")];
+        assert_eq!(super::without_agent_chrome(plain, 2), vec![l("c"), l("d")]);
     }
 }

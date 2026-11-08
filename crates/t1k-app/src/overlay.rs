@@ -988,7 +988,7 @@ fn card(ws: &Workspace, i: usize, selected: bool, cx: &mut Context<Workspace>) -
         })
         .child({
             // Mini terminal: the last lines on screen, newest last; colored by state.
-            let lines = t.view.read(cx).terminal.last_lines(3);
+            let lines = t.view.read(cx).terminal.last_output_lines(3);
             let last_color = match t.status() {
                 Some(Status::NeedsInput { .. }) => ui.status_needs,
                 Some(Status::Error { .. }) => ui.status_error,

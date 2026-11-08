@@ -838,7 +838,7 @@ pub(crate) fn card(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> im
     let needs = matches!(tab.status(), Some(Status::NeedsInput { .. }));
     let working = matches!(tab.status(), Some(Status::Working) | Some(Status::Error { .. }));
     // Screen excerpt: Claude's question while it waits, the last lines while it works.
-    let screen = (needs || working).then(|| tab.view.read(cx).terminal.last_lines(if needs { 6 } else { 3 }));
+    let screen = (needs || working).then(|| tab.view.read(cx).terminal.last_output_lines(if needs { 6 } else { 3 }));
     let recap = agent.and_then(|a| a.recap.clone()).filter(|_| !needs);
     let mut chips: Vec<(String, gpui::Hsla)> = Vec::new();
     if let Some(b) = tab.branch() {
