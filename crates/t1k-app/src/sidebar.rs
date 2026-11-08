@@ -161,6 +161,9 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
     };
     div()
         .id("sidebar")
+        // In a background window the chrome dims; pointing at the sidebar lifts it, so you can
+        // read the tabs to pick one before clicking.
+        .on_hover(cx.listener(|this, hovered: &bool, _, cx| this.sidebar_hovered(*hovered, cx)))
         .relative()
         .w(px(width))
         .flex_none()

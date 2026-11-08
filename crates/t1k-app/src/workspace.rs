@@ -220,6 +220,9 @@ pub struct Workspace {
     pub drop_hover: Option<crate::drop::DropHover>,
     /// ⌘A in the emoji picker's search: the whole query is selected.
     pub icon_query_all: bool,
+    /// The window isn't key (its chrome dims), and the pointer is over the sidebar (it doesn't).
+    window_inactive: bool,
+    sidebar_hover: bool,
     /// Tabs coming back after a quit (canvas v3-ab).
     pub restore: Option<crate::restore::Restore>,
     /// Automatic group hue (ANSI 4-6), by name, bumped so neighbors differ.
@@ -446,6 +449,8 @@ impl Workspace {
             fonts: Default::default(),
             drop_hover: None,
             icon_query_all: false,
+            window_inactive: false,
+            sidebar_hover: false,
             restore: None,
             auto_hues: HashMap::new(),
             hues_for: Vec::new(),
@@ -2022,6 +2027,20 @@ impl Workspace {
 
     /// Canvas v3-u: 150 ms ease-out into the inactive look, 80 ms back; instant with Reduce motion.
     fn set_inactive(&mut self, inactive: bool, cx: &mut Context<Self>) {
+        self.window_inactive = inactive;
+        self.apply_dim(cx);
+    }
+
+    /// The pointer entered or left the sidebar (it undims a background window's chrome).
+    pub fn sidebar_hovered(&mut self, hovered: bool, cx: &mut Context<Self>) {
+        if self.sidebar_hover != hovered {
+            self.sidebar_hover = hovered;
+            self.apply_dim(cx);
+        }
+    }
+
+    fn apply_dim(&mut self, cx: &mut Context<Self>) {
+        let inactive = self.window_inactive && !self.sidebar_hover;
         let to = if inactive { 1. } else { 0. };
         if self.dim.1 == to {
             return;
