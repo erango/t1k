@@ -183,7 +183,9 @@ impl Theme {
         let hc = self.is_high_contrast();
         // Text tiers and fills: (normal, high contrast).
         let t = |n: f32, h: f32| if hc { h } else { n };
-        let sidebar = mix(bg, fg, if self.is_dark() { t(0.05, 0.1) } else { t(0.12, 0.1) });
+        // Dark: the selected row is the terminal's own color joined to it, so the sidebar sits a
+        // clear step lighter (8.5%) for that row to stand out at a glance.
+        let sidebar = mix(bg, fg, if self.is_dark() { t(0.085, 0.1) } else { t(0.12, 0.1) });
         let shade = if self.is_dark() { 0x000000 } else { 0x6b7280 };
         let accent = self.accent.unwrap_or(if self.is_dark() { self.ansi[12] } else { self.ansi[4] });
         UiColors {
@@ -196,7 +198,7 @@ impl Theme {
             bg_terminal: hsla(bg, 1.),
             // Cards, popovers and offers sit on the sidebar (itself 5% toward the text in dark
             // themes), so they need a clear step above it to read as a separate surface.
-            bg_raised: hsla(mix(bg, fg, if self.is_dark() { t(0.11, 0.16) } else { 0.0 }), 1.),
+            bg_raised: hsla(mix(bg, fg, if self.is_dark() { t(0.14, 0.16) } else { 0.0 }), 1.),
             bg_hover: hsla(mix(bg, fg, t(0.06, 0.1)), 1.),
             bg_selected: hsla(mix(bg, fg, t(0.11, 0.2)), 1.),
             bg_control: hsla(mix(bg, fg, t(0.16, 0.22)), 1.),
