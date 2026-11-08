@@ -1,51 +1,51 @@
 <p align="center"><img src="resources/brand/readme-header.png" alt="T1K" width="600"></p>
 
-<p align="center"><b>The terminal for running many coding agents at once.</b><br>
+<p align="center"><b>A macOS terminal for running many coding agents at once.</b><br>
 See which one needs you, without switching tabs.</p>
 
 <p align="center">
-<a href="https://github.com/erango/t1k/releases/latest">Download</a> ·
+<a href="https://github.com/erango/t1k/releases/latest"><b>Download</b></a> ·
 <a href="#install">Install</a> ·
-<a href="#connect-your-agents">Connect agents</a> ·
 <a href="#keys">Keys</a> ·
+<a href="#configure">Configure</a> ·
 <a href="https://github.com/erango/t1k/issues">Report a bug</a>
 </p>
 
----
+<p align="center"><img src="docs/screenshots/hero.png" alt="T1K with fifteen agent tabs in five projects: two need you, one has an error, five are working" width="900"></p>
 
-When you run ten or thirty agent sessions side by side (Claude Code, Codex, Antigravity, Grok), the hard part isn't the terminal. It's knowing which session finished, which one is stuck on a question, and which one you haven't looked at yet. T1K is a native macOS terminal built around that one question: **what needs me now?**
+When ten or thirty agent sessions run side by side (Claude Code, Codex, Antigravity, Gemini CLI, Grok), the hard part is knowing which one finished, which one is stuck on a question, and which one you haven't looked at yet. T1K is a native terminal built around that question: **what needs me now?**
 
-- **A calm sidebar.** Tabs group by git repo. A row stays quiet until its agent needs you: amber for a question, red for an error, a mercury dot for something new. Working agents get a small gray spinner. Rows never jump around.
-- **Live agent status.** Agents report through their own hooks, so the status is exact rather than guessed from screen text: working, needs you, done, error. Claude Code tabs also take their title from the session and show what the agent is doing right now ("Editing src/auth.rs") or its recap.
-- **A needs-you queue.** ⌘J jumps to the tab that has waited longest. The Dock shows a count, and the icon's eyes turn red while anything waits. Banners say which tab needs you; clicking one opens it.
+**Requirements:** macOS 13 (Ventura) or later.
+
+## What it does
+
+- **A quiet sidebar.** Tabs group by git repo. A row stays quiet until its agent needs you: amber for a question, red for an error, a dot for something you haven't seen. Working agents get a small gray spinner.
+- **Live agent status.** Agents report through their own hooks, so the status comes from the agent, not guessed from screen text. Claude Code tabs also take their title, recap, branch, PRs and context use from the session.
+- **A needs-you queue.** ⌘J jumps to the tab that has waited longest. The Dock shows a count, and a banner says which tab needs you.
+
+  <img src="docs/screenshots/needs-you.png" alt="The sidebar with three tabs in the Needs you queue, and the hover card of one waiting to run terraform apply" width="720">
+
 - **Find anything.** ⌘P finds a tab by title, project, branch, PR number, recap or path. ⌘O shows every agent as a card. ⌘⇧P runs any command.
-- **Outputs.** ⌘⇧O lists what each session produced: PRs with live state and CI, edited files, docs, tickets and deploys.
-- **A real terminal.** GPU-rendered with Zed's GPUI and alacritty's terminal core: truecolor, font fallbacks for Powerline and Nerd Font icons, splits, find, prompt jumping, clickable file paths, PRs and ticket keys, a Markdown viewer for files, 22 themes (including high contrast dark and light) plus importers for Ghostty, iTerm2, Alacritty, Windows Terminal and base16.
 
-T1K is macOS only, written in Rust.
+  <img src="docs/screenshots/overview.png" alt="Overview: every agent as a card with its state, branch, PR and last lines" width="720">
+
+- **Outputs.** ⌘⇧O lists what each session produced: PRs with their CI checks and review state, artifacts, docs, tickets, deploys and edited files.
+
+  <img src="docs/screenshots/outputs.png" alt="The outputs panel with two PRs, an artifact, a ticket, a deploy and four edited files" width="720">
+
+- **A real terminal.** GPU-rendered with Zed's GPUI and alacritty's terminal core: truecolor, splits, find, prompt jumping, clickable file paths, PRs and ticket keys, and a Markdown viewer for files. 22 built-in themes, plus importers for Ghostty, iTerm2, Alacritty, Windows Terminal and base16.
+
+More screenshots, and how they're made, are in [docs/screenshots](docs/screenshots/README.md).
 
 ## Install
 
-**Download** the latest `T1K-<version>.zip` from [Releases](https://github.com/erango/t1k/releases/latest), unzip it and move T1K.app to Applications. It's signed and notarized, and keeps itself up to date (Settings › Advanced › Updates).
+1. [Download](https://github.com/erango/t1k/releases/latest) `T1K-<version>.zip`, unzip it, and move T1K.app to Applications. It's signed and notarized, and keeps itself up to date (Settings › Advanced › Updates).
+2. Open it. The welcome sheet offers **Set up T1K**: seven short steps for agents, look, sidebar, tabs, attention, the helper and keys. You can run it again any time from the T1K menu.
+3. Connect your agents, so T1K hears their status. The setup's Agents step and Settings › Agents do this with a click, or from a terminal:
 
-**Or build it** with Rust (stable) and `rsvg-convert` (`brew install librsvg`):
-
-```sh
-git clone https://github.com/erango/t1k && cd t1k
-scripts/bundle.sh --install   # builds T1K.app, copies it to /Applications, links the `t1k` CLI
-```
-
-A build without a Developer ID certificate is signed ad-hoc and runs on your own Mac.
-
-## Connect your agents
-
-T1K learns each agent's state from its hooks. Install them for every agent it finds:
-
-```sh
-t1k setup-agents
-```
-
-or press **Connect agents** on the welcome screen, or use Settings › Agents.
+   ```sh
+   /Applications/T1K.app/Contents/MacOS/t1k setup-agents
+   ```
 
 | Agent | Hook config | Notes |
 |---|---|---|
@@ -61,58 +61,59 @@ Each config is backed up next to itself first (`*.json.t1k-backup`). The hooks o
 
 | Key | Action |
 |---|---|
-| ⌘T / ⌘W | New tab in the current folder / close tab |
+| ⌘T / ⌘W | New tab / close tab |
+| ⌘⇧T | Reopen closed tab |
 | ⌘1–9, ⌘⇧[ ⌘⇧] | Select a tab (sidebar order) |
 | ⌘[ / ⌘] | Back / forward through the tabs you visited |
 | ⌘J / ⌘⇧J | Next / previous tab that needs you |
 | ⌘P | Find a tab |
-| ⌘⇧P | Command palette |
 | ⌘O | Overview of every agent |
 | ⌘⇧O | Outputs panel |
+| ⌘⇧P | Command palette |
 | ⌘⇧R | Rename tab (or double-click it) |
+| ⌘Z | Undo moving tabs |
+| ⌘⌃↑ / ⌘⌃↓ | Move group up / down |
 | ⌘\ | Show / hide the sidebar |
-| ⌘⇧L | Toggle dark / light |
+| ⌘⇧L | Dark / light |
 | ⌘D / ⌘⇧D | Split right / down; ⌘⌥ arrows switch panes |
 | ⌘F, ⌘G / ⌘⇧G | Find in scrollback, next / previous match |
 | ⌘↑ / ⌘↓ | Previous / next prompt (zsh) |
-| ⌘-click | Open a link, file path, PR or ticket; ⌘-right-click for Open With |
 | ⌘⇧U | Label every link with a letter, then type it to open |
 | ⌘K | Clear screen and scrollback |
-| ⌘⌫, ⌘← ⌘→, ⌥← ⌥→ | Delete line, line start / end, word left / right |
 | ⌘+ / ⌘− / ⌘0 | Bigger / smaller / default text |
+| ⌘, | Settings |
 
-Right-click a tab to mark it unread, set a reminder, resume an ended Claude session, copy its branch or move it to another group. Right-click a group header to rename it, color it or change how it sorts.
+⌘-click opens a link, file path, PR or ticket. Right-click a tab to mark it unread, set a reminder, resume an ended Claude session, copy its branch or move it to another group; right-click a group header to rename it, color it or change how it sorts. Every shortcut can be changed in Settings › Keybindings or under `[keys]` in config.toml.
 
 ## Configure
 
-Every setting is a line in `~/.config/t1k/config.toml`. T1K writes a commented copy on first run, and saved changes apply immediately. Settings (⌘,) edits the same file, keeps your comments, and can search across every page.
+Every setting is a line in `~/.config/t1k/config.toml`. T1K writes a commented copy on first run, and saved changes apply right away. Settings (⌘,) edits the same file, keeps your comments, and can search every page.
 
-Themes: pick one for dark mode and one for light, and T1K follows macOS. Import more from the command line or by dropping a file on the window:
+Themes: pick one for dark mode and one for light, and T1K follows macOS. View › Choose Theme… previews them live. Import more by dropping a theme file on the window, or from the command line:
 
 ```sh
 t1k theme import ~/Downloads/Dracula.itermcolors   # Ghostty, iTerm2, Alacritty, Windows Terminal, base16
 t1k theme list
 ```
 
-Shortcuts: Settings › Keybindings, or `[keys]` in config.toml. Themes with live preview: View › Choose Theme….
+(`t1k` is `/Applications/T1K.app/Contents/MacOS/t1k`; a source build with `--install` links it onto your PATH.)
 
-**Optional helper.** Codex, Antigravity and Grok sessions don't name themselves or write recaps. Turn on `[helper]` (Settings › Agents) and a small model, run through an agent CLI you already use, fills those in, and ⌘↵ in Find tab ranks tabs by meaning. It's off by default. Each call is measured: `t1k helper bench` compares the CLIs you have, and `t1k helper stats` shows what it used. On Claude Code's Haiku a call takes about 3 s and $0.0001.
+**Optional helper.** Codex, Antigravity and Grok sessions don't name themselves or write recaps. Turn on `[helper]` (Settings › Agents) and a small model, run through an agent CLI you already use, fills those in, and ⌘↵ in Find tab ranks tabs by meaning. It's off by default. `t1k helper bench` compares the CLIs you have, and `t1k helper stats` shows what it used.
 
-Not a fan of the android? Settings › Appearance › App icon offers a chrome `>_` prompt or the T1K wordmark.
+## Build from source
 
-## Privacy
-
-Release builds send crash reports and error messages to the developers through [Sentry](https://sentry.io), so bugs get fixed without anyone having to file them. They never include terminal contents. Before anything is sent, your home folder becomes `~`, user names in paths, email addresses and URL query strings are removed, and text a crash quotes is redacted ([`telemetry.rs`](crates/t1k-app/src/telemetry.rs)). Turn it off in Settings › Advanced › Privacy (`privacy.crash_reports = false`), or set `T1K_TELEMETRY=off`. Builds from source send nothing unless you give them your own DSN.
-
-The update check fetches [`appcast.xml`](appcast.xml) from this repo once a day; turn that off in Settings › Advanced › Updates.
-
-## Build and contribute
+Needs Rust (stable) and `rsvg-convert` (`brew install librsvg`).
 
 ```sh
-cargo run -p t1k-app    # debug build, runs from the terminal
-cargo test              # all crates
+git clone https://github.com/erango/t1k && cd t1k
+cargo run -p t1k-app              # debug build, runs from the terminal
+cargo test                        # all crates
 cargo clippy
+./scripts/bundle.sh               # release T1K.app in target/release
+./scripts/bundle.sh --install     # also copy to /Applications and link the t1k CLI
 ```
+
+A build without a Developer ID certificate is signed ad-hoc and runs on your own Mac.
 
 | Crate | What lives there |
 |---|---|
@@ -121,9 +122,13 @@ cargo clippy
 | `crates/t1k-agent` | Hook parsing, the status machine, per-agent installers, transcript tailing, outputs |
 | `crates/t1k-app` | The app and CLI: workspace, sidebar, overlays, settings, updates |
 
-[`CLAUDE.md`](CLAUDE.md) has the working notes: how config and session state flow, debug environment variables for opening any screen at launch, and conventions. The design spec is [`docs/design.md`](docs/design.md).
+[`CLAUDE.md`](CLAUDE.md) has the working notes: how config and session state flow, debug environment variables for opening any screen at launch, and conventions. The design spec is [`docs/design.md`](docs/design.md). Pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md), and open an issue first for anything bigger than a fix.
 
-Bugs and ideas go in [Issues](https://github.com/erango/t1k/issues). Pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). For anything bigger than a fix, open an issue first so we can agree on the shape. Keep the product rule in mind: T1K stays quiet until something needs a person.
+## Privacy
+
+- **Crash reports.** Release builds send crash reports and error messages to the developers through [Sentry](https://sentry.io). They never include terminal contents. Before anything is sent, your home folder becomes `~`, and email addresses, URL query strings and text a crash quotes are removed ([`telemetry.rs`](crates/t1k-app/src/telemetry.rs)). It's on by default; turn it off in Settings › Advanced › Privacy (`privacy.crash_reports = false`) or with `T1K_TELEMETRY=off`. Builds from source send nothing unless you give them your own DSN.
+- **Updates.** The update check fetches [`appcast.xml`](appcast.xml) from this repo once a day; turn it off in Settings › Advanced › Updates.
+- **Helper.** Off by default. When on, it sends a session's prompts and the last lines on its screen (and, for ⌘↵ search, each tab's title, project, branch and status line) to the agent CLI you chose, which runs on your own account.
 
 ## Thanks
 
