@@ -57,6 +57,7 @@ pub const ALL: &[Bind] = &[
     b!("outputs", "Outputs panel", "Agents", ["cmd-shift-o"], ToggleOutputs),
     b!("command_palette", "Command palette", "Window", ["cmd-shift-p"], ToggleCommandPalette),
     b!("settings", "Settings", "Window", ["cmd-,"], OpenSettings),
+    b!("setup", "Set up T1K", "Window", [], RunSetup),
     b!("toggle_sidebar", "Show / hide sidebar", "Window", ["cmd-\\"], ToggleSidebar),
     b!("toggle_appearance", "Dark / light", "Window", ["cmd-shift-l"], ToggleAppearance),
     b!("theme_picker", "Choose theme", "Window", [], ShowThemePicker),

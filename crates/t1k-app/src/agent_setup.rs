@@ -89,6 +89,50 @@ pub fn install(kind: AgentKind) -> anyhow::Result<bool> {
     Ok(changed)
 }
 
+/// Whether T1K's hooks are in this agent's config (for Claude, whatever its status line).
+pub fn hooked(kind: AgentKind) -> bool {
+    read(kind).is_some_and(|v| agents::hooks_installed(kind, &v))
+}
+
+/// Take T1K's hooks out again (and Antigravity's status-line wrapper, which `install` added
+/// with them). Claude's status line has its own switch, `set_claude_limits`. Ok(true) if a
+/// file changed; each file is backed up before it's written.
+pub fn remove(kind: AgentKind) -> anyhow::Result<bool> {
+    let path = config_path(kind).ok_or_else(|| anyhow::anyhow!("HOME not set"))?;
+    let mut changed = false;
+    if path.exists() {
+        let mut config = read_json(&path)?;
+        if agents::uninstall(kind, &mut config) {
+            write_json(&path, &config)?;
+            changed = true;
+        }
+    }
+    if let Some(path) = statusline_path(kind).filter(|p| p.exists()) {
+        let mut settings = read_json(&path)?;
+        if t1k_agent::statusline::unwrap(&mut settings) {
+            write_json(&path, &settings)?;
+            changed = true;
+        }
+    }
+    Ok(changed)
+}
+
+/// Whether Claude Code's status line goes through T1K (its plan usage limits reach the meter).
+pub fn claude_limits() -> bool {
+    read(AgentKind::Claude).is_some_and(|v| t1k_agent::statusline::is_wrapped(&v))
+}
+
+/// Wrap or unwrap Claude Code's status line, as `setup-claude` does. Ok(true) if it changed.
+pub fn set_claude_limits(on: bool) -> anyhow::Result<bool> {
+    let path = config_path(AgentKind::Claude).ok_or_else(|| anyhow::anyhow!("HOME not set"))?;
+    let mut settings = read_json(&path)?;
+    let changed = if on { t1k_agent::statusline::wrap(AgentKind::Claude, &mut settings) } else { t1k_agent::statusline::unwrap(&mut settings) };
+    if changed {
+        write_json(&path, &settings)?;
+    }
+    Ok(changed)
+}
+
 /// Install for every detected agent; returns a line per agent for the CLI.
 pub fn install_all() -> Vec<String> {
     AgentKind::ALL

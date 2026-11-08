@@ -205,7 +205,7 @@ fn after_theme(f: &Found, items: &[Item], off: &[Kind], now: &'static Theme) -> 
 }
 
 /// A few lines of a shell in a theme, font, size and line height.
-fn preview(t: &Theme, font: &str, size: f32, lh: f32, w: f32, h: f32) -> gpui::Div {
+pub(crate) fn preview(t: &Theme, font: &str, size: f32, lh: f32, w: f32, h: f32) -> gpui::Div {
     let c = |x: u32| gpui::rgb(x);
     let size = size * 0.85;
     let line = |parts: Vec<(String, u32)>| {
@@ -349,6 +349,49 @@ pub fn welcome_section(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<An
                                 cx.notify();
                             }))),
                     ),
+            )
+            .into_any_element(),
+    )
+}
+
+/// Setup's Look step: the same offer, small, whether or not the launch offer was answered
+/// (setup is where people choose on purpose).
+pub fn setup_offer(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement> {
+    let ui = ws.ui;
+    let (f, items) = ws.match_plan()?;
+    if !items.iter().any(|i| i.applies() || i.download.is_some()) {
+        return None;
+    }
+    let app = f.app.label();
+    Some(
+        div()
+            .p(px(10.))
+            .mb(px(6.))
+            .rounded(px(8.))
+            .bg(ui.bg_terminal)
+            .border_1()
+            .border_color(ui.border)
+            .flex()
+            .flex_col()
+            .gap(px(4.))
+            .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(ui.text_primary).child(offer_title(app, &items)))
+            .child(div().truncate().text_size(px(12.)).text_color(ui.text_tertiary).child(summary(f, &items)))
+            .child(
+                div()
+                    .pt(px(4.))
+                    .flex()
+                    .gap(px(6.))
+                    .child(div().flex_1())
+                    .child(button(ui, "setup-match-details", "Details…", false, true).on_click(cx.listener(|this, _, window, cx| {
+                        this.setup_leave();
+                        this.open_match(window, cx);
+                    })))
+                    .child(button(ui, "setup-match-go", format!("Match {app}"), true, true).on_click(cx.listener(|this, _, window, cx| {
+                        this.match_with_download(window, cx);
+                        this.match_hidden = true;
+                        this.save();
+                        cx.notify();
+                    }))),
             )
             .into_any_element(),
     )

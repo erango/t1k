@@ -469,7 +469,11 @@ pub fn set_value(keys: &[&str], value: toml_edit::Value) {
 
 /// A key's value as written in config.toml (None when it isn't there).
 pub fn get_raw(keys: &[&str]) -> Option<toml_edit::Value> {
-    let text = std::fs::read_to_string(path()?).ok()?;
+    get_raw_in(&std::fs::read_to_string(path()?).ok()?, keys)
+}
+
+/// A key's value as written in `text` (None when it isn't there).
+pub fn get_raw_in(text: &str, keys: &[&str]) -> Option<toml_edit::Value> {
     let doc = text.parse::<toml_edit::DocumentMut>().ok()?;
     let mut item = doc.as_item();
     for k in keys {
@@ -482,16 +486,26 @@ pub fn get_raw(keys: &[&str]) -> Option<toml_edit::Value> {
 pub fn remove(keys: &[&str]) {
     let Some(p) = path() else { return };
     let Ok(text) = std::fs::read_to_string(&p) else { return };
-    let Ok(mut doc) = text.parse::<toml_edit::DocumentMut>() else { return };
-    let Some((last, parents)) = keys.split_last() else { return };
+    if let Some(out) = remove_in(&text, keys) {
+        let _ = std::fs::write(&p, out);
+    }
+}
+
+/// `text` without `keys`; None when it wasn't there (or `text` isn't TOML).
+pub fn remove_in(text: &str, keys: &[&str]) -> Option<String> {
+    let mut doc = text.parse::<toml_edit::DocumentMut>().ok()?;
+    let (last, parents) = keys.split_last()?;
     let mut table = doc.as_table_mut();
     for k in parents {
-        let Some(t) = table.get_mut(k).and_then(|i| i.as_table_mut()) else { return };
-        table = t;
+        table = table.get_mut(k).and_then(|i| i.as_table_mut())?;
     }
-    if table.remove(last).is_some() {
-        let _ = std::fs::write(&p, doc.to_string());
-    }
+    table.remove(last)?;
+    Some(doc.to_string())
+}
+
+/// The file as first written, with every default.
+pub fn template() -> &'static str {
+    TEMPLATE
 }
 
 /// Return `text` with `keys` set to `value`, creating tables as needed. None if `text` isn't TOML.

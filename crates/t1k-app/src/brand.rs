@@ -108,6 +108,9 @@ pub fn welcome(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             )
     };
     let connected = t1k_agent::agents::AgentKind::ALL.iter().any(|k| crate::agent_setup::installed(*k));
+    // Setup's Look step makes the same match offer, so the card shows one or the other (both
+    // made it taller than the window).
+    let setup = crate::setup::welcome_section(ws, cx);
     card(ws)
         .w(px(500.))
         .child(lockup(300.))
@@ -140,7 +143,8 @@ pub fn welcome(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 )
                 .child(button(ws, "welcome-start", "Start", connected).on_click(cx.listener(|this, _, window, cx| this.close_overlay(window, cx)))),
         )
-        .children(crate::match_ui::welcome_section(ws, cx))
+        .children(setup.is_none().then(|| crate::match_ui::welcome_section(ws, cx)).flatten())
+        .children(setup)
         .children(crate::import_ui::welcome_card(ws, cx))
         .child(div().text_size(px(11.)).text_color(ui.text_disabled).child(SharedString::from("You can connect agents later in Settings › Agents.")))
         .into_any_element()

@@ -214,6 +214,8 @@ pub struct Workspace {
     pub match_undo: Option<crate::match_ui::MatchUndo>,
     /// The welcome card's match section was used or dismissed.
     pub match_hidden: bool,
+    /// "Set up T1K": progress (saved), snapshots for Undo, tried keys.
+    pub setup: crate::setup::SetupState,
     /// The font picker and "Get more fonts" installs.
     pub fonts: crate::fonts_ui::FontPicker,
     /// Files being dragged over a pane or a sidebar row.
@@ -452,6 +454,7 @@ impl Workspace {
             matcher: None,
             match_undo: None,
             match_hidden: saved.match_offered,
+            setup: crate::setup::SetupState::new(saved.setup_step),
             fonts: Default::default(),
             drop_hover: None,
             icon_query_all: false,
@@ -808,6 +811,7 @@ impl Workspace {
                     this.open_match(window, cx);
                     None
                 }
+                s if s == "setup" || s.starts_with("setup-") => crate::setup::debug_overlay(&mut this, s, cx),
                 "waiting" => {
                     // A Claude session "still open in iTerm2" (this process stands in for it).
                     let ix = this.active;
@@ -1990,6 +1994,7 @@ impl Workspace {
             import_seen: self.import_seen.clone(),
             import_last: self.import_last,
             match_offered: self.match_hidden,
+            setup_step: self.setup.progress,
             ..Default::default()
         }
     }
@@ -2401,17 +2406,23 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &NextTab, window, cx| this.step(1, window, cx)))
             .on_action(cx.listener(|this, _: &PrevTab, window, cx| this.step(-1, window, cx)))
             .on_action(cx.listener(Self::toggle_sidebar))
-            .on_action(cx.listener(Self::jump_to_needs))
+            .on_action(cx.listener(|this, a: &JumpToNeeds, window, cx| {
+                if !this.setup_intercept(crate::setup::Try::Jump, window, cx) {
+                    this.jump_to_needs(a, window, cx)
+                }
+            }))
             .on_action(cx.listener(|this, _: &JumpToNeedsBack, window, cx| this.walk_needs(-1, window, cx)))
             .on_action(cx.listener(|this, _: &ToggleSwitcher, window, cx| {
-                if matches!(this.overlay, Overlay::Switcher { .. }) {
+                if this.setup_intercept(crate::setup::Try::Find, window, cx) {
+                } else if matches!(this.overlay, Overlay::Switcher { .. }) {
                     this.close_overlay(window, cx);
                 } else {
                     this.open_overlay(Overlay::Switcher { query: String::new(), selected: 0 }, window, cx);
                 }
             }))
             .on_action(cx.listener(|this, _: &ToggleOverview, window, cx| {
-                if matches!(this.overlay, Overlay::Overview { .. }) {
+                if this.setup_intercept(crate::setup::Try::Overview, window, cx) {
+                } else if matches!(this.overlay, Overlay::Overview { .. }) {
                     this.close_overlay(window, cx);
                 } else {
                     let selected = this.visual_order().iter().position(|&i| i == this.active).unwrap_or(0);
@@ -2424,7 +2435,12 @@ impl Render for Workspace {
                 this.open_overlay(Overlay::Settings { section: crate::settings::Section::Appearance }, window, cx)
             }))
             .on_action(cx.listener(Self::toggle_appearance))
-            .on_action(cx.listener(|this, _: &SplitRight, window, cx| this.open_split(this.active, false, window, cx)))
+            .on_action(cx.listener(|this, _: &SplitRight, window, cx| {
+                if !this.setup_intercept(crate::setup::Try::Split, window, cx) {
+                    this.open_split(this.active, false, window, cx)
+                }
+            }))
+            .on_action(cx.listener(|this, _: &RunSetup, window, cx| this.open_setup(0, window, cx)))
             .on_action(cx.listener(|this, _: &SplitDown, window, cx| this.open_split(this.active, true, window, cx)))
             .on_action(cx.listener(|this, _: &FocusOtherPane, window, cx| this.focus_other_pane(window, cx)))
             .on_action(cx.listener(|this, _: &GoBack, window, cx| this.navigate(true, window, cx)))
@@ -2432,7 +2448,8 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &CheckForUpdates, window, cx| this.check_for_updates(window, cx)))
             .on_action(cx.listener(|this, _: &ShowUpdate, window, cx| this.open_update(window, cx)))
             .on_action(cx.listener(|this, _: &ToggleCommandPalette, window, cx| {
-                if matches!(this.overlay, Overlay::Palette { .. }) {
+                if this.setup_intercept(crate::setup::Try::Palette, window, cx) {
+                } else if matches!(this.overlay, Overlay::Palette { .. }) {
                     this.close_overlay(window, cx);
                 } else {
                     this.open_overlay(Overlay::Palette { query: String::new(), selected: 0 }, window, cx);
@@ -2460,6 +2477,7 @@ impl Render for Workspace {
             .on_modifiers_changed(cx.listener(|this, ev: &gpui::ModifiersChangedEvent, _, cx| {
                 if this.alt_held != ev.modifiers.alt {
                     this.alt_held = ev.modifiers.alt;
+                    this.setup_alt(ev.modifiers.alt, cx);
                     cx.notify();
                 }
             }));

@@ -107,7 +107,7 @@ fn card(ui: UiColors, label: &str, rows: Vec<AnyElement>) -> impl IntoElement {
         .child(div().rounded(px(9.)).bg(ui.bg_terminal).border_1().border_color(ui.border).overflow_hidden().flex().flex_col().children(rows))
 }
 
-fn pill(ui: UiColors, id: String, label: String, on: bool) -> gpui::Stateful<gpui::Div> {
+pub(crate) fn pill(ui: UiColors, id: String, label: String, on: bool) -> gpui::Stateful<gpui::Div> {
     div()
         .id(SharedString::from(id))
         .px(px(10.))
@@ -122,22 +122,28 @@ fn pill(ui: UiColors, id: String, label: String, on: bool) -> gpui::Stateful<gpu
         .child(label)
 }
 
-fn toggle(ui: UiColors, id: &'static str, on: bool, keys: &'static [&'static str], cx: &mut Context<Workspace>) -> impl IntoElement {
+pub(crate) fn toggle(ui: UiColors, id: &'static str, on: bool, keys: &'static [&'static str], cx: &mut Context<Workspace>) -> impl IntoElement {
+    switch(ui, id, on).on_click(cx.listener(move |_, _, _, _| set(keys, !on)))
+}
+
+/// The switch itself, for a click that does more than write one key.
+pub(crate) fn switch(ui: UiColors, id: impl Into<gpui::ElementId>, on: bool) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
+        .flex_none()
         .w(px(36.))
         .h(px(20.))
         .rounded_full()
         .p(px(2.))
         .flex()
+        .cursor_pointer()
         .when(on, |d| d.justify_end())
         .bg(if on { ui.accent } else { ui.bg_control })
-        .on_click(cx.listener(move |_, _, _, _| set(keys, !on)))
         .child(div().size(px(16.)).rounded_full().bg(gpui::white()))
 }
 
 #[allow(clippy::too_many_arguments)]
-fn stepper(
+pub(crate) fn stepper(
     ui: UiColors,
     id: &'static str,
     value: f64,
@@ -310,7 +316,7 @@ fn icon_picker(ui: UiColors, current: &str, cx: &mut Context<Workspace>) -> AnyE
     row.into_any_element()
 }
 
-fn seg(
+pub(crate) fn seg(
     ui: UiColors,
     id: &'static str,
     current: &str,
@@ -480,6 +486,8 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
                     this.tabs[ix].view.read(cx).terminal.write(format!("'{bin}' helper bench\r").into_bytes());
                 })))
                 .into_any_element()),
+        e(Advanced, "Setup", "Set up T1K", "Walks through the settings people miss. Starts from your current settings.", "setup", "setup wizard onboarding start tour walkthrough",
+            pill(ui, "run-setup".into(), "Run setup…".into(), false).on_click(cx.listener(|this, _, window, cx| this.open_setup(0, window, cx))).into_any_element()),
         e(Advanced, "Updates", "Check for updates automatically", "Once a day, in the background. Nothing interrupts you.", "updates.check", "update version sparkle auto",
             toggle(ui, "u-check", c.updates.check, &["updates", "check"], cx).into_any_element()),
         e(Advanced, "Updates", "Download updates automatically", "Have the update ready; you still choose when to restart", "updates.download", "update version sparkle",
@@ -692,7 +700,7 @@ fn agent_status(kind: t1k_agent::agents::AgentKind) -> (bool, bool) {
     })
 }
 
-fn forget_agent_status() {
+pub(crate) fn forget_agent_status() {
     AGENTS.with(|c| *c.borrow_mut() = None);
 }
 
