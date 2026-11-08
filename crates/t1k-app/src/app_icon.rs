@@ -193,7 +193,14 @@ pub fn badge(tab: &Tab, ui: UiColors, size: f32) -> Div {
     };
     // Debug aid for screenshots: T1K_DEBUG_PROGRAM=<name> shows that program's badge everywhere.
     let debug = std::env::var("T1K_DEBUG_PROGRAM").ok();
-    let program = debug.as_deref().or(program);
+    program_badge(debug.as_deref().or(program), ui, size)
+}
+
+/// The badge for a program by name (None: a shell at its prompt), for rows that aren't tabs
+/// (setup's sample tabs).
+pub fn program_badge(program: Option<&str>, ui: UiColors, size: f32) -> Div {
+    let radius = (size * 0.24).round();
+    let base = div().opacity(ui.icon_alpha).size(px(size)).flex_none().rounded(px(radius)).overflow_hidden().flex().items_center().justify_center();
     let Some(program) = program else {
         // Shell prompt.
         return base

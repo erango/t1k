@@ -977,20 +977,47 @@ pub(crate) fn card(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> im
 /// Loud: NeedsInput (amber dot + halo), Error (red diamond), unread (accent dot).
 /// Quiet: Working (gray spinner). Seen Done / Idle: nothing. Ended: dash.
 pub fn glyph(tab: &Tab, ui: UiColors, started: Instant, running: bool, k: f32) -> Div {
+    let mark = match tab.status() {
+        Some(Status::NeedsInput { .. }) => Mark::Needs,
+        Some(Status::Error { .. }) => Mark::Error,
+        _ if tab.reminder_due => Mark::Due,
+        _ if tab.unread => Mark::Unread,
+        Some(Status::Working) => Mark::Working,
+        Some(Status::Ended) => Mark::Ended,
+        Some(Status::Done) | Some(Status::Idle) => Mark::None,
+        None if running => Mark::Running,
+        None => Mark::None,
+    };
+    mark_glyph(mark, ui, started, k)
+}
+
+/// What a status glyph shows. Setup's sample tabs have a state but no `Tab`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Mark {
+    Needs,
+    Error,
+    Due,
+    Unread,
+    Working,
+    Ended,
+    Running,
+    None,
+}
+
+pub fn mark_glyph(mark: Mark, ui: UiColors, started: Instant, k: f32) -> Div {
     let slot = div().w(px(12.)).h(px(12.)).flex_none().flex().items_center().justify_center();
-    match tab.status() {
-        Some(Status::NeedsInput { .. }) => slot.child(
+    match mark {
+        Mark::Needs => slot.child(
             div().size(px(12.)).rounded_full().bg(ui.status_needs.opacity(0.22)).flex().items_center().justify_center()
                 .child(div().size(px(7.)).rounded_full().bg(ui.status_needs)),
         ),
-        Some(Status::Error { .. }) => slot.child(div().text_size(px(10. * k)).text_color(ui.status_error).child("◆")),
-        _ if tab.reminder_due => slot.child(div().text_size(px(11. * k)).text_color(ui.accent).child("◷")),
-        _ if tab.unread => slot.child(div().size(px(7.)).rounded_full().bg(ui.accent)),
-        Some(Status::Working) => slot.child(spinner(ui.status_working, started)),
-        Some(Status::Ended) => slot.child(div().w(px(7.)).h(px(1.5)).bg(ui.text_disabled)),
-        Some(Status::Done) | Some(Status::Idle) => slot,
-        None if running => slot.child(div().size(px(5.)).rounded_full().bg(ui.status_working)),
-        None => slot,
+        Mark::Error => slot.child(div().text_size(px(10. * k)).text_color(ui.status_error).child("◆")),
+        Mark::Due => slot.child(div().text_size(px(11. * k)).text_color(ui.accent).child("◷")),
+        Mark::Unread => slot.child(div().size(px(7.)).rounded_full().bg(ui.accent)),
+        Mark::Working => slot.child(spinner(ui.status_working, started)),
+        Mark::Ended => slot.child(div().w(px(7.)).h(px(1.5)).bg(ui.text_disabled)),
+        Mark::Running => slot.child(div().size(px(5.)).rounded_full().bg(ui.status_working)),
+        Mark::None => slot,
     }
 }
 

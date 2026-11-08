@@ -237,7 +237,7 @@ impl Workspace {
         let overlay = std::mem::replace(&mut self.overlay, Overlay::None);
         let next = match overlay {
             Overlay::None => None,
-            Overlay::Switcher { query, .. } if ev.keystroke.key == "enter" && ev.keystroke.modifiers.platform => {
+            Overlay::Switcher { query, .. } if ev.keystroke.key == "enter" && ev.keystroke.modifiers.platform && !self.setup_samples() => {
                 self.helper_search(&query, cx);
                 Some(Overlay::Switcher { query, selected: 0 })
             }
@@ -247,6 +247,8 @@ impl Workspace {
             }
             Overlay::Switcher { mut query, mut selected } => match input::handle(&mut query, ev) {
                 Key::Cancel => None,
+                // Picking a sample only goes back to setup, which ticks ⌘P.
+                Key::Submit if self.setup_samples() => None,
                 Key::Submit => {
                     let pick = self.switcher_results(&query).get(selected).copied();
                     self.close_overlay(window, cx);
@@ -256,7 +258,11 @@ impl Workspace {
                     return;
                 }
                 key => {
-                    let n = self.switcher_results(&query).len();
+                    let n = if self.setup_samples() {
+                        crate::setup::sample_results(&query, self.switcher_filter).len()
+                    } else {
+                        self.switcher_results(&query).len()
+                    };
                     match key {
                         Key::Edited => selected = 0,
                         Key::Up => selected = selected.saturating_sub(1),
@@ -289,11 +295,13 @@ impl Workspace {
                 }
             },
             Overlay::Overview { mut selected } => {
-                let order = self.visual_order();
+                let samples = self.setup_samples();
+                let order = if samples { crate::setup::sample_cards() } else { self.visual_order() };
                 let cols = Self::overview_cols(window);
                 let last = order.len().saturating_sub(1);
                 match ev.keystroke.key.as_str() {
                     "escape" => None,
+                    "enter" if samples => None,
                     "enter" => {
                         let pick = order.get(selected).copied();
                         self.close_overlay(window, cx);
@@ -463,10 +471,11 @@ fn until_tomorrow_9() -> Duration {
 
 /// The switcher's filter chips, each with how many tabs it keeps.
 fn switcher_chips(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
+    let samples = ws.setup_samples();
     let ui = ws.ui;
     div().px(px(8.)).pb(px(6.)).flex().gap(px(6.)).children(SwitcherFilter::ALL.into_iter().map(|f| {
         let on = ws.switcher_filter == f;
-        let n = (0..ws.tabs.len()).filter(|&i| ws.switcher_keeps(i, f)).count();
+        let n = if samples { crate::setup::sample_count(f) } else { (0..ws.tabs.len()).filter(|&i| ws.switcher_keeps(i, f)).count() };
         let loud = f == SwitcherFilter::NeedsYou && n > 0;
         div()
             .id(f.label())
@@ -495,6 +504,282 @@ fn switcher_chips(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoEleme
     }))
 }
 
+/// A switcher section heading (NEEDS YOU, AGENTS...).
+fn section(label: &'static str, color: gpui::Hsla) -> Div {
+    div().h(px(22.)).px(px(14.)).flex().items_center().text_size(px(10.5)).font_weight(FontWeight::SEMIBOLD).text_color(color).child(label)
+}
+
+/// One switcher result: badge, title with its project and branch, the status under it, the
+/// matched field's tag and the age. Shared by tabs and setup's sample tabs.
+#[allow(clippy::too_many_arguments)]
+fn switcher_row(
+    ui: t1k_themes::UiColors,
+    id: SharedString,
+    badge: Div,
+    title: AnyElement,
+    group: String,
+    branch: Option<String>,
+    sub: String,
+    sub_color: gpui::Hsla,
+    tag: Option<&'static str>,
+    age: Option<String>,
+    selected: bool,
+) -> gpui::Stateful<Div> {
+    div()
+        .id(id)
+        .h(px(54.))
+        .px(px(12.))
+        .rounded(px(7.))
+        .flex()
+        .items_center()
+        .gap(px(12.))
+        .when(selected, |d| d.bg(ui.bg_selected))
+        .hover(move |d| d.bg(ui.bg_hover))
+        .child(badge)
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(2.))
+                .child(
+                    div()
+                        .flex()
+                        .gap(px(8.))
+                        .items_center()
+                        .child(title)
+                        .child(div().flex_none().text_size(px(12.)).text_color(ui.text_tertiary).child(group))
+                        .children(branch.map(|b| div().flex_none().text_size(px(11.5)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(b))),
+                )
+                .child(div().truncate().text_size(px(12.)).text_color(sub_color).child(sub)),
+        )
+        .children(tag.map(|f| {
+            div().flex_none().px(px(6.)).h(px(18.)).flex().items_center().rounded(px(4.)).border_1().border_color(ui.border).text_size(px(10.5)).line_height(px(16.)).text_color(ui.text_tertiary).child(f)
+        }))
+        .child(div().w(px(44.)).flex_none().flex().justify_end().text_size(px(11.)).font_family("JetBrains Mono").text_color(ui.text_tertiary).children(age))
+}
+
+/// The switcher's panel around its rows: the search line (with `head` at its right end), the
+/// filter chips, the rows, and the footer line.
+#[allow(clippy::too_many_arguments)]
+fn switcher_panel(
+    ws: &Workspace,
+    query: &str,
+    head: Vec<AnyElement>,
+    searching: Option<AnyElement>,
+    rows: Vec<AnyElement>,
+    empty: Option<&'static str>,
+    footer: Vec<AnyElement>,
+    cx: &mut Context<Workspace>,
+) -> Div {
+    let ui = ws.ui;
+    div()
+        .w(px(720.))
+        .max_h(px(560.))
+        .mt(px(90.))
+        .p(px(8.))
+        .rounded(px(12.))
+        .bg(ui.bg_raised)
+        .border_1()
+        .border_color(ui.border)
+        .shadow_lg()
+        .flex()
+        .flex_col()
+        .gap(px(4.))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .child(
+            div()
+                .h(px(48.))
+                .px(px(12.))
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .child(div().text_size(px(15.)).text_color(ui.text_quiet).child("⌕"))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_size(px(16.))
+                        .text_color(if query.is_empty() { ui.text_tertiary } else { ui.text_primary })
+                        .child(if query.is_empty() { "Find a tab: title, project, branch, PR, file…".to_string() } else { format!("{query}▏") }),
+                )
+                .children(head),
+        )
+        .child(switcher_chips(ws, cx))
+        .children(searching)
+        .child(div().h(px(1.)).bg(ui.border).mb(px(4.)))
+        .children(rows)
+        .children(empty.map(|e| div().p(px(14.)).text_size(px(13.)).text_color(ui.text_tertiary).child(e)))
+        .child(
+            div()
+                .mt(px(4.))
+                .mx(px(-8.))
+                .mb(px(-8.))
+                .h(px(34.))
+                .px(px(16.))
+                .flex()
+                .items_center()
+                .gap(px(14.))
+                .bg(ui.bg_chrome)
+                .rounded_b(px(12.))
+                .border_t_1()
+                .border_color(ui.border)
+                .text_size(px(11.5))
+                .text_color(ui.text_tertiary)
+                .children(footer),
+        )
+}
+
+/// The header bits that mark setup's sample surfaces and say how to leave them: the Example
+/// tag, "Sample tabs" (and `note`), then esc Return to setup.
+fn sample_marks(ui: t1k_themes::UiColors, note: &'static str) -> Vec<AnyElement> {
+    vec![
+        crate::setup::example_tag(ui).into_any_element(),
+        div().flex_none().text_size(px(12.)).text_color(ui.text_tertiary).child(note).into_any_element(),
+        div()
+            .flex_none()
+            .ml(px(8.))
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .child(keycap(ui, "esc"))
+            .child(div().text_size(px(12.)).text_color(ui.text_secondary).child("Return to setup"))
+            .into_any_element(),
+    ]
+}
+
+/// ⌘P tried on setup's Keys step: the real switcher, filled with the sample tabs. Picking one
+/// only goes back to setup.
+fn sample_switcher(ws: &Workspace, query: &str, selected: usize, cx: &mut Context<Workspace>) -> Div {
+    use crate::setup::{SampleState, SAMPLES};
+    let ui = ws.ui;
+    let results = crate::setup::sample_results(query, ws.switcher_filter);
+    let needs_count = results.iter().filter(|&&i| SAMPLES[i].needs()).count();
+    let kind = |i: usize| if SAMPLES[i].needs() { 0 } else if SAMPLES[i].agent() { 1 } else { 2 };
+    let mut rows: Vec<AnyElement> = Vec::new();
+    for (n, &i) in results.iter().enumerate() {
+        let s = &SAMPLES[i];
+        if n == 0 && needs_count > 0 {
+            rows.push(section("NEEDS YOU", ui.status_needs).into_any_element());
+        }
+        if query.is_empty() {
+            if n >= needs_count && n.checked_sub(1).is_none_or(|p| kind(results[p]) != kind(i)) {
+                rows.push(section(if kind(i) == 1 { "AGENTS" } else { "SHELLS" }, ui.text_tertiary).into_any_element());
+            }
+        } else if n == needs_count {
+            rows.push(section("MATCHES", ui.text_tertiary).into_any_element());
+        }
+        // Typed words light up where they matched.
+        let marks: Vec<_> = crate::setup::highlights(s.title, query)
+            .into_iter()
+            .map(|r| (r, gpui::HighlightStyle { background_color: Some(ui.accent.opacity(0.25)), ..Default::default() }))
+            .collect();
+        let title = div().min_w_0().truncate().text_size(px(13.5)).text_color(ui.text_primary).child(gpui::StyledText::new(s.title).with_highlights(marks)).into_any_element();
+        let sub_color = if s.state == SampleState::Needs { ui.status_needs } else { ui.text_quiet };
+        let age = (!s.age.is_empty()).then(|| s.age.to_string());
+        rows.push(
+            switcher_row(ui, SharedString::from(format!("sample-sw-{i}")), crate::app_icon::program_badge(s.program, ui, 28.), title, s.group.into(), Some(s.branch.into()), s.status.into(), sub_color, None, age, n == selected)
+                .on_click(cx.listener(|this, _, window, cx| this.close_overlay(window, cx)))
+                .into_any_element(),
+        );
+    }
+    let empty = results.is_empty().then_some("No matching sample tabs");
+    let footer = vec!["Sample tabs for setup · Esc returns to setup".into_any_element()];
+    switcher_panel(ws, query, sample_marks(ui, "Sample tabs"), None, rows, empty, footer, cx)
+}
+
+/// ⌘O tried on setup's Keys step: the real overview, with a card per sample session.
+fn sample_overview(ws: &Workspace, selected: usize, cx: &mut Context<Workspace>) -> AnyElement {
+    let ui = ws.ui;
+    let mut grid = div().flex().flex_wrap().gap(px(GAP)).content_start();
+    for (n, i) in crate::setup::sample_cards().into_iter().enumerate() {
+        grid = grid.child(sample_card(ws, i, n == selected, cx));
+    }
+    scrim(ws, false, cx)
+        .bg(ui.bg_chrome.opacity(0.97))
+        .flex()
+        .flex_col()
+        .p(px(32.))
+        .pt(px(48.))
+        .gap(px(16.))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(12.))
+                .child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).child("Overview"))
+                .children(sample_marks(ui, "Sample tabs · needs you first")),
+        )
+        .child(div().id("overview-scroll").flex_1().overflow_y_scroll().child(grid))
+        .child(div().text_size(px(11.5)).text_color(ui.text_tertiary).child("Sample tabs for setup · Esc returns to setup"))
+        .into_any_element()
+}
+
+/// A sample session's overview card: the real card's frame, status line and title, with its
+/// Goal and Recap where a real card shows the screen (a sample has none).
+fn sample_card(ws: &Workspace, i: usize, selected: bool, cx: &mut Context<Workspace>) -> AnyElement {
+    let ui = ws.ui;
+    let s = &crate::setup::SAMPLES[i];
+    let (status, detail) = s.status_parts();
+    let rim = s.needs().then_some(ui.status_needs);
+    let fact = |label: &'static str, text: &'static str| {
+        div().flex().gap(px(5.)).min_w_0().child(div().flex_none().text_color(ui.text_tertiary).child(label)).child(div().min_w_0().truncate().text_color(ui.text_secondary).child(text))
+    };
+    div()
+        .id(SharedString::from(format!("sample-card-{i}")))
+        .w(px(CARD_W))
+        .h(px(CARD_H))
+        .p(px(12.))
+        .rounded(px(9.))
+        .bg(ui.bg_raised)
+        .border_1()
+        // The amber edge is the lesson here, so it stays when the card is selected too.
+        .border_color(rim.unwrap_or(if selected { ui.accent } else { ui.border }))
+        .when(selected, |d| d.shadow_md())
+        .hover(move |d| d.bg(ui.bg_hover))
+        .flex()
+        .flex_col()
+        .gap(px(6.))
+        .on_click(cx.listener(|this, _, window, cx| this.close_overlay(window, cx)))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .text_size(px(11.))
+                .text_color(ui.text_tertiary)
+                .child(crate::sidebar::mark_glyph(s.mark(), ui, ws.started, 1.))
+                .child(div().text_color(if s.needs() { ui.status_needs } else { ui.text_tertiary }).child(status))
+                .child(div().flex_1())
+                .child(div().font_family("JetBrains Mono").text_color(if s.needs() { ui.status_needs } else { ui.text_tertiary }).child(s.age))
+                .child(div().child(s.group)),
+        )
+        .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(ui.text_primary).truncate().child(s.title))
+        .child(div().text_size(px(12.)).text_color(if s.needs() { ui.status_needs } else { ui.text_secondary }).line_clamp(1).child(detail))
+        .child(
+            div()
+                .flex_1()
+                .min_h_0()
+                .overflow_hidden()
+                .rounded(px(5.))
+                .px(px(8.))
+                .py(px(6.))
+                .bg(ui.bg_sidebar)
+                .border_1()
+                .border_color(ui.border)
+                .flex()
+                .flex_col()
+                .justify_end()
+                .gap(px(3.))
+                .text_size(px(11.5))
+                .child(fact("Goal", s.goal))
+                .child(fact("Recap", s.recap)),
+        )
+        .into_any_element()
+}
+
 fn scrim(ws: &Workspace, close_on_click: bool, cx: &mut Context<Workspace>) -> gpui::Stateful<Div> {
     div()
         .id("overlay")
@@ -519,6 +804,10 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
     let ui = ws.ui;
     match &ws.overlay {
         Overlay::None => None,
+        Overlay::Switcher { query, selected } if ws.setup_samples() => {
+            let panel = sample_switcher(ws, query, *selected, cx);
+            Some(scrim(ws, true, cx).bg(gpui::black().opacity(0.25)).flex().justify_center().items_start().child(panel).into_any_element())
+        }
         Overlay::Switcher { query, selected } => {
             let results = ws.switcher_results(query);
             let selected = *selected;
@@ -526,9 +815,6 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
             let meaning = ws.meaning_hits(query).len();
             let pending = ws.helper.search.as_ref().is_some_and(|(q, r)| q == query && r.is_none());
             let needs_count = if meaning > 0 { 0 } else { results.iter().take(9).filter(|&&i| ws.tabs[i].needs_you()).count() };
-            let section = |label: &'static str, color: gpui::Hsla| {
-                div().h(px(22.)).px(px(14.)).flex().items_center().text_size(px(10.5)).font_weight(FontWeight::SEMIBOLD).text_color(color).child(label)
-            };
             let mut rows: Vec<AnyElement> = Vec::new();
             for (n, &i) in results.iter().take(9).enumerate() {
                 if n == 0 && meaning > 0 {
@@ -562,118 +848,37 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                     Some(Status::Ended) => ui.text_disabled,
                     _ => ui.text_quiet,
                 };
+                let title = div().min_w_0().truncate().text_size(px(13.5)).text_color(ui.text_primary).child(t.title()).into_any_element();
                 rows.push(
-                    div()
-                        .id(SharedString::from(format!("sw-{i}")))
-                        .h(px(54.))
-                        .px(px(12.))
-                        .rounded(px(7.))
-                        .flex()
-                        .items_center()
-                        .gap(px(12.))
-                        .when(is_sel, |d| d.bg(ui.bg_selected))
-                        .hover(move |d| d.bg(ui.bg_hover))
+                    switcher_row(ui, SharedString::from(format!("sw-{i}")), crate::app_icon::badge(t, ui, 28.), title, ws.group_label(&t.group), t.branch(), t.subtitle(), sub_color, tag, age, is_sel)
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.close_overlay(window, cx);
                             this.activate(i, window, cx);
                         }))
-                        .child(crate::app_icon::badge(t, ui, 28.))
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .flex()
-                                .flex_col()
-                                .gap(px(2.))
-                                .child(
-                                    div()
-                                        .flex()
-                                        .gap(px(8.))
-                                        .items_center()
-                                        .child(div().min_w_0().truncate().text_size(px(13.5)).text_color(ui.text_primary).child(t.title()))
-                                        .child(div().flex_none().text_size(px(12.)).text_color(ui.text_tertiary).child(ws.group_label(&t.group)))
-                                        .children(t.branch().map(|b| div().flex_none().text_size(px(11.5)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(b))),
-                                )
-                                .child(div().truncate().text_size(px(12.)).text_color(sub_color).child(t.subtitle())),
-                        )
-                        .children(tag.map(|f| {
-                            div().flex_none().px(px(6.)).h(px(18.)).flex().items_center().rounded(px(4.)).border_1().border_color(ui.border).text_size(px(10.5)).line_height(px(16.)).text_color(ui.text_tertiary).child(f)
-                        }))
-                        .child(div().w(px(44.)).flex_none().flex().justify_end().text_size(px(11.)).font_family("JetBrains Mono").text_color(ui.text_tertiary).children(age))
                         .into_any_element(),
                 );
             }
-            let panel = div()
-                .w(px(720.))
-                .max_h(px(560.))
-                .mt(px(90.))
-                .p(px(8.))
-                .rounded(px(12.))
-                .bg(ui.bg_raised)
-                .border_1()
-                .border_color(ui.border)
-                .shadow_lg()
-                .flex()
-                .flex_col()
-                .gap(px(4.))
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .child(
-                    div()
-                        .h(px(48.))
-                        .px(px(12.))
-                        .flex()
-                        .items_center()
-                        .gap(px(10.))
-                        .child(div().text_size(px(15.)).text_color(ui.text_quiet).child("⌕"))
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .truncate()
-                                .text_size(px(16.))
-                                .text_color(if query.is_empty() { ui.text_tertiary } else { ui.text_primary })
-                                .child(if query.is_empty() { "Find a tab: title, project, branch, PR, file…".to_string() } else { format!("{query}▏") }),
-                        )
-                        .child(div().text_size(px(11.)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(format!("{} of {}", results.len().min(9), ws.tabs.len())))
-                        .child(keycap(ui, "esc")),
-                )
-                .child(switcher_chips(ws, cx))
-                .when(pending, |d| {
-                    d.child(
-                        div().h(px(30.)).px(px(14.)).flex().items_center().gap(px(8.)).text_size(px(12.5)).text_color(ui.text_tertiary)
-                            .child(crate::sidebar::spinner(ui.text_tertiary, ws.started))
-                            .child(format!("Searching by meaning with {}…", ws.config.helper.backend().map(|b| b.label()).unwrap_or(""))),
-                    )
-                })
-                .child(div().h(px(1.)).bg(ui.border).mb(px(4.)))
-                .children(rows)
-                .when(results.is_empty(), |d| {
-                    d.child(div().p(px(14.)).text_size(px(13.)).text_color(ui.text_tertiary).child(if ws.switcher_filter == SwitcherFilter::All { "No matching tabs" } else { "No tabs here. ⇥ tries the next filter." }))
-                })
-                .child(
-                    div()
-                        .mt(px(4.))
-                        .mx(px(-8.))
-                        .mb(px(-8.))
-                        .h(px(34.))
-                        .px(px(16.))
-                        .flex()
-                        .items_center()
-                        .gap(px(14.))
-                        .bg(ui.bg_chrome)
-                        .rounded_b(px(12.))
-                        .border_t_1()
-                        .border_color(ui.border)
-                        .text_size(px(11.5))
-                        .text_color(ui.text_tertiary)
-                        .child("↵ open")
-                        .child("↑↓ move")
-                        .child("⇥ filter")
-                        .when(ws.config.helper.backend().is_some() && ws.config.helper.search, |d| d.child("⌘↵ by meaning"))
-                        .child("esc close")
-                        .child(div().flex_1())
-                        .child("matches title · recap · project · branch · PR · files"),
-                );
+            let head = vec![
+                div().text_size(px(11.)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(format!("{} of {}", results.len().min(9), ws.tabs.len())).into_any_element(),
+                keycap(ui, "esc").into_any_element(),
+            ];
+            let searching = pending.then(|| {
+                div().h(px(30.)).px(px(14.)).flex().items_center().gap(px(8.)).text_size(px(12.5)).text_color(ui.text_tertiary)
+                    .child(crate::sidebar::spinner(ui.text_tertiary, ws.started))
+                    .child(format!("Searching by meaning with {}…", ws.config.helper.backend().map(|b| b.label()).unwrap_or("")))
+                    .into_any_element()
+            });
+            let empty = results.is_empty().then_some(if ws.switcher_filter == SwitcherFilter::All { "No matching tabs" } else { "No tabs here. ⇥ tries the next filter." });
+            let footer = vec![
+                "↵ open".into_any_element(),
+                "↑↓ move".into_any_element(),
+                "⇥ filter".into_any_element(),
+            ]
+            .into_iter()
+            .chain((ws.config.helper.backend().is_some() && ws.config.helper.search).then(|| "⌘↵ by meaning".into_any_element()))
+            .chain(["esc close".into_any_element(), div().flex_1().into_any_element(), "matches title · recap · project · branch · PR · files".into_any_element()])
+            .collect();
+            let panel = switcher_panel(ws, query, head, searching, rows, empty, footer, cx);
             Some(scrim(ws, true, cx).bg(gpui::black().opacity(0.25)).flex().justify_center().items_start().child(panel).into_any_element())
         }
         Overlay::About => {
@@ -724,6 +929,7 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
             let panel = crate::palette::render(ws, query, *selected, cx);
             Some(scrim(ws, true, cx).bg(gpui::black().opacity(0.25)).flex().justify_center().items_start().child(panel).into_any_element())
         }
+        Overlay::Overview { selected } if ws.setup_samples() => Some(sample_overview(ws, *selected, cx)),
         Overlay::Overview { selected } => {
             let order = ws.visual_order();
             let sel = order.get(*selected).copied();
