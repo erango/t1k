@@ -91,7 +91,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             if fold {
                 let gk = key.clone();
                 group = group.child(
-                    quiet_row(ui, k, format!("quiet-{}", key.display()))
+                    quiet_row(ui, k, title_x(ws), format!("quiet-{}", key.display()))
                         .tooltip(crate::tooltip::text(ui, QUIET_HELP))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.show_quiet.insert(gk.clone());
@@ -112,7 +112,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 let open = ws.recent_open.contains(&key);
                 let rk = key.clone();
                 group = group.child(
-                    quiet_row(ui, k, format!("recent-{}", key.display()))
+                    quiet_row(ui, k, title_x(ws), format!("recent-{}", key.display()))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if !this.recent_open.remove(&rk) {
                                 this.recent_open.insert(rk.clone());
@@ -127,7 +127,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                     for r in recent {
                         let sid = r.session_id.clone();
                         group = group.child(
-                            quiet_row(ui, k, format!("recent-{sid}"))
+                            quiet_row(ui, k, title_x(ws), format!("recent-{sid}"))
                                 .h(px(28.))
                                 .hover(move |d| d.bg(ui.sidebar_hover).text_color(ui.text_primary))
                                 .on_click(cx.listener(move |this, _, window, cx| this.reopen_recent(&sid, window, cx)))
@@ -503,7 +503,20 @@ fn ghost(id: &'static str, ui: UiColors) -> gpui::Stateful<Div> {
 }
 
 /// A low row inside a group (quiet fold, Recent).
-fn quiet_row(ui: UiColors, k: f32, id: String) -> gpui::Stateful<Div> {
+/// Where a row's title starts, from the row's left edge: its padding, the icon (or status
+/// glyph) and the gap after it. Low rows ("+3 quiet", Recently closed) start their text here,
+/// so they line up with the titles above whatever the density or second line.
+fn title_x(ws: &Workspace) -> f32 {
+    let two = ws.config.sidebar.second_line != "none";
+    let (icon, gap) = if ws.config.sidebar.app_icons {
+        (ws.config.interface.icon_size(two), if two { 11. } else { 9. })
+    } else {
+        (12., 9.)
+    };
+    10. + icon + gap
+}
+
+fn quiet_row(ui: UiColors, k: f32, indent: f32, id: String) -> gpui::Stateful<Div> {
     div()
         .id(SharedString::from(id))
         .h(px(26.))
@@ -511,7 +524,7 @@ fn quiet_row(ui: UiColors, k: f32, id: String) -> gpui::Stateful<Div> {
         .mt(px(ROW_GAP))
         .ml(px(ROW_LEFT))
         .mr(px(INSET))
-        .pl(px(41.))
+        .pl(px(indent))
         .pr(px(12.))
         .rounded(px(6.))
         .flex()
