@@ -6157,6 +6157,7 @@ dependencies = [
  "gpui",
  "libc",
  "log",
+ "objc",
 ]
 
 [[package]]

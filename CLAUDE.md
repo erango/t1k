@@ -8,7 +8,7 @@ The product goal is attention: which session needs me now, without switching tab
 
 | Crate | What lives there |
 |---|---|
-| `crates/t1k-terminal` | The terminal widget: pty + alacritty grid (`terminal.rs`), GPUI rendering, input, selection, links, find, hint mode, prompt marks (`view.rs`), drawn block/box glyphs (`glyphs.rs`), link detection (`links.rs`), key encoding (`input.rs`) |
+| `crates/t1k-terminal` | The terminal widget: pty + alacritty grid (`terminal.rs`), GPUI rendering, input, selection, links, find, hint mode, prompt marks (`view.rs`), the overlay scrollbar and scroll-to-bottom button (`scrollbar.rs`, canvas v3-al A), drawn block/box glyphs (`glyphs.rs`), link detection (`links.rs`), key encoding (`input.rs`) |
 | `crates/t1k-themes` | Theme model, 22 built-in themes, importers (Ghostty, iTerm2, Alacritty, Windows Terminal, base16), derived UI colors |
 | `crates/t1k-agent` | Agent integration: hook parsing and status machine (`hooks.rs`, `state.rs`), per-agent adapters and installers (`agents.rs`), transcript tailing (`transcript.rs`), outputs classification (`outputs.rs`), the per-process unix socket (`server.rs`) |
 | `crates/t1k-app` | The app: `workspace.rs` (tabs, session, polling, actions), `sidebar.rs`, `strip.rs` (title bar), `overlay.rs` (menus, switcher, overview, palette), `settings.rs`, `outputs_panel.rs`, `split.rs`, `config.rs`, `session.rs`, `cli.rs` (`t1k hook`, `setup-agents`, `theme import`), `platform.rs` (Dock, notifications) |
@@ -51,6 +51,7 @@ Debug environment variables (all read at launch):
 | `T1K_DEBUG_PROGRAM=<name>` | Shows that program's icon on every tab |
 | `T1K_DEBUG_VIEW=<path>[:line]` | Opens that file in the side panel |
 | `T1K_DEBUG_HINTS=1`, `T1K_DEBUG_FIND=<query>` | Starts terminals in hint mode / with the find bar open |
+| `T1K_DEBUG_SCROLL=up:<n>[,new:<n>][,hover]` | About 1.5 s after launch (once the history has n lines), scrolls terminals up n lines and pins the scrollbar and the scroll-to-bottom button on, with "N new lines" on the button and, with `hover`, the wide hover track with prompt ticks. Add `T1K_DEBUG_FIND` for find-match ticks. To fill the history, give the test HOME a `.zshrc` that prints a few hundred lines (launch with `ZDOTDIR=$HOME`); prompt ticks need prompt marks (`\e]8;;t1k://prompt\e\\` … `\e]8;;\e\\` around a fake prompt) |
 | `T1K_DEBUG_DROP=pane\|row\|group\|theme:<path>` | Shows files dragged over the pane / the active row / its group header ("Set as icon"), or the theme-file choice (a Finder drag can't be scripted) |
 | `T1K_DEBUG_OVERLAY=icons-apps\|icons-image` | The icon picker on its Apps tab (apps are scanned and their icons made before the first frame) / its Image tab |
 | `T1K_DEBUG_ICON_IMAGE=<path>`, `T1K_DEBUG_ICON_ZOOM=<1-4>`, `T1K_DEBUG_ICON_QUERY=<text>`, `T1K_DEBUG_ICON_TAB=1` | With the `icons*` overlays: open that image in the cropper (`icons-image`) at that zoom / type a search / pick the active tab's icon instead of its group's |
