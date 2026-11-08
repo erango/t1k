@@ -442,7 +442,7 @@ impl Workspace {
             move_undo: Vec::new(),
             matcher: None,
             match_undo: None,
-            match_hidden: false,
+            match_hidden: saved.match_offered,
             fonts: Default::default(),
             drop_hover: None,
             icon_query_all: false,
@@ -1932,6 +1932,10 @@ impl Workspace {
             group_icons: self.group_icons.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             icon_suggestions: self.icon_suggestions.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             usage: self.usage.iter().map(|(k, u)| (k.id().to_string(), u.clone())).collect(),
+            // What was already offered, so neither launch offer comes back for the same thing.
+            import_seen: self.import_seen.clone(),
+            import_last: self.import_last,
+            match_offered: self.match_hidden,
             ..Default::default()
         }
     }

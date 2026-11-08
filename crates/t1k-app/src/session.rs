@@ -91,6 +91,9 @@ pub struct Session {
     /// Last import: (tabs, unix time).
     #[serde(default)]
     pub import_last: Option<(usize, i64)>,
+    /// "Look like Warp?" was answered (matched or Not now): it isn't offered again.
+    #[serde(default)]
+    pub match_offered: bool,
     #[serde(default)]
     pub active: usize,
     #[serde(default)]

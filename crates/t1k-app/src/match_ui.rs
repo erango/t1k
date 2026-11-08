@@ -117,6 +117,9 @@ impl Workspace {
         if picked.is_empty() {
             return;
         }
+        // Matched once, by any route: the launch offer doesn't come back.
+        self.match_hidden = true;
+        self.save();
         self.match_undo = Some(KEYS.iter().map(|k| (k.to_vec(), crate::config::get_raw(k))).collect());
         let mut said = Vec::new();
         for it in &picked {
@@ -333,6 +336,56 @@ pub fn welcome_section(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<An
                                 cx.notify();
                             }))),
                     ),
+            )
+            .into_any_element(),
+    )
+}
+
+/// The launch offer for people past the welcome card: "Make T1K look like Warp?", once, at the
+/// bottom of the sidebar like the tab offer (and after it, never both at once).
+pub fn offer(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement> {
+    let ui = ws.ui;
+    if ws.match_hidden || ws.import_offer || !ws.config.terminal.offer_import || matches!(ws.overlay, Overlay::Welcome) {
+        return None;
+    }
+    let (f, items) = ws.match_plan()?;
+    if !items.iter().any(|i| i.applies()) {
+        return None;
+    }
+    let app = f.app.label();
+    let dismiss = |this: &mut Workspace, cx: &mut Context<Workspace>| {
+        this.match_hidden = true;
+        this.save();
+        cx.notify();
+    };
+    Some(
+        div()
+            .absolute()
+            .left(px(10.))
+            .right(px(10.))
+            .bottom(px(10.))
+            .p(px(10.))
+            .rounded(px(8.))
+            .bg(ui.bg_raised)
+            .border_1()
+            .border_color(ui.border)
+            .shadow_lg()
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(ui.text_primary).child(format!("Make T1K look like {app}?")))
+            .child(div().text_size(px(12.)).line_height(px(17.)).text_color(ui.text_tertiary).child(summary(f, &items)))
+            .child(
+                div()
+                    .flex()
+                    .gap(px(6.))
+                    .child(div().flex_1())
+                    .child(button(ui, "moffer-no", "Not now", false, true).on_click(cx.listener(move |this, _, _, cx| dismiss(this, cx))))
+                    .child(button(ui, "moffer-details", "Details…", false, true).on_click(cx.listener(|this, _, window, cx| this.open_match(window, cx))))
+                    .child(button(ui, "moffer-yes", format!("Match {app}"), true, true).on_click(cx.listener(move |this, _, window, cx| {
+                        this.apply_match(window, cx);
+                        dismiss(this, cx);
+                    }))),
             )
             .into_any_element(),
     )

@@ -262,7 +262,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             })),
         )
         .when(!dragging, |d| {
-            d.children(crate::close::toast(ws, cx)).children(crate::import_ui::notice(ws, cx)).children(crate::import_ui::offer(ws, cx))
+            d.children(crate::close::toast(ws, cx)).children(crate::import_ui::notice(ws, cx)).children(crate::import_ui::offer(ws, cx)).children(crate::match_ui::offer(ws, cx))
         })
         // While a tab is dragged: a place at the bottom to drop it out of its group, back into
         // its folder's project group (made if there isn't one).
