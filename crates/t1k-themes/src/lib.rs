@@ -199,9 +199,11 @@ impl Theme {
             // Cards, popovers and offers sit on the sidebar (itself 5% toward the text in dark
             // themes), so they need a clear step above it to read as a separate surface.
             bg_raised: hsla(mix(bg, fg, if self.is_dark() { t(0.14, 0.16) } else { 0.0 }), 1.),
-            bg_hover: hsla(mix(bg, fg, t(0.06, 0.1)), 1.),
-            bg_selected: hsla(mix(bg, fg, t(0.11, 0.2)), 1.),
-            bg_control: hsla(mix(bg, fg, t(0.16, 0.22)), 1.),
+            // Dark: these sit mostly on raised surfaces (palette, menus, pickers at 14%), so they
+            // step up from there: hover a little, selection clearly, controls in between.
+            bg_hover: hsla(mix(bg, fg, if self.is_dark() { t(0.19, 0.22) } else { t(0.06, 0.1) }), 1.),
+            bg_selected: hsla(mix(bg, fg, if self.is_dark() { t(0.25, 0.3) } else { t(0.11, 0.2) }), 1.),
+            bg_control: hsla(mix(bg, fg, if self.is_dark() { t(0.21, 0.26) } else { t(0.16, 0.22) }), 1.),
             border: hsla(fg, t(0.10, 0.45)),
             text_primary: hsla(fg, 1.),
             text_secondary: hsla(mix(bg, fg, t(0.72, 0.9)), 1.),
