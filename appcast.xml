@@ -3,6 +3,16 @@
   <channel>
     <title>T1K</title>
     <item>
+      <title>T1K 0.1.1</title>
+      <pubDate>Sun, 08 Nov 2026 22:22:25 +0200</pubDate>
+      <sparkle:version>0.1.1</sparkle:version>
+      <sparkle:shortVersionString>0.1.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/erango/t1k/releases/tag/v0.1.1</sparkle:fullReleaseNotesLink>
+      <description><![CDATA[<ul><li>Bring your tabs over from Warp, iTerm2, Terminal, Ghostty, kitty, WezTerm and tmux; Claude sessions resume where they were.</li><li>&quot;Same font as in Warp?&quot;: match your old terminal&#x27;s font, size, spacing and colors in one click, with Undo.</li><li>Set up T1K: a short walk through the settings people miss, from the welcome card, the T1K menu, Settings or the palette.</li><li>Tabs come back after a quit or an update with their scrollback, and Claude sessions resume; the sidebar says what&#x27;s still coming back.</li><li>Plan usage limits for Claude, Codex and Antigravity in a small meter, and the context meter now uses Claude&#x27;s own numbers.</li><li>Group colors, icons and order; groups of your own; drag tabs and groups between groups with Undo; close a tab or a whole group from the sidebar.</li><li>Tab icons can be an emoji, any app&#x27;s icon or an image; a Claude session&#x27;s /color shows on its tab.</li><li>The outputs panel shows PR titles, checks and review state, and artifacts by type and title.</li><li>Get more fonts: install free coding fonts from the font picker, checked against their official releases.</li><li>A scrollbar that shows while you scroll, with prompt and find marks, and a scroll-to-bottom button that counts new lines (⌘⇧↓).</li><li>Drop files on a terminal to type their paths; ⌘ + click opens links, and resting on one says so.</li><li>⌘J says when nothing needs you and offers the newest unread tab; ⌥ shows what a row isn&#x27;t already showing.</li><li>Choose where new tabs open and where closing a tab takes you.</li><li>Report a bug fills in the GitHub issue with your versions, settings and recent errors.</li><li>Quitting from the Dock now asks about running tabs, like ⌘Q.</li><li>More contrast in Mercury Dark, a steel-blue app icon, and many smaller fixes.</li></ul>]]></description>
+      <enclosure url="https://github.com/erango/t1k/releases/download/v0.1.1/T1K-0.1.1.zip" type="application/octet-stream" sparkle:edSignature="TZ+aI43b+cKKRm3QNk5fqnANW51fbyC3LOeY4/mStkjJeMSblE5sdm0q/EOiH7Ab+6x3ZGQr5ldOkVROePS0Cw==" length="11520767" />
+    </item>
+    <item>
       <title>T1K 0.1.0</title>
       <pubDate>Sat, 07 Nov 2026 15:04:39 +0200</pubDate>
       <sparkle:version>0.1.0</sparkle:version>
