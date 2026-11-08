@@ -34,6 +34,10 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         .size_full()
         .overflow_y_scroll()
         .track_scroll(&ws.sidebar_scroll)
+        // The sticky header is worked out in render from the scroll offset, and scrolling alone
+        // doesn't re-render the workspace: without this it lagged behind the list, drawing the
+        // wrong group's header (or one half over the real one) until something else repainted.
+        .on_scroll_wheel(cx.listener(|_, _, _, cx| cx.notify()))
         // Dragging a tab or group near the top or bottom edge scrolls the list.
         .on_drag_move::<TabDrag>(cx.listener(|this, e: &gpui::DragMoveEvent<TabDrag>, _, cx| {
             this.drag_near_edge(f32::from(e.event.position.y), f32::from(e.bounds.top()), f32::from(e.bounds.bottom()), cx)
