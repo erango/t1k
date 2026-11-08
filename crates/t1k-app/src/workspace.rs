@@ -208,6 +208,12 @@ pub struct Workspace {
     pub notice_undo: bool,
     /// Tab moves between groups, newest last: (tab id, group, pinned group) before the move.
     pub move_undo: Vec<Vec<(String, PathBuf, Option<PathBuf>)>>,
+    /// "Match your terminal": the scan and the sheet's choices.
+    pub matcher: Option<crate::match_ui::MatchState>,
+    /// config.toml before the last match, for Undo.
+    pub match_undo: Option<crate::match_ui::MatchUndo>,
+    /// The welcome card's match section was used or dismissed.
+    pub match_hidden: bool,
     /// Automatic group hue (ANSI 4-6), by name, bumped so neighbors differ.
     auto_hues: HashMap<PathBuf, u8>,
     /// The order the hues were last worked out for; they change only when it does.
@@ -426,6 +432,9 @@ impl Workspace {
             had_needs: false,
             caught_up_task: None,
             move_undo: Vec::new(),
+            matcher: None,
+            match_undo: None,
+            match_hidden: false,
             auto_hues: HashMap::new(),
             hues_for: Vec::new(),
             group_emptied: HashMap::new(),
@@ -517,6 +526,7 @@ impl Workspace {
         cx.observe_window_appearance(window, |this, window, cx| this.apply_theme(window, cx)).detach();
         // Tabs open in other terminals: the welcome card, the palette hint, the launch offer.
         this.scan_for_import(cx);
+        this.scan_for_match(cx);
         cx.observe_window_activation(window, |this, window, cx| this.set_inactive(!window.is_window_active(), cx)).detach();
         if !window.is_window_active() && std::env::var_os("T1K_DEBUG_BACKGROUND").is_some() {
             this.set_inactive(true, cx);
@@ -737,6 +747,10 @@ impl Workspace {
                 }
                 "import" => {
                     this.open_import(window, cx);
+                    None
+                }
+                "match" => {
+                    this.open_match(window, cx);
                     None
                 }
                 "waiting" => {
@@ -1078,6 +1092,7 @@ impl Workspace {
         self.move_undo.push(before);
         self.notice = Some((format!("Moved {title} to {}", self.group_label(&to)), Instant::now()));
         self.notice_undo = true;
+        self.match_undo = None;
         cx.notify();
     }
 
@@ -1106,6 +1121,7 @@ impl Workspace {
         }
         self.notice = Some((format!("Moved {what} to {name}"), Instant::now()));
         self.notice_undo = true;
+        self.match_undo = None;
         cx.notify();
     }
 
@@ -1150,6 +1166,11 @@ impl Workspace {
 
     /// Put the last moved tabs back where they were (⌘Z, or Undo on the notice).
     pub fn undo_move(&mut self, cx: &mut Context<Self>) {
+        // ⌘Z and the notice's Undo take back whichever came last: a match or a move.
+        if self.match_undo.is_some() {
+            self.undo_match(cx);
+            return;
+        }
         let Some(before) = self.move_undo.pop() else { return };
         for (id, group, pinned) in before {
             if let Some(t) = self.tabs.iter_mut().find(|t| t.id == id) {

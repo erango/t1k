@@ -499,6 +499,8 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
                 .children(ws.import_last.map(|(n, at)| div().text_size(px(12.)).text_color(ui.text_tertiary).child(format!("Last: {n} tabs, {}", crate::usage::clock(at)))))
                 .child(pill(ui, "import-now".into(), "Import…".into(), false).on_click(cx.listener(|this, _, window, cx| this.open_import(window, cx))))
                 .into_any_element()),
+        e(Advanced, "Other terminals", "Match your terminal", "Use the font, size, line height and colors from Warp, iTerm2, Ghostty, kitty or Alacritty", "match", "import font theme colors look warp iterm ghostty match settings",
+            pill(ui, "match-now".into(), "Match…".into(), false).on_click(cx.listener(|this, _, window, cx| this.open_match(window, cx))).into_any_element()),
         e(Advanced, "Other terminals", "Offer to import at launch", "Only when new tabs are found since the last import", "terminal.offer_import", "import launch offer",
             toggle(ui, "offer-import", c.terminal.offer_import, &["terminal", "offer_import"], cx).into_any_element()),
         e(Advanced, "Files", "Settings file", "~/.config/t1k/config.toml; edits apply live", "config.toml", "config", open_cfg),

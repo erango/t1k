@@ -435,6 +435,17 @@ pub fn set_value(keys: &[&str], value: toml_edit::Value) {
     }
 }
 
+/// A key's value as written in config.toml (None when it isn't there).
+pub fn get_raw(keys: &[&str]) -> Option<toml_edit::Value> {
+    let text = std::fs::read_to_string(path()?).ok()?;
+    let doc = text.parse::<toml_edit::DocumentMut>().ok()?;
+    let mut item = doc.as_item();
+    for k in keys {
+        item = item.get(k)?;
+    }
+    item.as_value().cloned()
+}
+
 /// Remove a key from config.toml (it falls back to its default).
 pub fn remove(keys: &[&str]) {
     let Some(p) = path() else { return };

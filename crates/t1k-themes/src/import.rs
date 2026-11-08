@@ -117,7 +117,7 @@ fn iterm(bytes: &[u8], name: &str) -> Result<Theme> {
     let dict = v.as_dictionary().ok_or("not a plist dictionary")?;
     let color = |key: &str| -> Option<u32> {
         let d = dict.get(key)?.as_dictionary()?;
-        let c = |k: &str| d.get(k).and_then(|x| x.as_real()).map(|f| (f.clamp(0., 1.) * 255.).round() as u32);
+        let c = |k: &str| d.get(k).and_then(|x| x.as_real().or_else(|| x.as_signed_integer().map(|i| i as f64))).map(|f| (f.clamp(0., 1.) * 255.).round() as u32);
         Some(c("Red Component")? << 16 | c("Green Component")? << 8 | c("Blue Component")?)
     };
     let mut ansi = [None; 16];

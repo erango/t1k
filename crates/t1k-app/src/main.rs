@@ -3,6 +3,8 @@
 mod actions;
 mod import;
 mod import_ui;
+mod match_term;
+mod match_ui;
 mod agent_setup;
 mod app_icon;
 mod brand;

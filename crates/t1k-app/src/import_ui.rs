@@ -308,7 +308,7 @@ impl Workspace {
 
 // ---- rendering ---------------------------------------------------------------------------------
 
-fn checkbox(ui: UiColors, state: Option<bool>) -> gpui::Div {
+pub(crate) fn checkbox(ui: UiColors, state: Option<bool>) -> gpui::Div {
     // Some(true) checked, Some(false) unchecked, None mixed.
     let on = state != Some(false);
     div()
@@ -329,7 +329,7 @@ fn checkbox(ui: UiColors, state: Option<bool>) -> gpui::Div {
         })
 }
 
-fn button(ui: UiColors, id: impl Into<SharedString>, label: impl Into<SharedString>, primary: bool, enabled: bool) -> gpui::Stateful<gpui::Div> {
+pub(crate) fn button(ui: UiColors, id: impl Into<SharedString>, label: impl Into<SharedString>, primary: bool, enabled: bool) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id.into())
         .h(px(28.))
@@ -345,7 +345,7 @@ fn button(ui: UiColors, id: impl Into<SharedString>, label: impl Into<SharedStri
         .child(label.into())
 }
 
-fn mono(s: impl Into<SharedString>, c: Hsla) -> gpui::Div {
+pub(crate) fn mono(s: impl Into<SharedString>, c: Hsla) -> gpui::Div {
     div().font_family("JetBrains Mono").text_size(px(11.)).text_color(c).child(s.into())
 }
 

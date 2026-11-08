@@ -140,6 +140,7 @@ pub fn welcome(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 )
                 .child(button(ws, "welcome-start", "Start", connected).on_click(cx.listener(|this, _, window, cx| this.close_overlay(window, cx)))),
         )
+        .children(crate::match_ui::welcome_section(ws, cx))
         .children(crate::import_ui::welcome_card(ws, cx))
         .child(div().text_size(px(11.)).text_color(ui.text_disabled).child(SharedString::from("You can connect agents later in Settings › Agents.")))
         .into_any_element()
