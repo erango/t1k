@@ -98,10 +98,8 @@ pub fn caret(color: Hsla, open: bool) -> impl IntoElement {
 
 /// A window with its left panel marked: show the sidebar.
 pub fn sidebar(color: Hsla) -> impl IntoElement {
-    icon(move |b, window| {
-        let o = b.origin;
-        let pt = |x: f32, y: f32| point(o.x + px(x), o.y + px(y));
-        stroke(window, color, |p| {
+    // Title-bar icons draw at 16 px (14 read too small there).
+    icon_at(16., |pt, p| {
             p.move_to(pt(2., 3.));
             p.line_to(pt(12., 3.));
             p.line_to(pt(12., 11.));
@@ -109,32 +107,26 @@ pub fn sidebar(color: Hsla) -> impl IntoElement {
             p.close();
             p.move_to(pt(5.5, 3.));
             p.line_to(pt(5.5, 11.));
-        })
-    })
+        }, color)
 }
 
 /// Two right chevrons: fold a right-hand panel away.
 pub fn collapse_right(color: Hsla) -> impl IntoElement {
-    icon(move |b, window| {
-        let o = b.origin;
-        let pt = |x: f32, y: f32| point(o.x + px(x), o.y + px(y));
-        stroke(window, color, |p| {
+    // Title-bar icons draw at 16 px (14 read too small there).
+    icon_at(16., |pt, p| {
             p.move_to(pt(3.5, 3.5));
             p.line_to(pt(7., 7.));
             p.line_to(pt(3.5, 10.5));
             p.move_to(pt(7.5, 3.5));
             p.line_to(pt(11., 7.));
             p.line_to(pt(7.5, 10.5));
-        })
-    })
+        }, color)
 }
 
 /// A tray (outputs).
 pub fn tray(color: Hsla) -> impl IntoElement {
-    icon(move |b, window| {
-        let o = b.origin;
-        let pt = |x: f32, y: f32| point(o.x + px(x), o.y + px(y));
-        stroke(window, color, |p| {
+    // Title-bar icons draw at 16 px (14 read too small there).
+    icon_at(16., |pt, p| {
             p.move_to(pt(3.5, 3.));
             p.line_to(pt(10.5, 3.));
             p.line_to(pt(12.2, 8.));
@@ -148,8 +140,7 @@ pub fn tray(color: Hsla) -> impl IntoElement {
             p.line_to(pt(8.4, 9.6));
             p.line_to(pt(9.2, 8.));
             p.line_to(pt(12.2, 8.));
-        })
-    })
+        }, color)
 }
 
 /// An ×, for closing a dialog.
