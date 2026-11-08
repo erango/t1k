@@ -595,7 +595,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         .flex_1()
         .min_w_0()
         .truncate()
-        .text_size(px(if alt { 12. } else { 13. } * k))
+        .text_size(px(if alt { 12. } else if ws.config.sidebar.second_line != "none" { 13.5 } else { 13. } * k))
         .when(!alt && (selected || unseen), |d| d.font_weight(FontWeight::SEMIBOLD))
         .text_color(title_color(tab, selected, alt, ui))
         .child(if alt { tab.subtitle() } else { tab.title_as(&ws.config.sidebar.title) });
@@ -720,8 +720,9 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
                         div()
                             .when(!icons, |d| d.pl(px(21.)))
                             .truncate()
-                            .text_size(px(12. * k))
-                            .text_color(if selected { ui.text_secondary } else { ui.text_quiet })
+                            // Clearly below the title: two points smaller and a tier dimmer.
+                            .text_size(px(11.5 * k))
+                            .text_color(if selected { ui.text_quiet } else { ui.text_tertiary })
                             .child(second.unwrap_or_default()),
                     )
                 }),
