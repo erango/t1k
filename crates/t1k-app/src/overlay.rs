@@ -1238,7 +1238,7 @@ fn card(ws: &Workspace, i: usize, selected: bool, cx: &mut Context<Workspace>) -
                 .font_family("JetBrains Mono")
                 .text_size(px(10.5))
                 .children(lines.into_iter().enumerate().map(move |(j, l)| {
-                    div().truncate().text_color(if j + 1 == n { last_color } else { ui.text_quiet }).child(l)
+                    div().flex_none().truncate().text_color(if j + 1 == n { last_color } else { ui.text_quiet }).child(l)
                 }))
         })
         .into_any_element()
