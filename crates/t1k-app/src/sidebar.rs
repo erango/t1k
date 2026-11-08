@@ -171,10 +171,12 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         .child(
             div()
                 .h(px(44.))
+                .relative()
                 .flex_none()
                 .flex()
                 .items_center()
                 .justify_end()
+                .children(crate::restore::progress_bar(ws))
                 // Clear of the traffic lights: on a narrow sidebar the usage label shrinks first.
                 .pl(px(74.))
                 .pr(px(10.))
@@ -212,7 +214,8 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 .child(div().w(px(1.)).h(px(16.)).mx(px(3.)).bg(ui.border))
                 .children(crate::usage::meter(ws, "usage-meter", cx))
                 .child(nav_button(ws, true, cx))
-                .child(nav_button(ws, false, cx)),
+                .child(nav_button(ws, false, cx))
+                .children(crate::restore::progress_label(ws)),
         )
         // Find owns its row.
         .child(
@@ -650,7 +653,8 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         .gap(px(if two_lines { 11. } else { 9. }))
         // v3: the program icon carries status in its corner (and spans both lines when there's
         // a second one); without icons, the glyph slot sits on the title line.
-        .when(icons, |d| d.child(status_icon(tab, ui, ws.ui.bg_sidebar, selected, icon_size)))
+        // Not back yet after a quit: the icon waits at 55% (canvas v3-ab).
+        .when(icons, |d| d.child(status_icon(tab, ui, ws.ui.bg_sidebar, selected, icon_size).when(ws.is_resuming(&tab.id), |d| d.opacity(0.55))))
         .child(
             div()
                 .flex_1()
@@ -674,6 +678,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
                             div().flex_none().text_size(px(11. * k)).text_color(ui.text_tertiary).child(format!("in {}", w.source.label()))
                         }))
                         .children(pending)
+                        .children(crate::restore::row_note(ws, &tab.id, ui))
                         .children(waiting.map(|w| {
                             div().flex_none().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(w)
                         }))

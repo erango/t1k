@@ -155,6 +155,8 @@ pub fn pane(ws: &Workspace, split: bool, content: impl IntoElement, cx: &mut Con
             let at = window.mouse_position();
             this.drop_on_pane(split, paths, at, window, cx);
         }))
+        // A Claude session resuming after a quit, or a tab that couldn't come back (v3-ab).
+        .when(!split, |d| d.children(ws.tabs.get(ws.active).and_then(|t| crate::restore::pane_overlay(ws, &t.id))))
         .when_some(hover, |d, h| d.child(outline(ui)).child(drop_label(ui, &h.paths)))
         .into_any_element()
 }

@@ -5,6 +5,7 @@ mod import;
 mod import_ui;
 mod match_term;
 mod drop;
+mod restore;
 mod match_ui;
 mod agent_setup;
 mod app_icon;

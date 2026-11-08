@@ -216,6 +216,8 @@ pub struct Workspace {
     pub match_hidden: bool,
     /// Files being dragged over a pane or a sidebar row.
     pub drop_hover: Option<crate::drop::DropHover>,
+    /// Tabs coming back after a quit (canvas v3-ab).
+    pub restore: Option<crate::restore::Restore>,
     /// Automatic group hue (ANSI 4-6), by name, bumped so neighbors differ.
     auto_hues: HashMap<PathBuf, u8>,
     /// The order the hues were last worked out for; they change only when it does.
@@ -438,6 +440,7 @@ impl Workspace {
             match_undo: None,
             match_hidden: false,
             drop_hover: None,
+            restore: None,
             auto_hues: HashMap::new(),
             hues_for: Vec::new(),
             group_emptied: HashMap::new(),
@@ -562,7 +565,11 @@ impl Workspace {
         this.window_frame = Some(frame_of(window));
         // First launch ever: no saved session and never welcomed.
         let first_launch = !saved.welcomed && saved.tabs.is_empty();
-        let restore: Vec<SavedTab> = saved.tabs.into_iter().filter(|t| t.cwd.as_ref().is_none_or(|p| p.is_dir())).collect();
+        // A tab whose folder is gone still comes back (in the home folder), marked, rather than
+        // silently disappearing.
+        let restore: Vec<SavedTab> = saved.tabs;
+        let mut resuming = std::collections::HashSet::new();
+        let mut failed = Vec::new();
         if restore.is_empty() || std::env::var_os("T1K_FRESH").is_some() {
             this.open_tab(None, None, window, cx);
         } else {
@@ -571,8 +578,12 @@ impl Workspace {
                 if this.config.terminal.restore_scrollback {
                     this.restore_next = t.scrollback.as_ref().zip(dir.as_ref()).and_then(|(f, d)| std::fs::read(d.join(f)).ok()).map(restored_banner);
                 }
-                this.open_tab(t.cwd, t.manual_title, window, cx);
+                let missing = t.cwd.as_ref().is_some_and(|p| !p.is_dir());
+                this.open_tab(t.cwd.filter(|p| p.is_dir()), t.manual_title, window, cx);
                 let tab = this.tabs.last_mut().unwrap();
+                if missing {
+                    failed.push((tab.id.clone(), "Folder missing"));
+                }
                 tab.reminder_at = t.reminder_at.map(|s| UNIX_EPOCH + Duration::from_secs(s));
                 // Re-attach the last Claude session's transcript: title, recap and outputs return.
                 if let Some(sid) = &t.last_session {
@@ -581,9 +592,10 @@ impl Workspace {
                     }
                 }
                 // Claude was mid-session when T1K quit: pick it back up.
-                if t.agent_live && this.config.terminal.resume_agents {
+                if t.agent_live && this.config.terminal.resume_agents && !missing {
                     if let Some(sid) = &t.last_session {
                         tab.view.read(cx).terminal.write(format!("claude --resume {sid}\r").into_bytes());
+                        resuming.insert(tab.id.clone());
                     }
                 }
                 tab.last_session = t.last_session;
@@ -607,6 +619,7 @@ impl Workspace {
             // Restoring opened every tab; that isn't history.
             this.back.clear();
             this.forward.clear();
+            this.start_restore(std::mem::take(&mut resuming), std::mem::take(&mut failed), cx);
         }
         if first_launch {
             this.open_overlay(Overlay::Welcome, window, cx);
@@ -966,6 +979,14 @@ impl Workspace {
         if ix >= self.tabs.len() {
             return;
         }
+        // A tab that couldn't come back after a quit has had its look once you move on.
+        if ix != self.active {
+            if let Some(id) = self.tabs.get(self.active).map(|t| t.id.clone()) {
+                if self.restore_failure(&id).is_some() {
+                    self.restore_handled(&id);
+                }
+            }
+        }
         // Visiting a tab records where you came from, like a browser; back/forward don't.
         if ix != self.active && !self.navigating {
             if let Some(cur) = self.tabs.get(self.active).map(|t| t.id.clone()) {
@@ -1025,6 +1046,8 @@ impl Workspace {
         // Closing a tab you're not on keeps you where you are.
         let next = if ix == self.active { self.after_close_target(ix) } else { Some(self.active) };
         self.remember_session(ix);
+        let id = self.tabs[ix].id.clone();
+        self.restore_handled(&id);
         self.tabs.remove(ix);
         if self.tabs.is_empty() {
             self.save();
@@ -1694,6 +1717,8 @@ impl Workspace {
             }
         }
         let Some(ix) = self.tabs.iter().position(|t| t.id == env.tab_id) else { return usage_changed };
+        // Its agent is talking again: it's back.
+        self.restore_heard(&env.tab_id);
         let Some((hook, session_id)) = Hook::parse(&env.payload) else { return usage_changed };
         let visible = ix == self.active && window.is_window_active();
         let tab = &mut self.tabs[ix];
@@ -1841,6 +1866,7 @@ impl Workspace {
     pub fn is_quiet(&self, i: usize) -> bool {
         let t = &self.tabs[i];
         i != self.active
+            && !self.restore_holds(&t.id)
             && !t.unread
             && !t.reminder_due
             && t.reminder_at.is_none()
