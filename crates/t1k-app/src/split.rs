@@ -23,19 +23,21 @@ fn cached(view: &Entity<TerminalView>) -> gpui::AnyView {
 }
 
 /// The active tab's terminal area: one pane, or two with a hairline between them.
-pub fn render_panes(t: &Tab, ui: UiColors, _: &mut Window, _: &mut Context<Workspace>) -> AnyElement {
+/// Each pane takes file drops (`drop::pane`).
+pub fn render_panes(ws: &Workspace, t: &Tab, _: &mut Window, cx: &mut Context<Workspace>) -> AnyElement {
+    let ui: UiColors = ws.ui;
     let Some(split) = &t.split else {
-        return cached(&t.view).into_any_element();
+        return crate::drop::pane(ws, false, cached(&t.view), cx);
     };
-    let pane = |v: &Entity<TerminalView>| div().flex_1().min_w_0().min_h_0().child(cached(v));
+    let mut pane = |v: &Entity<TerminalView>, is_split: bool| div().flex_1().min_w_0().min_h_0().child(crate::drop::pane(ws, is_split, cached(v), cx));
     let line = if split.vertical { div().h(px(1.)).w_full() } else { div().w(px(1.)).h_full() }.flex_none().bg(ui.border);
     div()
         .size_full()
         .flex()
         .when(split.vertical, |d| d.flex_col())
-        .child(pane(&t.view))
+        .child(pane(&t.view, false))
         .child(line)
-        .child(pane(&split.view))
+        .child(pane(&split.view, true))
         .into_any_element()
 }
 

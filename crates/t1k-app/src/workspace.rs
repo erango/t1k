@@ -214,6 +214,8 @@ pub struct Workspace {
     pub match_undo: Option<crate::match_ui::MatchUndo>,
     /// The welcome card's match section was used or dismissed.
     pub match_hidden: bool,
+    /// Files being dragged over a pane or a sidebar row.
+    pub drop_hover: Option<crate::drop::DropHover>,
     /// Automatic group hue (ANSI 4-6), by name, bumped so neighbors differ.
     auto_hues: HashMap<PathBuf, u8>,
     /// The order the hues were last worked out for; they change only when it does.
@@ -435,6 +437,7 @@ impl Workspace {
             matcher: None,
             match_undo: None,
             match_hidden: false,
+            drop_hover: None,
             auto_hues: HashMap::new(),
             hues_for: Vec::new(),
             group_emptied: HashMap::new(),
@@ -684,6 +687,20 @@ impl Workspace {
                 _ => (spec.clone(), None),
             };
             this.view_file(std::path::Path::new(&p), line, cx);
+        }
+        // T1K_DEBUG_DROP=pane|row|theme:<path>: files "dragged" over the pane or the active row,
+        // or the theme-file choice, for screenshots (a real Finder drag can't be scripted).
+        if let Some((kind, path)) = std::env::var("T1K_DEBUG_DROP").ok().as_deref().and_then(|v| v.split_once(':')) {
+            let paths = vec![std::path::PathBuf::from(path)];
+            match kind {
+                "pane" => self_drop_hover(&mut this, crate::drop::DropTarget::Pane { split: false }, paths),
+                "row" => {
+                    let id = this.tabs.get(this.active).map(|t| t.id.clone()).unwrap_or_default();
+                    self_drop_hover(&mut this, crate::drop::DropTarget::Row(id), paths)
+                }
+                "theme" => this.overlay = Overlay::DropTheme { path: paths[0].clone(), split: false, at: gpui::point(px(700.), px(400.)) },
+                _ => {}
+            }
         }
         // Debug aid for screenshots without a keyboard: T1K_DEBUG_OVERLAY=palette|switcher|
         // overview|settings|menu|groupmenu|termmenu|card opens that surface at launch.
@@ -2180,8 +2197,12 @@ impl Render for Workspace {
         window.set_window_title(&format!("{badge}{title} — T1K"));
         // Cached: sidebar spinners and other workspace repaints reuse the terminal's last frame
         // unless the terminal itself changed.
+        // A drag that left the window (or was cancelled) leaves no outline behind.
+        if self.drop_hover.is_some() && !cx.has_active_drag() && std::env::var_os("T1K_DEBUG_DROP").is_none() {
+            self.drop_hover = None;
+        }
         let active_view = crate::import_ui::waiting_pane(self, self.active, cx)
-            .or_else(|| self.tabs.get(self.active).map(|t| crate::split::render_panes(t, self.ui, window, cx)));
+            .or_else(|| self.tabs.get(self.active).map(|t| crate::split::render_panes(self, t, window, cx)));
 
         macro_rules! select {
             ($d:expr, $($act:ident => $ix:expr),*) => {
@@ -2207,9 +2228,6 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &NextTab, window, cx| this.step(1, window, cx)))
             .on_action(cx.listener(|this, _: &PrevTab, window, cx| this.step(-1, window, cx)))
             .on_action(cx.listener(Self::toggle_sidebar))
-            .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, window, cx| {
-                this.import_themes(paths.paths(), window, cx);
-            }))
             .on_action(cx.listener(Self::jump_to_needs))
             .on_action(cx.listener(|this, _: &JumpToNeedsBack, window, cx| this.walk_needs(-1, window, cx)))
             .on_action(cx.listener(|this, _: &ToggleSwitcher, window, cx| {
@@ -2361,4 +2379,8 @@ fn read_tail(path: &std::path::Path, max: u64) -> Option<String> {
     f.read_to_end(&mut buf).ok()?;
     let text = String::from_utf8_lossy(&buf).into_owned();
     Some(if len > max { text.split_once('\n').map(|(_, r)| r.to_string()).unwrap_or_default() } else { text })
+}
+
+fn self_drop_hover(ws: &mut Workspace, target: crate::drop::DropTarget, paths: Vec<PathBuf>) {
+    ws.drop_hover = Some(crate::drop::DropHover { target, paths });
 }

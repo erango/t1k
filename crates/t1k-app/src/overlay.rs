@@ -28,6 +28,8 @@ pub enum Overlay {
     Import { selected: usize },
     /// "Match your terminal" (canvas v3-z).
     Match,
+    /// A theme file dropped on a pane: import it, or insert its path (canvas v3-aa).
+    DropTheme { path: std::path::PathBuf, split: bool, at: gpui::Point<gpui::Pixels> },
     /// The update dialog (any phase).
     Update,
     /// ⌘Q while an update waits.
@@ -368,6 +370,8 @@ impl Workspace {
             Overlay::Welcome => (!matches!(ev.keystroke.key.as_str(), "escape" | "enter")).then_some(Overlay::Welcome),
             Overlay::Import { selected } => self.import_key(selected, ev, window, cx),
             Overlay::Match => self.match_key(ev, window, cx),
+            // Esc inserts nothing.
+            o @ Overlay::DropTheme { .. } => (ev.keystroke.key != "escape").then_some(o),
             Overlay::Update => {
                 if ev.keystroke.key == "escape" {
                     self.close_update(window, cx);
@@ -662,6 +666,10 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
             let c = crate::import_ui::sheet(ws, *selected, window, cx);
             Some(scrim(ws, false, cx).bg(gpui::black().opacity(0.35)).flex().justify_center().items_start().child(c).into_any_element())
         }
+        Overlay::DropTheme { path, split, at } => {
+            let c = crate::drop::theme_choice(ws, path, *split, *at, cx);
+            Some(scrim(ws, true, cx).child(c).into_any_element())
+        }
         Overlay::Match => {
             let c = crate::match_ui::sheet(ws, cx);
             Some(scrim(ws, true, cx).bg(gpui::black().opacity(0.35)).flex().justify_center().items_start().child(c).into_any_element())
@@ -808,7 +816,10 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
             Some(scrim(ws, true, cx).flex().justify_center().items_start().child(panel).into_any_element())
         }
         Overlay::ThemePicker { query, selected, dark } => {
-            let panel = crate::theme_picker::render(ws, query, *selected, *dark, window, cx);
+            // Theme files dropped on the picker import straight away.
+            let panel = div()
+                .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, window, cx| this.import_themes(paths.paths(), window, cx)))
+                .child(crate::theme_picker::render(ws, query, *selected, *dark, window, cx));
             Some(scrim(ws, true, cx).bg(gpui::black().opacity(0.2)).flex().justify_center().items_start().child(panel).into_any_element())
         }
         Overlay::Settings { section } => {

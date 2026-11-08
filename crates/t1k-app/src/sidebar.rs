@@ -607,6 +607,8 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
     let confirming = ws.confirm_close.as_deref() == Some(tab.id.as_str());
 
     let (drag_id, drag_label, drop_group) = (tab.id.clone(), tab.title(), tab.group.clone());
+    let (file_id, file_drop_id) = (tab.id.clone(), tab.id.clone());
+    let file_hover = ws.drop_hover.as_ref().filter(|h| h.target == crate::drop::DropTarget::Row(tab.id.clone())).map(|h| h.paths.clone());
     let ws_handle = cx.entity().downgrade();
     let mut el = div()
         .id(SharedString::from(tab.id.clone()))
@@ -622,6 +624,15 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         })
         .drag_over::<TabDrag>(move |s, _, _, _| s.bg(ui.accent.opacity(0.12)))
         .on_drop(cx.listener(move |this, d: &TabDrag, _, cx| this.move_tabs_undoable(std::slice::from_ref(&d.0), &drop_group, cx)))
+        // Files dropped on a row go to that tab (canvas v3-aa): accent fill and ring, "Insert path".
+        .drag_over::<gpui::ExternalPaths>(move |s, _, _, _| s.bg(ui.accent.opacity(0.12)).border_1().border_color(ui.accent.opacity(0.55)).rounded(px(6.)))
+        .on_drag_move::<gpui::ExternalPaths>(cx.listener(move |this, e: &gpui::DragMoveEvent<gpui::ExternalPaths>, _, cx| {
+            let inside = e.bounds.contains(&e.event.position);
+            let paths = e.drag(cx).clone();
+            this.drop_hover(crate::drop::DropTarget::Row(file_id.clone()), inside, &paths, cx);
+        }))
+        .on_drop(cx.listener(move |this, paths: &gpui::ExternalPaths, window, cx| this.drop_on_row(&file_drop_id, paths, window, cx)))
+        .when_some(file_hover, |d, paths| d.child(crate::drop::row_label(ui, &paths)))
         .group(row_group.clone())
         .relative()
         .flex_none()
