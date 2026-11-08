@@ -101,7 +101,10 @@ fn main() {
     }
     Application::new().run(|cx: &mut App| {
         keymap::install(cx, &if demo::on() { Default::default() } else { config::load().keys });
-        cx.on_action(|_: &Quit, cx| {
+        // Deferred: ⌘Q from the keyboard dispatches while GPUI has the window checked out for
+        // the key event, so updating it here fails and the app used to quit without asking.
+        cx.on_action(|_: &Quit, cx| cx.defer(quit_or_ask));
+        fn quit_or_ask(cx: &mut App) {
             // With an update waiting, ⌘Q asks once (it installs as T1K quits).
             if Workspace::should_confirm_quit() {
                 if let Some(w) = cx.windows().first().and_then(|w| w.downcast::<Workspace>()) {
@@ -117,7 +120,7 @@ fn main() {
                 }
             }
             crate::platform::quit(cx)
-        });
+        }
         cx.on_action(|_: &OpenRepo, cx| cx.open_url(brand::REPO));
         // Remove this process's hook socket on the way out.
         cx.on_app_quit(|_| async {
