@@ -32,6 +32,8 @@ pub struct PanelState {
     pub open: bool,
     pub scope: Scope,
     pub filter: Option<Kind>,
+    /// The folded "N artifact links" row is open.
+    pub links_open: bool,
     pub prs: HashMap<String, Option<PrInfo>>,
     pub(crate) inflight: HashSet<String>,
 }
@@ -261,6 +263,19 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         if in_section.is_empty() {
             continue;
         }
+        // Artifacts only seen as links (not published in the session: canvases it read, types,
+        // links in pasted text) say nothing on their own, so they fold into one row at the end.
+        let total = in_section.len();
+        let link_only = |o: &Output| o.kind == Kind::Artifact && o.icon.is_none();
+        let links = in_section.iter().filter(|x| link_only(&x.1)).count();
+        let links_open = ws.panel.links_open;
+        let in_section: Vec<&&(usize, Output)> = {
+            let (mut main, rest): (Vec<_>, Vec<_>) = in_section.into_iter().partition(|x| !link_only(&x.1));
+            if links_open || links < 2 {
+                main.extend(rest);
+            }
+            main
+        };
         list = list.child(
             div()
                 .h(px(24.))
@@ -273,7 +288,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(ui.text_tertiary)
                 .child(label)
-                .child(div().font_family("JetBrains Mono").text_color(ui.text_disabled).child(in_section.len().to_string())),
+                .child(div().font_family("JetBrains Mono").text_color(ui.text_disabled).child(total.to_string())),
         );
         for (tab, o) in in_section.into_iter().map(|x| (x.0, &x.1)) {
             n += 1;
@@ -423,13 +438,37 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                             .flex_col()
                             .gap(px(1.))
                             .child(div().truncate().text_size(px(12.5 * k)).text_color(ui.text_primary).child(o.label.clone()))
-                            .child(div().truncate().text_size(px(11. * k)).text_color(ui.text_tertiary).child(match (&o.kind, &o.detail, &o.icon) {
+                            // Descriptions get two lines, so the sentence isn't cut mid-word.
+                            .child(div().when(o.detail.is_some(), |d| d.line_clamp(2)).when(o.detail.is_none(), |d| d.truncate()).text_size(px(11. * k)).text_color(ui.text_tertiary).child(match (&o.kind, &o.detail, &o.icon) {
                                 (Kind::Artifact, Some(d), _) => d.clone(),
-                                (Kind::Artifact, None, None) => "claude.ai · link mentioned in this session".to_string(),
+                                // The link itself is all there is to tell these apart.
+                                (Kind::Artifact, None, None) => o.target.trim_start_matches("https://").to_string(),
                                 _ => format!("{tab_title} · {}", age(o.at)),
                             })),
                     )
                     .child(hover_buttons),
+            );
+        }
+        if links >= 2 {
+            list = list.child(
+                div()
+                    .id(SharedString::from(format!("links-{label}")))
+                    .min_h(px(34.))
+                    .px(px(10.))
+                    .py(px(4.))
+                    .rounded(px(6.))
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .cursor_pointer()
+                    .hover(move |d| d.bg(ui.bg_hover))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.panel.links_open = !this.panel.links_open;
+                        cx.notify();
+                    }))
+                    .child(div().size(px(28.)).flex_none().rounded(px(6.)).bg(ui.text_primary.opacity(0.06)).flex().items_center().justify_center().child(crate::icons::artifact("link", ui.text_tertiary, 16.)))
+                    .child(div().flex_1().text_size(px(12.5 * k)).text_color(ui.text_secondary).child(if links_open { "Hide artifact links".to_string() } else { format!("{links} more artifact links") }))
+                    .child(crate::icons::caret(ui.text_tertiary, links_open)),
             );
         }
     }

@@ -277,7 +277,9 @@ fn top_output(ws: &Workspace, a: &t1k_agent::AgentState) -> Option<TopOutput> {
         })
     };
     let other = |kinds: &[Kind], name: &'static str| {
-        a.outputs.iter().rev().find(|o| kinds.contains(&o.kind)).map(|o| {
+        // A page the session published beats one it only mentioned.
+        let published = a.outputs.iter().rev().find(|o| kinds.contains(&o.kind) && !(o.kind == Kind::Artifact && o.icon.is_none()));
+        published.or_else(|| a.outputs.iter().rev().find(|o| kinds.contains(&o.kind))).map(|o| {
             // Artifacts (v3-ae): their type's icon and title; the id never shows.
             let artifact = (o.kind == Kind::Artifact).then(|| o.icon.clone().unwrap_or_else(|| "link".into()));
             let label: String = if artifact.is_some() { o.label.clone() } else { o.label.chars().take(22).collect() };
