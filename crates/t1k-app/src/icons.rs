@@ -249,6 +249,21 @@ pub fn artifact(kind: &str, color: Hsla, size: f32) -> impl IntoElement {
             }
         };
         match kind.as_str() {
+            // A merged PR: two branches joining (GitHub's merge mark, simplified).
+            "merge" => {
+                circle(p, 4., 2.75, 1.5);
+                circle(p, 4., 11.25, 1.5);
+                circle(p, 10.5, 8., 1.5);
+                line(p, 4., 4.25, 4., 9.75);
+                p.move_to(pt(4., 4.25));
+                p.line_to(pt(4., 5.5));
+                p.line_to(pt(7.5, 8.));
+                p.line_to(pt(9., 8.));
+            }
+            "closed" => {
+                line(p, 3.5, 3.5, 10.5, 10.5);
+                line(p, 10.5, 3.5, 3.5, 10.5);
+            }
             "chart" => {
                 line(p, 2., 2., 2., 12.);
                 line(p, 2., 12., 12.5, 12.);

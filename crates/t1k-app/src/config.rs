@@ -67,6 +67,8 @@ text_size = 13
 app_icon = "face"
 # Draws the group's color around the selected tab and the terminal it opens.
 selected_outline = true
+# Outputs panel: items shown per section before "+N more" (open PRs always show).
+outputs_section_limit = 5
 
 [sidebar]
 width = 300
@@ -234,11 +236,12 @@ pub struct InterfaceCfg {
     pub text_size: f32,
     pub app_icon: String,
     pub selected_outline: bool,
+    pub outputs_section_limit: usize,
 }
 
 impl Default for InterfaceCfg {
     fn default() -> Self {
-        Self { density: "comfortable".into(), text_size: 13., app_icon: "face".into(), selected_outline: true }
+        Self { density: "comfortable".into(), text_size: 13., app_icon: "face".into(), selected_outline: true, outputs_section_limit: 5 }
     }
 }
 

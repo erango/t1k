@@ -98,6 +98,10 @@ pub struct PanelState {
     pub filter: Option<Kind>,
     /// The folded "N artifact links" row is open.
     pub links_open: bool,
+    /// Sections showing everything, past the limit (by section label).
+    pub expanded: HashSet<&'static str>,
+    /// FILES lists the files that are gone from disk (canvas v3-at A).
+    pub show_deleted: bool,
     pub prs: HashMap<String, Option<PrInfo>>,
     pub(crate) inflight: HashSet<String>,
     /// PR info faked by `T1K_DEBUG_PRS`: gh is never asked, so it isn't overwritten.
@@ -529,12 +533,18 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         ("DEPLOYS", &[Kind::Deploy]),
         ("FILES", &[Kind::File]),
     ];
+    // The demo's files are made up: they'd all read as deleted.
+    let demo = crate::demo::on();
     let mut n = 0usize;
     for (label, kinds) in sections {
         let in_section: Vec<&&(usize, Output)> = items.iter().filter(|(_, o)| kinds.contains(&o.kind)).collect();
         if in_section.is_empty() {
             continue;
         }
+        // Canvas v3-at A: files gone from disk (temp handover notes) leave the list and its
+        // count, behind a quiet "N deleted" row at the end.
+        let (in_section, deleted): (Vec<&&(usize, Output)>, Vec<&&(usize, Output)>) =
+            in_section.into_iter().partition(|x| x.1.kind != Kind::File || demo || std::path::Path::new(&x.1.target).exists());
         // Artifacts only seen as links (not published in the session: canvases it read, types,
         // links in pasted text) say nothing on their own, so they fold into one row at the end.
         let total = in_section.len();
@@ -548,6 +558,27 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             }
             main
         };
+        // The newest few per section, then "+N more". Open PRs always show, first; merged and
+        // closed ones fill the slots left. One past the limit shows (a "+1" row saves nothing).
+        let limit = ws.config.interface.outputs_section_limit.max(1);
+        let expanded = ws.panel.expanded.contains(label);
+        let is_finished = |o: &Output| o.kind == Kind::Pr && ws.panel.prs.get(&o.target).is_some_and(|p| p.as_ref().is_some_and(|p| p.finished()));
+        let (pinned, rest): (Vec<_>, Vec<_>) = in_section.into_iter().partition(|x| x.1.kind == Kind::Pr && !is_finished(&x.1));
+        let room = limit.saturating_sub(pinned.len());
+        let folds = rest.len() > room + 1;
+        let hidden = if folds && !expanded { rest.len() - room } else { 0 };
+        let shown = rest.len() - hidden;
+        let mut rows: Vec<Row> = pinned.into_iter().chain(rest.into_iter().take(shown)).map(|x| Row::Out(x, false)).collect();
+        if folds {
+            let more = if label == "PULL REQUESTS" { format!("+{hidden} merged or closed") } else { format!("+{hidden} more") };
+            rows.push(Row::Fold { open: expanded, text: if expanded { "Show fewer".into() } else { more } });
+        }
+        if !deleted.is_empty() {
+            rows.push(Row::Deleted { n: deleted.len(), open: ws.panel.show_deleted });
+            if ws.panel.show_deleted {
+                rows.extend(deleted.into_iter().map(|x| Row::Out(x, true)));
+            }
+        }
         list = list.child(
             div()
                 .h(px(24.))
@@ -562,7 +593,28 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 .child(label)
                 .child(div().font_family("JetBrains Mono").text_color(ui.text_disabled).child(total.to_string())),
         );
-        for (tab, o) in in_section.into_iter().map(|x| (x.0, &x.1)) {
+        for row in rows {
+            let (x, gone) = match row {
+                Row::Out(x, gone) => (x, gone),
+                Row::Fold { open, text } => {
+                    list = list.child(fold_row(ui, k, SharedString::from(format!("fold-{label}")), text, open).on_click(cx.listener(move |this, _, _, cx| {
+                        if !this.panel.expanded.remove(label) {
+                            this.panel.expanded.insert(label);
+                        }
+                        cx.notify();
+                    })));
+                    continue;
+                }
+                Row::Deleted { n, open } => {
+                    let text = if open { "Hide deleted".to_string() } else { format!("{n} deleted") };
+                    list = list.child(fold_row(ui, k, "deleted-files".into(), text, open).on_click(cx.listener(|this, _, _, cx| {
+                        this.panel.show_deleted = !this.panel.show_deleted;
+                        cx.notify();
+                    })));
+                    continue;
+                }
+            };
+            let (tab, o) = (x.0, &x.1);
             n += 1;
             let target = o.target.clone();
             let copy_target = o.target.clone();
@@ -594,7 +646,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                     .gap(px(2.))
                     .invisible()
                     .group_hover(rid, |s| s.visible())
-                    .child(
+                    .when(!gone, |d| d.child(
                         div()
                             .id(SharedString::from(format!("show-{n}")))
                             .px(px(6.))
@@ -612,7 +664,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                                 view.update(cx, |v, cx| v.find_text(&q, cx));
                             }))
                             .child("Show"),
-                    )
+                    ))
                     .child(
                         div()
                             .id(SharedString::from(format!("copy-{n}")))
@@ -631,6 +683,38 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                             .child("Copy"),
                     )
             };
+            if o.kind == Kind::Pr && is_finished(o) {
+                // Canvas v3-at A: merged and closed PRs are history, one quiet line each.
+                let pr = ws.panel.prs.get(&o.target).cloned().flatten();
+                let merged = pr.as_ref().is_some_and(|p| p.state == "MERGED");
+                let title = pr.as_ref().map(|p| p.title.clone()).unwrap_or_default();
+                let when = match pr.as_ref().and_then(|p| p.ended) {
+                    Some(t) => format!("{} {}", if merged { "merged" } else { "closed" }, ago(t)),
+                    None => age(o.at),
+                };
+                let rid = row_id.clone();
+                list = list.child(
+                    div()
+                        .id(row_id.clone())
+                        .group(row_id.clone())
+                        .h(px(34.))
+                        .flex_none()
+                        .relative()
+                        .px(px(10.))
+                        .rounded(px(6.))
+                        .flex()
+                        .items_center()
+                        .gap(px(10.))
+                        .hover(move |d| d.bg(ui.bg_hover))
+                        .on_click(open)
+                        .child(div().size(px(28.)).flex_none().flex().items_center().justify_center().child(crate::icons::artifact(if merged { "merge" } else { "closed" }, ui.text_tertiary, 16.)))
+                        .child(div().flex_none().text_size(px(12. * k)).font_family("JetBrains Mono").text_color(ui.text_secondary).child(format!("#{}", o.label.rsplit('#').next().unwrap_or(&o.label))))
+                        .child(div().flex_1().min_w_0().truncate().text_size(px(12.5 * k)).text_color(ui.text_secondary).child(title))
+                        .child(div().flex_none().text_size(px(11.5 * k)).text_color(ui.text_tertiary).group_hover(rid, |s| s.invisible()).child(when))
+                        .child(hover_buttons.absolute().right(px(6.)).top_0().bottom_0().items_center().pl(px(8.)).bg(ui.bg_hover)),
+                );
+                continue;
+            }
             if o.kind == Kind::Pr {
                 // PR card (v3-aj A): number, state and age; title; checks · review; where it
                 // came from. Until gh answers (or without gh) it's the number and the tab.
@@ -716,7 +800,9 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                     .items_center()
                     .gap(px(10.))
                     .hover(move |d| d.bg(ui.bg_hover))
-                    .on_click(open)
+                    // A deleted file: nothing to open, only its path to copy.
+                    .when(!gone, |d| d.on_click(open))
+                    .when(gone, |d| d.opacity(0.6))
                     // Artifacts (v3-ae): their type's icon in a tile, the title, the description.
                     // Docs and files (v3-am) get the same tile, with an icon for their type.
                     .map(|d| match o.kind {
@@ -728,7 +814,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .child(crate::icons::artifact(t1k_agent::outputs::file_icon(&o.target), ui.text_secondary, 24.)),
+                                .child(crate::icons::artifact(t1k_agent::outputs::file_icon(&o.target), if gone { ui.text_disabled } else { ui.text_secondary }, 24.)),
                         ),
                         Kind::Artifact | Kind::Doc => d.child(
                             div()
@@ -764,6 +850,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                                 // The link itself is all there is to tell these apart.
                                 (Kind::Artifact, None, None) => o.target.trim_start_matches("https://").to_string(),
                                 (Kind::Doc, ..) => format!("{} · {tab_title} · {}", t1k_agent::outputs::doc_kind(&o.target).1, age(o.at)),
+                                _ if gone => format!("Deleted · was in {}", crate::groups::tilde(std::path::Path::new(&o.target).parent().unwrap_or(std::path::Path::new("/")))),
                                 _ => format!("{tab_title} · {}", age(o.at)),
                             })),
                     )
@@ -900,4 +987,30 @@ mod tests {
         assert_eq!(open.ended, None);
         assert_eq!(parse_time("garbage"), None);
     }
+}
+
+/// A row in a section: an output (and whether it's a file gone from disk), the "+N more" /
+/// "Show fewer" fold, or the deleted files' toggle.
+enum Row<'a> {
+    Out(&'a &'a (usize, Output), bool),
+    Fold { open: bool, text: String },
+    Deleted { n: usize, open: bool },
+}
+
+/// A quiet 28 pt row that folds or unfolds part of a section (canvas v3-at A).
+fn fold_row(ui: UiColors, k: f32, id: SharedString, text: String, open: bool) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .h(px(28.))
+        .flex_none()
+        .px(px(10.))
+        .rounded(px(6.))
+        .flex()
+        .items_center()
+        .gap(px(10.))
+        .cursor_pointer()
+        .hover(move |d| d.bg(ui.bg_hover))
+        .child(div().w(px(28.)).flex_none())
+        .child(div().flex_1().text_size(px(12. * k)).text_color(ui.text_tertiary).child(text))
+        .child(crate::icons::caret(ui.text_tertiary, open))
 }
