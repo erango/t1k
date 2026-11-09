@@ -115,7 +115,9 @@ pub struct TerminalView {
     /// Which plain-text references count as links (set by the app per tab).
     pub link_rules: LinkRules,
     /// Path existence checks, so file links don't stat every frame.
-    path_cache: std::cell::RefCell<HashMap<PathBuf, Option<PathBuf>>>,
+    /// Path lookups, with when a miss was seen (re-checked after a moment: a program often
+    /// prints a path before it writes the file).
+    path_cache: std::cell::RefCell<HashMap<PathBuf, (Option<PathBuf>, std::time::Instant)>>,
     /// Viewport cell under the mouse, and whether cmd is held (cmd-hover arms a link).
     hover_cell: Option<(usize, usize)>,
     cmd_down: bool,
@@ -1476,7 +1478,15 @@ fn build_frame_locked(view: &TerminalView, term: &alacritty_terminal::Term<crate
         }
         let base = cwd.clone().unwrap_or_default();
         let key = base.join(text);
-        let found = cache.entry(key).or_insert_with(|| resolve_path(text, &base)).clone();
+        let fresh = |e: &(Option<PathBuf>, std::time::Instant)| e.0.is_some() || e.1.elapsed() < std::time::Duration::from_secs(2);
+        let found = match cache.get(&key).filter(|e| fresh(e)) {
+            Some(e) => e.0.clone(),
+            None => {
+                let f = resolve_path(text, &base);
+                cache.insert(key, (f.clone(), std::time::Instant::now()));
+                f
+            }
+        };
         // The tab's own folder is what prompts print; it isn't worth a link.
         found.filter(|p| cwd.as_deref().is_none_or(|c| p.canonicalize().ok().as_deref() != c.canonicalize().ok().as_deref()))
     };

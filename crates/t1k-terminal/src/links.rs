@@ -265,6 +265,9 @@ mod tests {
         let line = chars("  ~/git-repos/t1k/README.md:3 ");
         let p = &find_path_candidates(&line)[0];
         assert_eq!(line[p.start..p.end].iter().collect::<String>(), "~/git-repos/t1k/README.md:3");
+        let line = chars("A copy is at /private/tmp/claude-501/-Users-x-git-repos/4f0d86cf/scratchpad/slack-nov9.md");
+        let c = find_path_candidates(&line);
+        assert_eq!(c.iter().map(|p| p.path.as_str()).collect::<Vec<_>>(), ["/private/tmp/claude-501/-Users-x-git-repos/4f0d86cf/scratchpad/slack-nov9.md"]);
     }
 
     #[test]
