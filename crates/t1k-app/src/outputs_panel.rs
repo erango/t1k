@@ -543,7 +543,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         }
         // Canvas v3-at A: files gone from disk (temp handover notes) leave the list and its
         // count, behind a quiet "N deleted" row at the end.
-        let (in_section, deleted): (Vec<&&(usize, Output)>, Vec<&&(usize, Output)>) =
+        let (in_section, deleted): (Vec<Item>, Vec<Item>) =
             in_section.into_iter().partition(|x| x.1.kind != Kind::File || demo || std::path::Path::new(&x.1.target).exists());
         // Artifacts only seen as links (not published in the session: canvases it read, types,
         // links in pasted text) say nothing on their own, so they fold into one row at the end.
@@ -1000,10 +1000,13 @@ mod tests {
     }
 }
 
+/// An output in scope, with the tab it came from.
+type Item<'a> = &'a &'a (usize, Output);
+
 /// A row in a section: an output (and whether it's a file gone from disk), the "+N more" /
 /// "Show fewer" fold, or the deleted files' toggle.
 enum Row<'a> {
-    Out(&'a &'a (usize, Output), bool),
+    Out(Item<'a>, bool),
     Fold { open: bool, text: String },
     Deleted { n: usize, open: bool },
 }
