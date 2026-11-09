@@ -70,6 +70,10 @@ pub struct AgentState {
     tail: Option<Tail>,
     /// Artifact publish calls waiting for their result, by tool call id.
     artifact_calls: std::collections::HashMap<String, ArtifactCall>,
+    /// When the transcript line being applied was written (outputs keep their real time).
+    stamp: Option<SystemTime>,
+    /// Outputs from the part of the transcript attaching skipped, read on a thread.
+    history: Option<std::sync::mpsc::Receiver<Vec<Entry>>>,
 }
 
 impl AgentState {
@@ -95,17 +99,23 @@ impl AgentState {
             custom_title: false,
             tail: None,
             artifact_calls: Default::default(),
+            stamp: None,
+            history: None,
         }
     }
 
     pub fn add_output(&mut self, kind: Kind, target: String, label: String) {
+        self.add_output_at(kind, target, label, SystemTime::now());
+    }
+
+    fn add_output_at(&mut self, kind: Kind, target: String, label: String, at: SystemTime) {
         // Mentioned again: it moves to newest, keeping what a publish call said about it.
         let old = self.outputs.iter().position(|o| o.target == target).map(|i| self.outputs.remove(i));
         let (label, icon, detail) = match old {
             Some(o) if o.icon.is_some() => (o.label, o.icon, o.detail),
             _ => (label, None, None),
         };
-        self.outputs.push(Output { kind, target, label, at: SystemTime::now(), icon, detail });
+        self.outputs.push(Output { kind, target, label, at, icon, detail });
     }
 
     /// An Artifact publish call's result named its page: give that output a title, an icon
@@ -113,7 +123,8 @@ impl AgentState {
     fn artifact_published(&mut self, url: &str, call: ArtifactCall) {
         let Some((Kind::Artifact, target, _)) = classify(url) else { return };
         if !self.outputs.iter().any(|o| o.target == target) {
-            self.add_output(Kind::Artifact, target.clone(), "Artifact".into());
+            let at = self.stamp.unwrap_or_else(SystemTime::now);
+            self.add_output_at(Kind::Artifact, target.clone(), "Artifact".into(), at);
         }
         let Some(o) = self.outputs.iter_mut().find(|o| o.target == target) else { return };
         // Updates to the same page often say less than the first publish; keep what's known.
@@ -133,7 +144,8 @@ impl AgentState {
 
     fn add_url(&mut self, url: &str) {
         if let Some((kind, target, label)) = classify(url) {
-            self.add_output(kind, target, label);
+            let at = self.stamp.unwrap_or_else(SystemTime::now);
+            self.add_output_at(kind, target, label, at);
         }
     }
 
@@ -249,64 +261,110 @@ impl AgentState {
     pub fn poll_transcript(&mut self) -> bool {
         let Some(tail) = self.tail.as_mut() else { return false };
         let entries = tail.poll();
-        let changed = !entries.is_empty();
+        // Attaching read only the transcript's end: read the rest's outputs on a thread.
+        if let Some(upto) = tail.skipped.take() {
+            let path = tail.path.clone();
+            let (tx, rx) = std::sync::mpsc::channel();
+            self.history = Some(rx);
+            std::thread::spawn(move || {
+                let _ = tx.send(crate::transcript::history_outputs(&path, upto));
+            });
+        }
+        let mut changed = !entries.is_empty();
         for e in entries {
-            match e {
-                Entry::AiTitle(t) if !self.custom_title => self.goal = Some(t),
-                Entry::AiTitle(_) => {}
-                Entry::CustomTitle(t) => {
-                    self.custom_title = true;
-                    self.goal = Some(t);
+            self.apply_entry(e);
+        }
+        self.stamp = None;
+        if let Some(older) = self.history.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            self.history = None;
+            self.merge_history(older);
+            changed = true;
+        }
+        changed
+    }
+
+    /// Outputs from earlier in the transcript go before the ones already listed; a later
+    /// mention of the same output keeps its place and details.
+    fn merge_history(&mut self, older: Vec<Entry>) {
+        let newer = std::mem::take(&mut self.outputs);
+        let newer_prs = std::mem::take(&mut self.prs);
+        let calls = std::mem::take(&mut self.artifact_calls);
+        for e in older {
+            self.apply_entry(e);
+        }
+        self.stamp = None;
+        self.artifact_calls = calls;
+        for o in newer {
+            self.outputs.retain(|x| x.target != o.target);
+            self.outputs.push(o);
+        }
+        for p in newer_prs {
+            self.prs.retain(|x| x.1 != p.1);
+            self.prs.push(p);
+        }
+    }
+
+    fn apply_entry(&mut self, e: Entry) {
+        match e {
+            Entry::Stamp(t) => self.stamp = Some(t),
+            Entry::FileEdit(p) => {
+                let name = p.rsplit('/').next().unwrap_or(&p).to_string();
+                let at = self.stamp.unwrap_or_else(SystemTime::now);
+                self.add_output_at(Kind::File, p, name, at);
+            }
+            Entry::AiTitle(t) if !self.custom_title => self.goal = Some(t),
+            Entry::AiTitle(_) => {}
+            Entry::CustomTitle(t) => {
+                self.custom_title = true;
+                self.goal = Some(t);
+            }
+            Entry::AwaySummary(s) => self.recap = Some(s),
+            Entry::Color(c) => self.color = c,
+            Entry::ApiError(m) => {
+                if self.status == Status::Working {
+                    self.set_status(Status::Error { message: m });
                 }
-                Entry::AwaySummary(s) => self.recap = Some(s),
-                Entry::Color(c) => self.color = c,
-                Entry::ApiError(m) => {
-                    if self.status == Status::Working {
-                        self.set_status(Status::Error { message: m });
-                    }
+            }
+            Entry::PrLink { url, number } => {
+                self.add_url(&url);
+                if !self.prs.iter().any(|(_, u)| *u == url) {
+                    self.prs.push((number, url));
                 }
-                Entry::PrLink { url, number } => {
-                    self.add_url(&url);
-                    if !self.prs.iter().any(|(_, u)| *u == url) {
-                        self.prs.push((number, url));
-                    }
-                }
-                Entry::Url(u) => {
-                    if let Some((Kind::Pr, canon, _)) = classify(&u) {
-                        if let Some(n) = canon.rsplit('/').next().and_then(|n| n.parse().ok()) {
-                            if !self.prs.iter().any(|(_, x)| *x == canon) {
-                                self.prs.push((n, canon));
-                            }
+            }
+            Entry::Url(u) => {
+                if let Some((Kind::Pr, canon, _)) = classify(&u) {
+                    if let Some(n) = canon.rsplit('/').next().and_then(|n| n.parse().ok()) {
+                        if !self.prs.iter().any(|(_, x)| *x == canon) {
+                            self.prs.push((n, canon));
                         }
                     }
-                    self.add_url(&u);
                 }
-                Entry::ArtifactCall { tool_id, icon, description, title, file } => {
-                    self.artifact_calls.insert(tool_id, ArtifactCall { icon, description, title, file });
+                self.add_url(&u);
+            }
+            Entry::ArtifactCall { tool_id, icon, description, title, file } => {
+                self.artifact_calls.insert(tool_id, ArtifactCall { icon, description, title, file });
+            }
+            Entry::ArtifactResult { tool_id, url } => {
+                if let Some(call) = self.artifact_calls.remove(&tool_id) {
+                    self.artifact_published(&url, call);
                 }
-                Entry::ArtifactResult { tool_id, url } => {
-                    if let Some(call) = self.artifact_calls.remove(&tool_id) {
-                        self.artifact_published(&url, call);
-                    }
+            }
+            Entry::Branch(b) => self.branch = Some(b),
+            Entry::Usage { context_tokens, model } => {
+                self.context_tokens = Some(context_tokens);
+                if model.is_some() {
+                    self.model = model;
                 }
-                Entry::Branch(b) => self.branch = Some(b),
-                Entry::Usage { context_tokens, model } => {
-                    self.context_tokens = Some(context_tokens);
-                    if model.is_some() {
-                        self.model = model;
-                    }
-                }
-                Entry::TurnDone { .. } => {}
-                // Esc on a permission prompt or mid-turn: Claude is back at its prompt.
-                Entry::Interrupted => {
-                    if matches!(self.status, Status::NeedsInput { .. } | Status::Working | Status::Error { .. }) {
-                        self.now = None;
-                        self.set_status(Status::Idle);
-                    }
+            }
+            Entry::TurnDone { .. } => {}
+            // Esc on a permission prompt or mid-turn: Claude is back at its prompt.
+            Entry::Interrupted => {
+                if matches!(self.status, Status::NeedsInput { .. } | Status::Working | Status::Error { .. }) {
+                    self.now = None;
+                    self.set_status(Status::Idle);
                 }
             }
         }
-        changed
     }
 }
 

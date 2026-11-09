@@ -4,8 +4,9 @@
 //! skipped, and only lines that mention an interesting type are parsed at all.
 
 use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
-use std::path::PathBuf;
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
 
@@ -35,17 +36,34 @@ pub enum Entry {
     Usage { context_tokens: u64, model: Option<String> },
     /// You pressed Esc (or rejected a tool): Claude fires no hook for that.
     Interrupted,
+    /// A file Claude edited or wrote (Edit, Write, MultiEdit, NotebookEdit).
+    FileEdit(String),
+    /// When the line holding the entries after it was written.
+    Stamp(SystemTime),
+}
+
+impl Entry {
+    /// Entries that add to the session's outputs (the rest is status, titles and usage).
+    fn is_output(&self) -> bool {
+        matches!(
+            self,
+            Entry::Url(_) | Entry::PrLink { .. } | Entry::ArtifactCall { .. } | Entry::ArtifactResult { .. } | Entry::FileEdit(_) | Entry::Stamp(_)
+        )
+    }
 }
 
 pub struct Tail {
     pub path: PathBuf,
     offset: Option<u64>,
     partial: Vec<u8>,
+    /// Attaching skipped the transcript before this offset: its outputs are still to be read
+    /// (`history_outputs`). Taken once.
+    pub skipped: Option<u64>,
 }
 
 impl Tail {
     pub fn new(path: PathBuf) -> Self {
-        Self { path, offset: None, partial: Vec::new() }
+        Self { path, offset: None, partial: Vec::new(), skipped: None }
     }
 
     /// Read whatever was appended since the last call.
@@ -57,7 +75,9 @@ impl Tail {
             // First attach, or the file was rewritten: start near the end.
             _ => {
                 self.partial.clear();
-                (len.saturating_sub(ATTACH_WINDOW), true)
+                let start = len.saturating_sub(ATTACH_WINDOW);
+                self.skipped = (start > 0).then_some(start);
+                (start, true)
             }
         };
         let end = len.min(start + if attach { ATTACH_WINDOW } else { READ_CHUNK });
@@ -84,8 +104,77 @@ impl Tail {
     }
 }
 
+/// The outputs in the part of a transcript an attach skipped (`..upto`), oldest first, for a
+/// background thread: transcripts can be hundreds of MB, and only lines that can hold an
+/// output are parsed.
+pub fn history_outputs(path: &Path, upto: u64) -> Vec<Entry> {
+    let Ok(f) = File::open(path) else { return Vec::new() };
+    let mut r = BufReader::with_capacity(1 << 20, f.take(upto));
+    let mut out = Vec::new();
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        match r.read_until(b'\n', &mut line) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        if !OUTPUT_HINTS.iter().any(|k| contains(&line, k.as_bytes())) {
+            continue;
+        }
+        if let Some(es) = parse_line(line.strip_suffix(b"\n").unwrap_or(&line)) {
+            out.extend(es.into_iter().filter(Entry::is_output));
+        }
+    }
+    out
+}
+
+fn contains(hay: &[u8], needle: &[u8]) -> bool {
+    hay.windows(needle.len()).any(|w| w == needle)
+}
+
+/// What a line must contain to hold an output.
+const OUTPUT_HINTS: &[&str] = &["https://", "pr-link", "\"file_path\"", "\"notebook_path\""];
+
+/// RFC 3339 UTC time as Claude writes it ("2026-11-09T20:30:31.123Z").
+fn parse_time(s: &str) -> Option<SystemTime> {
+    let b = s.as_bytes();
+    if b.len() < 19 || b[4] != b'-' || b[10] != b'T' {
+        return None;
+    }
+    let n = |r: std::ops::Range<usize>| s.get(r)?.parse::<i64>().ok();
+    let (y, m, d) = (n(0..4)?, n(5..7)?, n(8..10)?);
+    let (hh, mm, ss) = (n(11..13)?, n(14..16)?, n(17..19)?);
+    // Days since 1970-01-01 (Howard Hinnant's days_from_civil).
+    let y2 = if m <= 2 { y - 1 } else { y };
+    let era = y2.div_euclid(400);
+    let yoe = y2 - era * 400;
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146097 + doe - 719468;
+    let secs = days * 86400 + hh * 3600 + mm * 60 + ss;
+    let millis = s.get(20..23).and_then(|f| f.parse::<u64>().ok()).filter(|_| b.get(19) == Some(&b'.')).unwrap_or(0);
+    (secs >= 0).then(|| UNIX_EPOCH + Duration::from_secs(secs as u64) + Duration::from_millis(millis))
+}
+
+/// Files an assistant message's tool calls edit or write.
+fn file_edits(msg: &Value, out: &mut Vec<Entry>) {
+    let Some(items) = msg.get("content").and_then(Value::as_array) else { return };
+    for it in items {
+        if it.get("type").and_then(Value::as_str) != Some("tool_use") {
+            continue;
+        }
+        if !matches!(it.get("name").and_then(Value::as_str), Some("Edit" | "MultiEdit" | "Write" | "NotebookEdit")) {
+            continue;
+        }
+        let input = &it["input"];
+        if let Some(p) = input.get("file_path").or_else(|| input.get("notebook_path")).and_then(Value::as_str) {
+            out.push(Entry::FileEdit(p.to_string()));
+        }
+    }
+}
+
 const INTERESTING: &[&str] =
-    &["\"ai-title\"", "\"custom-title\"", "\"agent-color\"", "\"Artifact\"", "away_summary", "api_error", "pr-link", "turn_duration", "\"gitBranch\"", "\"usage\"", "[Request interrupted by user"];
+    &["\"file_path\"", "\"notebook_path\"", "\"ai-title\"", "\"custom-title\"", "\"agent-color\"", "\"Artifact\"", "away_summary", "api_error", "pr-link", "turn_duration", "\"gitBranch\"", "\"usage\"", "[Request interrupted by user"];
 
 /// Text that can mention session outputs: Claude's replies, the user's prompts, and tool
 /// results from tools like artifact publishing, but not file contents or shell output.
@@ -202,6 +291,7 @@ pub fn parse_line(line: &[u8]) -> Option<Vec<Entry>> {
         Some("assistant") if v.get("isSidechain").and_then(Value::as_bool) != Some(true) => {
             let msg = &v["message"];
             artifact_calls(msg, &mut out);
+            file_edits(msg, &mut out);
             if let Some(u) = msg.get("usage") {
                 let n = |k: &str| u.get(k).and_then(Value::as_u64).unwrap_or(0);
                 let context_tokens = n("input_tokens") + n("cache_read_input_tokens") + n("cache_creation_input_tokens");
@@ -236,6 +326,11 @@ pub fn parse_line(line: &[u8]) -> Option<Vec<Entry>> {
         out.push(Entry::Branch(b));
     }
     out.extend(urls);
+    if out.iter().any(|e| e.is_output()) {
+        if let Some(t) = str_of("timestamp").as_deref().and_then(parse_time) {
+            out.insert(0, Entry::Stamp(t));
+        }
+    }
     (!out.is_empty()).then_some(out)
 }
 
@@ -243,6 +338,29 @@ pub fn parse_line(line: &[u8]) -> Option<Vec<Entry>> {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn times_and_file_edits() {
+        let t = parse_time("2026-11-09T20:30:31.123Z").unwrap();
+        assert_eq!(t.duration_since(UNIX_EPOCH).unwrap().as_millis(), 1_794_256_231_123);
+        let l = br#"{"type":"assistant","timestamp":"1970-01-02T00:00:00.000Z","message":{"content":[{"type":"tool_use","id":"t","name":"Write","input":{"file_path":"/x/a.md","content":"hi"}},{"type":"tool_use","id":"u","name":"Read","input":{"file_path":"/x/b.md"}}]}}"#;
+        assert_eq!(parse_line(l), Some(vec![Entry::Stamp(UNIX_EPOCH + Duration::from_secs(86400)), Entry::FileEdit("/x/a.md".into())]));
+    }
+
+    #[test]
+    fn history_reads_what_attach_skipped() {
+        let dir = std::env::temp_dir().join(format!("t1k-hist-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("s.jsonl");
+        let mut f = File::create(&p).unwrap();
+        writeln!(f, r#"{{"type":"pr-link","prNumber":1,"prUrl":"https://github.com/a/b/pull/1","timestamp":"2026-01-01T00:00:00Z"}}"#).unwrap();
+        writeln!(f, r#"{{"type":"ai-title","aiTitle":"x"}}"#).unwrap();
+        let upto = f.metadata().unwrap().len();
+        writeln!(f, r#"{{"type":"pr-link","prNumber":2,"prUrl":"https://github.com/a/b/pull/2"}}"#).unwrap();
+        let got = history_outputs(&p, upto);
+        assert!(matches!(got.as_slice(), [Entry::Stamp(_), Entry::PrLink { number: 1, .. }]), "{got:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     #[test]
     fn parses_known_entries() {
@@ -281,5 +399,21 @@ mod tests {
         writeln!(f, r#""aiTitle":"B"}}"#).unwrap();
         assert_eq!(t.poll(), vec![Entry::AiTitle("B".into())]);
         let _ = std::fs::remove_file(path);
+    }
+}
+
+#[cfg(test)]
+mod bench {
+    /// `T1K_HIST=<transcript> cargo test --release -p t1k-agent hist_bench -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn hist_bench() {
+        let p = std::path::PathBuf::from(std::env::var("T1K_HIST").unwrap());
+        let len = std::fs::metadata(&p).unwrap().len();
+        let t = std::time::Instant::now();
+        let e = super::history_outputs(&p, len);
+        let files = e.iter().filter(|e| matches!(e, super::Entry::FileEdit(_))).count();
+        let urls = e.iter().filter(|e| matches!(e, super::Entry::Url(_) | super::Entry::PrLink { .. })).count();
+        println!("{} MB in {:?}: {} entries, {files} file edits, {urls} links", len >> 20, t.elapsed(), e.len());
     }
 }
