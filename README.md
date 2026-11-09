@@ -12,6 +12,10 @@ See which one needs you, without switching tabs.</p>
 <a href="https://github.com/erango/t1k/issues">Report a bug</a>
 </p>
 
+<p align="center">
+<a href="https://alternativeto.net/software/t1k/about/?utm_source=badge&utm_medium=referral"><img src="https://alternativeto.net/static/badges/badge-compact-color.svg" alt="T1K | AlternativeTo" width="244" height="79"></a>
+</p>
+
 <p align="center"><img src="docs/screenshots/hero.png" alt="T1K with fifteen agent tabs in five projects: two need you, one has an error, five are working" width="900"></p>
 
 When ten or thirty agent sessions run side by side (Claude Code, Codex, Antigravity, Gemini CLI, Grok), the hard part is knowing which one finished, which one is stuck on a question, and which one you haven't looked at yet. T1K is a native terminal built around that question: **what needs me now?**
