@@ -4,6 +4,7 @@ pub mod links;
 pub mod palette;
 pub mod process;
 pub mod scrollbar;
+pub mod notify_scan;
 pub mod search;
 pub mod terminal;
 pub mod view;

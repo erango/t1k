@@ -12,6 +12,8 @@ log.workspace = true
 futures = "0.3"
 libc = "0.2"
 objc = "0.2"
+# Same version alacritty_terminal polls the pty with (the pty wrapper names its types).
+polling = "3"
 
 [lints.rust]
 # objc 0.2 macros test cfg(feature = "cargo-clippy").

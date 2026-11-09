@@ -36,6 +36,8 @@ pub enum TerminalEvent {
     /// Right-click: the app shows the terminal menu at `at` (window coordinates).
     ContextMenu { at: Point<Pixels>, link: Option<Link>, has_selection: bool },
     Bell,
+    /// A program asked for a desktop notification (OSC 9 / OSC 777).
+    Notify(crate::notify_scan::Notice),
     Exited,
 }
 
@@ -346,6 +348,9 @@ impl TerminalView {
     fn handle_event(&mut self, ev: AlacEvent, cx: &mut Context<Self>) {
         match ev {
             AlacEvent::Wakeup => {
+                for n in self.terminal.take_notices() {
+                    cx.emit(TerminalEvent::Notify(n));
+                }
                 if let Some(s) = self.search.as_mut() {
                     s.dirty = true;
                 }

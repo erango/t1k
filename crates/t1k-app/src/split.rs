@@ -69,6 +69,7 @@ impl Workspace {
                     let o = crate::overlay::Overlay::TerminalMenu { tab: ix, split: true, at: *at, link: link.clone(), has_selection: *has_selection, apps: crate::overlay::file_apps(link) };
                     this.open_overlay(o, window, cx);
                 }
+                TerminalEvent::Notify(n) => this.program_notice(ix, n, false, window, cx),
                 TerminalEvent::TitleChanged(_) | TerminalEvent::Bell => {}
             }
         });

@@ -105,6 +105,8 @@ reminder = true
 done = false
 # Number on the Dock icon: tabs that need you (input, errors, due reminders).
 dock_badge = true
+# Banners programs ask for (OSC 9 / 777), e.g. a long build saying it's done.
+programs = true
 
 [updates]
 # Look for a new version once a day, in the background. Nothing interrupts you.
@@ -281,11 +283,13 @@ pub struct NotifyCfg {
     pub reminder: bool,
     pub done: bool,
     pub dock_badge: bool,
+    /// Programs' own notifications (OSC 9 / OSC 777).
+    pub programs: bool,
 }
 
 impl Default for NotifyCfg {
     fn default() -> Self {
-        Self { needs_input: true, error: true, reminder: true, done: false, dock_badge: true }
+        Self { needs_input: true, error: true, reminder: true, done: false, dock_badge: true, programs: true }
     }
 }
 

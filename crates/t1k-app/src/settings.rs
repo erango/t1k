@@ -453,6 +453,8 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
             toggle(ui, "n-rem", n.reminder, &["notify", "reminder"], cx).into_any_element()),
         e(Agents, "Notifications", "When a session finishes", "", "notify.done", "banner alert",
             toggle(ui, "n-done", n.done, &["notify", "done"], cx).into_any_element()),
+        e(Agents, "Notifications", "When a program asks", "Banners from programs in your tabs (OSC 9, OSC 777)", "notify.programs", "banner alert osc build script",
+            toggle(ui, "n-prog", n.programs, &["notify", "programs"], cx).into_any_element()),
         e(Agents, "Notifications", "Dock badge", "Count of tabs that need you", "notify.dock_badge", "badge count icon",
             toggle(ui, "n-badge", n.dock_badge, &["notify", "dock_badge"], cx).into_any_element()),
         e(Interface, "Sidebar", "When collapsed", "What ⌘\\ and dragging the edge to the window's side do. The strip still shows what needs you.", "sidebar.collapsed", "rail strip hide collapse sliver narrow",

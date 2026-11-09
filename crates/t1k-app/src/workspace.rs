@@ -946,6 +946,7 @@ impl Workspace {
                 }
                 TerminalEvent::Exited => this.close_tab_at(ix, window, cx),
                 TerminalEvent::Bell => {}
+                TerminalEvent::Notify(n) => this.program_notice(ix, n, true, window, cx),
                 TerminalEvent::OpenLink(link) => this.open_link(ix, link, cx),
                 TerminalEvent::ContextMenu { at, link, has_selection } => {
                     let o = Overlay::TerminalMenu { tab: ix, split: false, at: *at, link: link.clone(), has_selection: *has_selection, apps: crate::overlay::file_apps(link) };
@@ -1912,6 +1913,24 @@ impl Workspace {
             }
         }
         true
+    }
+
+    /// A program asked for a notification (OSC 9 / 777): a banner and an unread tab, unless
+    /// you're looking at it. An agent in the main pane is skipped: its hooks already notify.
+    pub fn program_notice(&mut self, ix: usize, n: &t1k_terminal::notify_scan::Notice, main_pane: bool, window: &Window, cx: &mut Context<Self>) {
+        let Some(tab) = self.tabs.get_mut(ix) else { return };
+        if !self.config.notify.programs || (main_pane && tab.agent.is_some()) {
+            return;
+        }
+        if ix == self.active && window.is_window_active() {
+            return;
+        }
+        // No text: never log what programs print.
+        log::info!("program notification (osc), banner posted");
+        tab.unread = true;
+        let title = if n.title.is_empty() { "T1K".to_string() } else { format!("T1K · {}", n.title) };
+        crate::platform::notify_tab(&tab.id, &title, &tab.title(), &n.body);
+        cx.notify();
     }
 
     /// With T1K_DEBUG_DUMP=<file>, write the sidebar model as text (for tests without a screen).

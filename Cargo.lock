@@ -6158,6 +6158,7 @@ dependencies = [
  "libc",
  "log",
  "objc",
+ "polling",
 ]
 
 [[package]]

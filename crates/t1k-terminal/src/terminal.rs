@@ -73,6 +73,8 @@ pub struct Terminal {
     pub bottom_gravity: bool,
     /// Rows the last frame was shifted down by, so mouse rows map to the same grid lines.
     pub shift: std::sync::atomic::AtomicUsize,
+    /// Notifications programs asked for (OSC 9 / 777), waiting for the view to pass them on.
+    notices: Arc<std::sync::Mutex<Vec<crate::notify_scan::Notice>>>,
 }
 
 /// With prompt gravity at the bottom, blank rows under the cursor are hidden by showing that
@@ -179,12 +181,28 @@ impl Terminal {
         }
         let term = Arc::new(FairMutex::new(term));
 
+        // Programs' own notifications (OSC 9 / 777) arrive through the event channel, then a
+        // Wakeup so the view looks at them now.
+        let notices = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink: Arc<dyn Fn(crate::notify_scan::Notice) + Send + Sync> = {
+            let (notices, listener) = (notices.clone(), listener.clone());
+            Arc::new(move |n| {
+                notices.lock().unwrap().push(n);
+                listener.send_event(AlacEvent::Wakeup);
+            })
+        };
+        let pty = crate::notify_scan::ScanPty::new(pty, sink)?;
         let event_loop = EventLoop::new(term.clone(), listener, pty, true, false)?;
         let notifier = Notifier(event_loop.channel());
         event_loop.spawn();
 
         let bottom_gravity = opts.start_at_bottom;
-        Ok((Self { term, notifier, size, title: None, exited: false, pty_fd, shell_pid, bottom_gravity, shift: Default::default() }, rx))
+        Ok((Self { term, notifier, size, title: None, exited: false, pty_fd, shell_pid, bottom_gravity, shift: Default::default(), notices }, rx))
+    }
+
+    /// Notifications that arrived since the last call.
+    pub fn take_notices(&self) -> Vec<crate::notify_scan::Notice> {
+        std::mem::take(&mut *self.notices.lock().unwrap())
     }
 
     /// Process bytes as if the program had printed them (demo screens).
