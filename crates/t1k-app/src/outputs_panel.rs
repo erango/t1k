@@ -656,7 +656,8 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                             .items_center()
                             .text_size(px(11. * k))
                             .text_color(ui.text_tertiary)
-                            .hover(move |d| d.bg(ui.bg_control).text_color(ui.text_primary))
+                            // Over the row's own hover fill: a fill that stands out, bright text.
+                            .hover(move |d| d.bg(ui.text_primary.opacity(0.12)).text_color(ui.text_primary))
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 cx.stop_propagation();
                                 this.activate(tab_ix, window, cx);
@@ -674,13 +675,27 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .hover(move |d| d.bg(ui.bg_control))
+                            .relative()
+                            .group(SharedString::from(format!("copy-{n}")))
+                            .hover(move |d| d.bg(ui.text_primary.opacity(0.12)))
                             .tooltip(crate::tooltip::text(ui, if is_file { "Copy path" } else { "Copy URL" }.to_string()))
                             .on_click(cx.listener(move |_, _, _, cx| {
                                 cx.stop_propagation();
                                 cx.write_to_clipboard(ClipboardItem::new_string(copy_target.clone()));
                             }))
-                            .child(crate::icons::artifact(if is_file { "folder" } else { "chain" }, ui.text_tertiary, 14.)),
+                            // The icon brightens on hover: drawn twice, one shown at a time.
+                            .child(div().group_hover(SharedString::from(format!("copy-{n}")), |s| s.invisible()).child(crate::icons::artifact(if is_file { "folder" } else { "chain" }, ui.text_tertiary, 14.)))
+                            .child(
+                                div()
+                                    .absolute()
+                                    .size_full()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .invisible()
+                                    .group_hover(SharedString::from(format!("copy-{n}")), |s| s.visible())
+                                    .child(crate::icons::artifact(if is_file { "folder" } else { "chain" }, ui.text_primary, 14.)),
+                            ),
                     )
             };
             if o.kind == Kind::Pr && is_finished(o) {
