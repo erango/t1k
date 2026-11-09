@@ -36,6 +36,7 @@ mod icon_crop;
 mod quit;
 mod icons;
 mod rail;
+mod scroll_bar;
 mod reminders;
 mod usage;
 mod session;

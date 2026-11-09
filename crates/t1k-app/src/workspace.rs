@@ -280,6 +280,8 @@ pub struct Workspace {
     turns_done: Vec<String>,
     /// The sidebar list's scroll position (for the sticky group header).
     pub sidebar_scroll: gpui::ScrollHandle,
+    pub outputs_scroll: gpui::ScrollHandle,
+    pub outputs_bar: crate::scroll_bar::Drag,
     /// While dragging a tab or group near the list's top or bottom edge: px per frame
     /// (negative scrolls up), and the task scrolling it.
     drag_scroll: f32,
@@ -497,6 +499,8 @@ impl Workspace {
             helper: Default::default(),
             turns_done: Vec::new(),
             sidebar_scroll: gpui::ScrollHandle::new(),
+            outputs_scroll: gpui::ScrollHandle::new(),
+            outputs_bar: Default::default(),
             drag_scroll: 0.,
             drag_scroll_task: None,
             switcher_filter: Default::default(),

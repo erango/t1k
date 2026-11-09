@@ -514,7 +514,13 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         );
     }
 
-    let mut list = div().id("outputs-list").flex_1().min_h_0().overflow_y_scroll().px(px(6.)).pb(px(12.)).flex().flex_col();
+    let mut list = div()
+        .id("outputs-list")
+        .size_full()
+        .overflow_y_scroll()
+        .track_scroll(&ws.outputs_scroll)
+        // Scrolling alone doesn't re-render the workspace, and the scrollbar is drawn by it.
+        .on_scroll_wheel(cx.listener(|_, _, _, cx| cx.notify())).px(px(6.)).pb(px(12.)).flex().flex_col();
     // Sections by kind (design): PRs as cards first, then docs/artifacts, tickets, deploys, files.
     let sections: [(&str, &[Kind]); 5] = [
         ("PULL REQUESTS", &[Kind::Pr]),
@@ -777,7 +783,14 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         .bg(ui.bg_sidebar)
         .child(header)
         .child(chips)
-        .child(list)
+        .child(
+            div()
+                .flex_1()
+                .min_h_0()
+                .relative()
+                .child(list)
+                .child(crate::scroll_bar::overlay(&ws.outputs_scroll, &ws.outputs_bar, ui.text_tertiary)),
+        )
         .into_any_element()
 }
 
