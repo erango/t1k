@@ -2171,6 +2171,20 @@ mod prompt_tests {
         assert_eq!(top(&term), before);
     }
 
+    /// A TUI that redraws a short screen from the top (Claude Code after compacting) still gets
+    /// the gap filled; a clear that leaves the prompt at the top doesn't.
+    #[test]
+    fn gravity_fills_short_redraw_not_clear() {
+        let mut term = Term::new(Config::default(), &TermSize::new(20, 30), VoidListener);
+        let mut parser: Processor = Processor::new();
+        let text = (0..100).map(|i| format!("line {i}\r\n")).collect::<String>();
+        parser.advance(&mut term, text.as_bytes());
+        parser.advance(&mut term, b"\x1b[2J\x1b[Hone\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix\r\n> ");
+        assert_eq!(crate::terminal::gravity_hidden(&term), 23);
+        parser.advance(&mut term, b"\x1b[2J\x1b[H% ");
+        assert_eq!(crate::terminal::gravity_hidden(&term), 0);
+    }
+
     /// Scrolling back from a gravity-shifted bottom moves one line at a time from what was
     /// shown; it used to jump to the blank rows first.
     #[test]

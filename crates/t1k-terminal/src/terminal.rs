@@ -112,8 +112,10 @@ pub fn gravity_hidden<T: EventListener>(term: &Term<T>) -> usize {
         blank += 1;
         line -= 1;
     }
-    // A mostly empty screen is a deliberate clear (Ctrl-L keeps scrollback): leave it be.
-    if blank * 2 > term.screen_lines() {
+    // A clear (Ctrl-L keeps scrollback) leaves the prompt at the top of an empty screen: leave
+    // it be. A TUI that redrew a short screen from the top (Claude Code after compacting) has
+    // its cursor further down, and gets the history shown above it like any other gap.
+    if blank * 2 > term.screen_lines() && cursor < 3 {
         return 0;
     }
     blank.min(grid.history_size())
