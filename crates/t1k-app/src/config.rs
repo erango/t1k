@@ -56,6 +56,8 @@ text_size = 13
 # Dock icon: "face" (the android), "prompt" (>_) or "wordmark" (T1K). Each turns red
 # while a tab needs you. Finder keeps the face.
 app_icon = "face"
+# Draws the group's color around the selected tab and the terminal it opens.
+selected_outline = false
 
 [sidebar]
 width = 300
@@ -221,11 +223,12 @@ pub struct InterfaceCfg {
     pub density: String,
     pub text_size: f32,
     pub app_icon: String,
+    pub selected_outline: bool,
 }
 
 impl Default for InterfaceCfg {
     fn default() -> Self {
-        Self { density: "comfortable".into(), text_size: 13., app_icon: "face".into() }
+        Self { density: "comfortable".into(), text_size: 13., app_icon: "face".into(), selected_outline: false }
     }
 }
 

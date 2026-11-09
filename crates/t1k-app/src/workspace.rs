@@ -280,6 +280,8 @@ pub struct Workspace {
     turns_done: Vec<String>,
     /// The sidebar list's scroll position (for the sticky group header).
     pub sidebar_scroll: gpui::ScrollHandle,
+    /// The selected sidebar row's bounds, set while it paints (for the selected-tab outline).
+    pub selected_row: std::rc::Rc<std::cell::Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
     pub outputs_scroll: gpui::ScrollHandle,
     pub outputs_bar: crate::scroll_bar::Drag,
     /// While dragging a tab or group near the list's top or bottom edge: px per frame
@@ -499,6 +501,7 @@ impl Workspace {
             helper: Default::default(),
             turns_done: Vec::new(),
             sidebar_scroll: gpui::ScrollHandle::new(),
+            selected_row: Default::default(),
             outputs_scroll: gpui::ScrollHandle::new(),
             outputs_bar: Default::default(),
             drag_scroll: 0.,
@@ -2623,6 +2626,8 @@ impl Render for Workspace {
 
         use crate::rail::Shown;
         let shown = self.sidebar_shown();
+        self.selected_row.set(None);
+        let outline = crate::outline::render(self, shown, self.window_inactive, window);
         let sidebar = match shown {
             Shown::Full(_) => Some(crate::sidebar::render(self, cx)),
             Shown::Rail => Some(crate::rail::render(self, cx)),
@@ -2665,6 +2670,7 @@ impl Render for Workspace {
                 .child(div().flex_1().min_h_0().children(active_view)),
         )
         .children(panel)
+        .children(outline)
         .children(peek)
         // With the sidebar folded away, its notices ("Nothing needs you", Undo) show as a small
         // toast at the bottom of the window instead.

@@ -35,6 +35,7 @@ mod custom_icon;
 mod icon_crop;
 mod quit;
 mod icons;
+mod outline;
 mod rail;
 mod secure_input;
 mod scroll_bar;

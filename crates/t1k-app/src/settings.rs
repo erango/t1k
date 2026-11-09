@@ -400,6 +400,8 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
             icon_picker(ui, &c.interface.app_icon, cx)),
         e(Interface, "Sidebar", "Density", "Row height: 28 / 34 / 40", "interface.density", "compact spacious rows",
             seg(ui, "density", &c.interface.density, &[("compact", "Compact"), ("comfortable", "Comfortable"), ("spacious", "Spacious")], &["interface", "density"], cx)),
+        e(Interface, "Sidebar", "Outline selected tab", "Draws the group's color around the selected tab and the terminal it opens", "interface.selected_outline", "funnel border highlight selection active",
+            toggle(ui, "seloutline", c.interface.selected_outline, &["interface", "selected_outline"], cx).into_any_element()),
         e(Interface, "Sidebar", "UI text size", "Sidebar and panels; the terminal has its own size", "interface.text_size", "font size scale",
             stepper(ui, "uits", c.interface.text_size as f64, 1., (10., 18.), &["interface", "text_size"], |v| format!("{v:.0} px"), cx).into_any_element()),
         e(Interface, "Sidebar", "Width", "", "sidebar.width", "",

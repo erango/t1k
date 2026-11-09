@@ -804,7 +804,10 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
                 .child(div().size(px(R)).bg(ui.bg_sidebar).when(top, |d| d.rounded_br(px(R))).when(!top, |d| d.rounded_tr(px(R))))
         };
         const R: f32 = 8.;
+        // Where the row is this frame, for the selected-tab outline (canvas v3-as).
+        let at = ws.selected_row.clone();
         el = el
+            .child(gpui::canvas(move |b, _, _| at.set(Some(b)), |_, _, _, _| {}).absolute().inset_0())
             .bg(ui.bg_terminal)
             .rounded_l(px(R))
             .child(fillet(true))

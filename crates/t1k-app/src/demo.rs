@@ -160,6 +160,7 @@ pub fn populate(ws: &mut Workspace, window: &mut Window, cx: &mut Context<Worksp
     ws.config.sidebar.second_line = "status".into();
     ws.config.sidebar.width = 340.;
     ws.config.terminal.font.family = "JetBrains Mono".into();
+    ws.config.interface.selected_outline = std::env::var_os("T1K_DEBUG_OUTLINE").is_some();
 
     for (i, spec) in specs().into_iter().enumerate() {
         ws.open_tab(None, None, window, cx);
