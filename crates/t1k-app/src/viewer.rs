@@ -218,6 +218,7 @@ pub fn render(ws: &Workspace, v: &Viewer, cx: &mut Context<Workspace>) -> AnyEle
     };
     let path = v.path.clone();
     let reveal = v.path.clone();
+    let system = v.path.clone();
     let header = div()
         .h(px(44.))
         .flex_none()
@@ -252,6 +253,8 @@ pub fn render(ws: &Workspace, v: &Viewer, cx: &mut Context<Workspace>) -> AnyEle
             let tab = this.active;
             this.open_link_in_editor(tab, &link, cx);
         })))
+        // The file's own app (Preview, Xcode, a Markdown app...), as Finder would open it.
+        .child(button("viewer-system", "Default app").on_click(move |_, _, cx| cx.open_with_system(&system)))
         .child(button("viewer-reveal", "Reveal").on_click(move |_, _, cx| cx.reveal_path(&reveal)))
         .child(button("viewer-close", "✕").on_click(cx.listener(|this, _, _, cx| this.close_viewer(cx))));
 
