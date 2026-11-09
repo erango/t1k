@@ -699,6 +699,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                     .group(row_id.clone())
                     .min_h(px(34.))
                     .flex_none()
+                    .relative()
                     .px(px(10.))
                     .py(px(4.))
                     .rounded(px(6.))
@@ -738,7 +739,9 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                                 _ => format!("{tab_title} · {}", age(o.at)),
                             })),
                     )
-                    .child(hover_buttons),
+                    // Over the text on hover instead of beside it, so names and descriptions get the
+                    // full width the rest of the time.
+                    .child(hover_buttons.absolute().right(px(6.)).top_0().bottom_0().items_center().pl(px(8.)).bg(ui.bg_hover)),
             );
         }
         if links >= 2 {
