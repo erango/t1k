@@ -816,12 +816,11 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                                 .justify_center()
                                 .child(crate::icons::artifact(t1k_agent::outputs::file_icon(&o.target), if gone { ui.text_disabled } else { ui.text_secondary }, 24.)),
                         ),
+                        // Docs and artifacts too: the icon alone, bigger (no tile).
                         Kind::Artifact | Kind::Doc => d.child(
                             div()
                                 .size(px(28.))
                                 .flex_none()
-                                .rounded(px(6.))
-                                .bg(ui.text_primary.opacity(0.06))
                                 .flex()
                                 .items_center()
                                 .justify_center()
@@ -831,7 +830,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                                         _ => o.icon.as_deref().unwrap_or("link"),
                                     },
                                     ui.text_secondary,
-                                    16.,
+                                    24.,
                                 )),
                         ),
                         // Tickets: their tracker's mark (Linear, Jira, GitHub issues).
@@ -887,7 +886,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                         this.panel.links_open = !this.panel.links_open;
                         cx.notify();
                     }))
-                    .child(div().size(px(28.)).flex_none().rounded(px(6.)).bg(ui.text_primary.opacity(0.06)).flex().items_center().justify_center().child(crate::icons::artifact("link", ui.text_tertiary, 16.)))
+                    .child(div().size(px(28.)).flex_none().flex().items_center().justify_center().child(crate::icons::artifact("link", ui.text_tertiary, 24.)))
                     .child(div().flex_1().text_size(px(12.5 * k)).text_color(ui.text_secondary).child(if links_open { "Hide artifact links".to_string() } else { format!("{links} more artifact links") }))
                     .child(crate::icons::caret(ui.text_tertiary, links_open)),
             );
