@@ -1,3 +1,4 @@
+pub mod blocks;
 pub mod glyphs;
 pub mod input;
 pub mod links;

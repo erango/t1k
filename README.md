@@ -89,6 +89,7 @@ Each config is backed up next to itself first (`*.json.t1k-backup`). The hooks o
 | ⌘D / ⌘⇧D | Split right / down; ⌘⌥ arrows switch panes |
 | ⌘F, ⌘G / ⌘⇧G | Find in scrollback, next / previous match |
 | ⌘↑ / ⌘↓ | Previous / next prompt (zsh) |
+| ⌘⇧C | Copy the last command's output (zsh); hover a prompt line to copy any command or its output |
 | ⌘⇧U | Label every link with a letter, then type it to open |
 | ⌘K | Clear screen and scrollback |
 | ⌘+ / ⌘− / ⌘0 | Bigger / smaller / default text |

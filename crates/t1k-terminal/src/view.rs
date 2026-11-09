@@ -25,7 +25,9 @@ use crate::palette::{dim, Palette};
 use crate::scrollbar::{Fade, Metrics, BUTTON_DELAY, IDLE};
 use crate::terminal::{GridSize, SpawnOptions, Terminal};
 
-actions!(terminal, [Copy, Paste, ClearScrollback, ScrollPageUp, ScrollPageDown, ShowLinkHints, Find, FindNext, FindPrevious, PreviousPrompt, NextPrompt, ScrollToBottom]);
+actions!(terminal, [Copy, Paste, ClearScrollback, ScrollPageUp, ScrollPageDown, ShowLinkHints, Find, FindNext, FindPrevious, PreviousPrompt, NextPrompt, ScrollToBottom, CopyLastOutput, CopyLastCommand, SelectLastOutput]);
+
+mod copy_ui;
 
 /// Events the terminal view emits to its container (tab/workspace).
 #[derive(Clone, Debug)]
@@ -133,6 +135,7 @@ pub struct TerminalView {
     /// whose full-width rules must fit the pane).
     pub feed_on_size: Option<FeedOnSize>,
     scroll_ui: ScrollUi,
+    copy_ui: copy_ui::CopyUi,
     _events: Task<()>,
 }
 
@@ -277,6 +280,7 @@ impl TerminalView {
             .detach();
         }
 
+        Self::debug_copy(cx);
         Ok(Self {
             terminal,
             focus_handle,
@@ -302,6 +306,7 @@ impl TerminalView {
             pending_size: None,
             resize_task: None,
             feed_on_size: None,
+            copy_ui: Default::default(),
             scroll_ui: ScrollUi::new(),
             _events: task,
         })
@@ -815,6 +820,7 @@ impl TerminalView {
             self.set_near_edge(near, cx);
         }
         let cell = self.cell_at(ev.position).map(|(c, r, _)| (c, r));
+        self.copy_hover(cell.map(|c| c.1), ev.pressed_button.is_some(), cx);
         self.set_hover(cell, ev.modifiers.platform, cx);
         self.update_link_tip(cell, ev.modifiers.platform, ev.position, cx);
         if ev.pressed_button != Some(MouseButton::Left) {
@@ -1656,6 +1662,9 @@ impl Render for TerminalView {
             .on_action(cx.listener(Self::page_up))
             .on_action(cx.listener(Self::page_down))
             .on_action(cx.listener(Self::scroll_to_bottom))
+            .on_action(cx.listener(Self::copy_last_output))
+            .on_action(cx.listener(Self::copy_last_command))
+            .on_action(cx.listener(Self::select_last_output))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right_mouse_down))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
@@ -1724,6 +1733,7 @@ impl Render for TerminalView {
                 )
                 .size_full(),
             )
+            .children(self.copy_overlay(cx))
             .children(button)
             .children(self.search.as_ref().map(|s| find_bar(s, &self.palette, cx)))
             .children(self.hints.as_ref().map(|typed| hint_bar(typed, self.hint_labels.len(), &self.palette)))
@@ -1739,6 +1749,9 @@ impl Render for TerminalView {
                 }
                 if !hovered && this.scroll_ui.drag.is_none() {
                     this.set_near_edge(false, cx);
+                }
+                if !hovered {
+                    this.copy_hover(None, false, cx);
                 }
             }))
     }
