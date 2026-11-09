@@ -324,6 +324,8 @@ pub struct Workspace {
     pub land_after_close: Option<(String, String)>,
     /// Polls in a row a Needs-you tab showed no question on screen.
     needs_gone: HashMap<String, u8>,
+    /// Since when a Working Claude tab has shown no "esc to interrupt" on screen.
+    working_gone: HashMap<String, Instant>,
     /// The group header under the pointer and since when (its icon placeholder slides in).
     pub hovered_group: Option<(PathBuf, Instant)>,
     hover_anim: Option<gpui::Task<()>>,
@@ -531,6 +533,7 @@ impl Workspace {
             confirm_close_group: None,
             close_batch: 0,
             needs_gone: HashMap::new(),
+            working_gone: HashMap::new(),
             hovered_group: None,
             hover_anim: None,
             scrollback_saved: false,
@@ -1589,6 +1592,35 @@ impl Workspace {
         changed
     }
 
+    /// A prompt can start a turn that ends with no reply and no Stop hook; the tab then stays
+    /// Working forever. While Claude works it shows "esc to interrupt" under its spinner, so a
+    /// Working Claude tab without it on screen for 15 s goes back to Idle.
+    fn clear_stale_working(&mut self, cx: &mut Context<Self>) -> bool {
+        const GRACE: Duration = Duration::from_secs(15);
+        let mut changed = false;
+        for t in &mut self.tabs {
+            let claude = t.agent.as_ref().is_some_and(|a| a.kind == t1k_agent::agents::AgentKind::Claude);
+            let Some(a) = t.agent.as_mut().filter(|a| claude && a.status == Status::Working) else {
+                self.working_gone.remove(&t.id);
+                continue;
+            };
+            let lines = t.view.read(cx).terminal.last_lines(25);
+            if lines.iter().any(|l| l.to_lowercase().contains("to interrupt")) {
+                self.working_gone.remove(&t.id);
+                continue;
+            }
+            let since = *self.working_gone.entry(t.id.clone()).or_insert_with(Instant::now);
+            if since.elapsed() >= GRACE && a.since.elapsed() >= GRACE {
+                self.working_gone.remove(&t.id);
+                a.now = None;
+                a.status = Status::Idle;
+                a.since = Instant::now();
+                changed = true;
+            }
+        }
+        changed
+    }
+
     pub fn group_hovered(&mut self, key: &std::path::Path, over: bool, cx: &mut Context<Self>) {
         if over {
             self.hovered_group = Some((key.to_path_buf(), Instant::now()));
@@ -1668,6 +1700,7 @@ impl Workspace {
             cx.dispatch_action(&crate::actions::Quit);
         }
         let mut changed = self.clear_stale_needs(cx);
+        changed |= self.clear_stale_working(cx);
         let mut regrouped = false;
         for t in &mut self.tabs {
             if let Some(a) = t.agent.as_mut() {
