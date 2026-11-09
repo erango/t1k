@@ -1326,7 +1326,7 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Move tabs (by id) into group `to`, remembering where they were for ⌘Z and the notice's Undo.
+    /// Move tabs (by id) into group `to`, remembering where they were for the notice's Undo.
     pub fn move_tabs_undoable(&mut self, ids: &[String], to: &PathBuf, cx: &mut Context<Self>) {
         self.dragging_tab = None;
         let mut before = Vec::new();
@@ -1395,9 +1395,9 @@ impl Workspace {
         }));
     }
 
-    /// Put the last moved tabs back where they were (⌘Z, or Undo on the notice).
+    /// Put the last moved tabs back where they were (Undo on the notice, or the palette).
     pub fn undo_move(&mut self, cx: &mut Context<Self>) {
-        // ⌘Z and the notice's Undo take back whichever came last: a match or a move.
+        // Undo takes back whichever came last: a match or a move.
         if self.match_undo.is_some() {
             self.undo_match(cx);
             return;
@@ -2274,6 +2274,18 @@ impl Workspace {
         self.place_new_tab(self.active, anchor);
     }
 
+    /// ⌘Z: while a move's notice shows (with its Undo), take the move back; otherwise undo
+    /// typing in the focused pane (Ctrl-_, which Claude Code, zsh and bash undo with).
+    fn undo_key(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.notice_undo && self.notice.is_some() {
+            return self.undo_move(cx);
+        }
+        let Some(t) = self.tabs.get(self.active) else { return };
+        let split = t.split.as_ref().map(|s| s.view.clone()).filter(|v| v.read(cx).focus_handle(cx).is_focused(window));
+        let view = split.unwrap_or_else(|| t.view.clone());
+        view.read(cx).terminal.write(&b"\x1f"[..]);
+    }
+
     fn close_tab(&mut self, _: &CloseTab, window: &mut Window, cx: &mut Context<Self>) {
         // ⌘W in a split closes just that pane.
         let split_focused = self.tabs.get(self.active).and_then(|t| t.split.as_ref()).is_some_and(|s| s.view.read(cx).focus_handle(cx).is_focused(window));
@@ -2634,6 +2646,7 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &ShowThemePicker, window, cx| this.open_theme_picker(window, cx)))
             .on_action(cx.listener(|this, _: &ReopenClosedTab, window, cx| this.reopen_closed(window, cx)))
             .on_action(cx.listener(|this, _: &UndoMove, _, cx| this.undo_move(cx)))
+            .on_action(cx.listener(|this, _: &Undo, window, cx| this.undo_key(window, cx)))
             .on_action(cx.listener(|this, _: &MoveGroupUp, _, cx| {
                 if let Some(g) = this.tabs.get(this.active).map(|t| t.group.clone()) {
                     this.move_group(&g, -1, cx);

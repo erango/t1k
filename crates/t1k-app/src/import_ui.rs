@@ -300,7 +300,8 @@ impl Workspace {
             self.notice_undo = false;
             changed = true;
         }
-        let ttl = if self.notice_undo { 8000 } else if self.notice_brief { 2000 } else { 5000 };
+        // Once the notice goes, so does Undo (⌘Z goes back to undoing typing): give it time.
+        let ttl = if self.notice_undo { 12000 } else if self.notice_brief { 2000 } else { 5000 };
         if self.notice.as_ref().is_some_and(|(_, at)| at.elapsed().as_millis() >= ttl) {
             self.notice_brief = false;
             self.notice = None;

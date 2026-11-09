@@ -82,7 +82,7 @@ Each config is backed up next to itself first (`*.json.t1k-backup`). The hooks o
 | ⌘⇧O | Outputs panel |
 | ⌘⇧P | Command palette |
 | ⌘⇧R | Rename tab (or double-click it) |
-| ⌘Z | Undo moving tabs |
+| ⌘Z | Undo typing (Claude Code, zsh, bash), or a tab move while its notice shows |
 | ⌘⌃↑ / ⌘⌃↓ | Move group up / down |
 | ⌘\ | Show / hide the sidebar |
 | ⌘⇧L | Dark / light |
