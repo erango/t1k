@@ -709,8 +709,9 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                     .hover(move |d| d.bg(ui.bg_hover))
                     .on_click(open)
                     // Artifacts (v3-ae): their type's icon in a tile, the title, the description.
+                    // Docs and files (v3-am) get the same tile, with an icon for their type.
                     .map(|d| match o.kind {
-                        Kind::Artifact => d.child(
+                        Kind::Artifact | Kind::Doc | Kind::File => d.child(
                             div()
                                 .size(px(28.))
                                 .flex_none()
@@ -719,7 +720,15 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .child(crate::icons::artifact(o.icon.as_deref().unwrap_or("link"), ui.text_secondary, 16.)),
+                                .child(crate::icons::artifact(
+                                    match o.kind {
+                                        Kind::Doc => t1k_agent::outputs::doc_kind(&o.target).0,
+                                        Kind::File => t1k_agent::outputs::file_icon(&o.target),
+                                        _ => o.icon.as_deref().unwrap_or("link"),
+                                    },
+                                    ui.text_secondary,
+                                    16.,
+                                )),
                         ),
                         _ => d.child(div().w(px(16.)).flex_none().text_size(px(13. * k)).text_color(ui.text_tertiary).child(icon(o.kind))),
                     })
@@ -736,6 +745,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                                 (Kind::Artifact, Some(d), _) => d.clone(),
                                 // The link itself is all there is to tell these apart.
                                 (Kind::Artifact, None, None) => o.target.trim_start_matches("https://").to_string(),
+                                (Kind::Doc, ..) => format!("{} · {tab_title} · {}", t1k_agent::outputs::doc_kind(&o.target).1, age(o.at)),
                                 _ => format!("{tab_title} · {}", age(o.at)),
                             })),
                     )

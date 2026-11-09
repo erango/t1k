@@ -44,7 +44,11 @@ pub struct Output {
 pub fn artifact_icon(word: &str) -> &'static str {
     let w = word.trim().to_ascii_lowercase();
     let any = |ws: &[&str]| ws.contains(&w.as_str());
-    if any(&["chart", "graph", "dashboard", "metrics", "analytics", "stats", "kpi"]) {
+    if any(&["table", "sheet", "spreadsheet", "csv", "data"]) {
+        "table"
+    } else if any(&["dashboard", "metrics", "kpi"]) {
+        "dashboard"
+    } else if any(&["chart", "graph", "analytics", "stats"]) {
         "chart"
     } else if any(&["slides", "deck", "presentation", "pitch"]) {
         "slides"
@@ -63,6 +67,65 @@ pub fn artifact_icon(word: &str) -> &'static str {
     } else {
         "page"
     }
+}
+
+/// The icon for a file in the outputs panel (canvas v3-am), from its name: a few whole names
+/// first (tsconfig.json is config, not data), then the last extension.
+pub fn file_icon(path: &str) -> &'static str {
+    let name = path.rsplit('/').next().unwrap_or(path).to_ascii_lowercase();
+    const LOCKS: &[&str] = &["cargo.lock", "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "gemfile.lock", "poetry.lock", "go.sum", "composer.lock"];
+    const CONFIGS: &[&str] = &["dockerfile", "makefile", "justfile", ".gitignore", ".editorconfig", ".dockerignore", ".prettierrc", ".eslintrc", "tsconfig.json"];
+    if LOCKS.contains(&name.as_str()) || name.ends_with(".lock") {
+        return "f-lock";
+    }
+    if CONFIGS.contains(&name.as_str()) || name.ends_with(".config.js") || name.ends_with(".config.ts") {
+        return "f-config";
+    }
+    let Some((stem, ext)) = name.rsplit_once('.') else { return "f-generic" };
+    if stem.is_empty() {
+        return "f-generic";
+    }
+    match ext {
+        "rs" | "go" | "py" | "js" | "mjs" | "cjs" | "ts" | "tsx" | "jsx" | "java" | "kt" | "swift" | "c" | "h" | "cc" | "cpp" | "hpp" | "cs" | "rb" | "php"
+        | "scala" | "lua" | "dart" | "ex" | "exs" | "erl" | "hs" | "ml" | "zig" | "sql" | "vue" | "svelte" => "f-code",
+        "json" | "jsonc" | "json5" | "yaml" | "yml" | "toml" | "xml" | "plist" | "ini" | "env" | "proto" | "graphql" => "f-data",
+        "html" | "htm" | "css" | "scss" | "sass" | "less" => "f-web",
+        "md" | "mdx" | "markdown" => "f-markdown",
+        "txt" | "rst" | "org" | "log" | "adoc" => "f-text",
+        "csv" | "tsv" | "xlsx" | "xls" | "numbers" | "parquet" => "f-table",
+        "png" | "jpg" | "jpeg" | "gif" | "svg" | "webp" | "heic" | "ico" | "icns" | "bmp" | "tiff" => "f-image",
+        "pdf" => "f-pdf",
+        "zip" | "tar" | "gz" | "tgz" | "bz2" | "xz" | "7z" | "rar" | "dmg" => "f-archive",
+        "sh" | "bash" | "zsh" | "fish" | "ps1" | "bat" => "f-shell",
+        _ => "f-generic",
+    }
+}
+
+/// A doc link's icon and where it lives ("Google Docs", or the domain), for the outputs panel.
+pub fn doc_kind(url: &str) -> (&'static str, String) {
+    let rest = url.split_once("://").map_or(url, |(_, r)| r);
+    let host = rest.split(['/', '?', '#']).next().unwrap_or("").trim_start_matches("www.").to_ascii_lowercase();
+    let path = &rest[rest.find('/').unwrap_or(rest.len())..];
+    let (icon, place) = if host == "docs.google.com" {
+        if path.starts_with("/presentation/") {
+            ("slides", "Google Slides")
+        } else if path.starts_with("/spreadsheets/") {
+            ("table", "Google Sheets")
+        } else {
+            ("doc", "Google Docs")
+        }
+    } else if host == "claude.ai" {
+        ("doc", "Claude Docs")
+    } else if host.ends_with("notion.so") || host.ends_with("notion.site") {
+        ("doc", "Notion")
+    } else if host.ends_with(".atlassian.net") && path.starts_with("/wiki/") {
+        ("doc", "Confluence")
+    } else if host == "linear.app" {
+        ("doc", "Linear")
+    } else {
+        return ("doc", host);
+    };
+    (icon, place.to_string())
 }
 
 /// Find URLs in a raw line (JSON-escaped text is fine: quotes and backslashes end a URL).
@@ -179,5 +242,26 @@ mod tests {
         assert_eq!(classify("https://claude.ai/code/artifact/123e4567-e89b").unwrap().0, Kind::Artifact);
         assert!(classify("https://docs.rs/gpui").is_none());
         assert!(classify("https://github.com/erango/t1k").is_none());
+    }
+
+    #[test]
+    fn file_icons() {
+        assert_eq!(file_icon("/a/src/main.rs"), "f-code");
+        assert_eq!(file_icon("/a/tsconfig.json"), "f-config");
+        assert_eq!(file_icon("/a/package.json"), "f-data");
+        assert_eq!(file_icon("/a/Cargo.lock"), "f-lock");
+        assert_eq!(file_icon("/a/README.MD"), "f-markdown");
+        assert_eq!(file_icon("/a/out.tar.gz"), "f-archive");
+        assert_eq!(file_icon("/a/LICENSE"), "f-generic");
+        assert_eq!(file_icon("/a/.env"), "f-generic");
+        assert_eq!(file_icon("/a/Dockerfile"), "f-config");
+    }
+
+    #[test]
+    fn doc_kinds() {
+        assert_eq!(doc_kind("https://docs.google.com/presentation/d/x/edit"), ("slides", "Google Slides".into()));
+        assert_eq!(doc_kind("https://docs.google.com/spreadsheets/d/x"), ("table", "Google Sheets".into()));
+        assert_eq!(doc_kind("https://acme.atlassian.net/wiki/spaces/X"), ("doc", "Confluence".into()));
+        assert_eq!(doc_kind("https://www.dropbox.com/s/x"), ("doc", "dropbox.com".into()));
     }
 }
