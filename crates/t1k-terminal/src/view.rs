@@ -19,7 +19,7 @@ use gpui::{
     UnderlineStyle, Window,
 };
 
-use crate::input::{key_up, to_esc_held};
+use crate::input::{key_up, modifier_keys, set_caps_lock, to_esc_held};
 use crate::links::{find_path_candidates, find_pr_refs, find_tickets, find_urls, Link, LinkRules};
 use crate::palette::{dim, Palette};
 use crate::scrollbar::{Fade, Metrics, BUTTON_DELAY, IDLE};
@@ -136,6 +136,8 @@ pub struct TerminalView {
     pub feed_on_size: Option<FeedOnSize>,
     scroll_ui: ScrollUi,
     copy_ui: copy_ui::CopyUi,
+    /// Modifiers and caps lock as last seen, to tell which modifier key went down or up.
+    held_modifiers: (gpui::Modifiers, bool),
     _events: Task<()>,
 }
 
@@ -307,6 +309,7 @@ impl TerminalView {
             resize_task: None,
             feed_on_size: None,
             copy_ui: Default::default(),
+            held_modifiers: Default::default(),
             scroll_ui: ScrollUi::new(),
             _events: task,
         })
@@ -566,7 +569,8 @@ impl TerminalView {
         true
     }
 
-    fn on_key_down(&mut self, ev: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn on_key_down(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        set_caps_lock(window.capslock().on);
         if self.search.is_some() && self.search_key(ev, cx) {
             cx.stop_propagation();
             return;
@@ -807,7 +811,16 @@ impl TerminalView {
         }
     }
 
-    fn on_modifiers_changed(&mut self, ev: &ModifiersChangedEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn on_modifiers_changed(&mut self, ev: &ModifiersChangedEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let now = (ev.modifiers, ev.capslock.on);
+        let before = std::mem::replace(&mut self.held_modifiers, now);
+        if self.focus_handle.is_focused(window) {
+            set_caps_lock(now.1);
+            let bytes = modifier_keys(before, now, self.terminal.mode(), self.style.option_as_meta);
+            if !bytes.is_empty() {
+                self.terminal.write(bytes);
+            }
+        }
         self.set_hover(self.hover_cell, ev.modifiers.platform, cx);
     }
 

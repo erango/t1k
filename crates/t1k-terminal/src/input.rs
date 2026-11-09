@@ -1,7 +1,22 @@
 //! Translate GPUI keystrokes into the byte sequences a terminal program expects.
 
 use alacritty_terminal::term::TermMode;
-use gpui::Keystroke;
+use gpui::{Keystroke, Modifiers};
+use std::cell::Cell;
+
+thread_local! {
+    /// Caps lock, as last seen by the focused terminal: keystrokes don't carry it, and the kitty
+    /// protocol reports it as a modifier bit.
+    static CAPS: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Record caps lock's state for the kitty protocol's lock bit.
+pub fn set_caps_lock(on: bool) {
+    CAPS.with(|c| c.set(on));
+}
+
+/// The kitty protocol's caps_lock modifier bit.
+const CAPS_BIT: u32 = 64;
 
 /// xterm modifier parameter: 1 + shift + 2*alt + 4*ctrl.
 fn modifier_param(k: &Keystroke) -> u8 {
@@ -158,6 +173,50 @@ pub fn key_up(k: &Keystroke, mode: TermMode, option_as_meta: bool) -> Option<Vec
     kitty(k, mode, option_as_meta, Event::Release)
 }
 
+/// Pressing or releasing a modifier key on its own (shift, ctrl, ⌥, ⌘, caps lock), for
+/// programs that asked for every key (kitty flag 8); releases only with event types (flag 2).
+/// macOS doesn't say which side was pressed, so these report the left key.
+pub fn modifier_keys(old: (Modifiers, bool), new: (Modifiers, bool), mode: TermMode, option_as_meta: bool) -> Vec<u8> {
+    if !mode.contains(TermMode::REPORT_ALL_KEYS_AS_ESC) {
+        return Vec::new();
+    }
+    let events = mode.contains(TermMode::REPORT_EVENT_TYPES);
+    let (m, caps) = new;
+    // The state after the event: a pressed modifier's bit is set, a released one's cleared.
+    let mods = 1
+        + m.shift as u32
+        + 2 * (m.alt && option_as_meta) as u32
+        + 4 * m.control as u32
+        + 8 * m.platform as u32
+        + if caps { CAPS_BIT } else { 0 };
+    let keys = [
+        (old.0.shift, m.shift, 57441),
+        (old.0.control, m.control, 57442),
+        (old.0.alt, m.alt, 57443),
+        (old.0.platform, m.platform, 57444),
+    ];
+    let mut out = String::new();
+    let mut emit = |code: u32, release: bool| {
+        if release && !events {
+            return;
+        }
+        let e = if release { ":3" } else { "" };
+        let tail = if mods > 1 || release { format!(";{mods}{e}") } else { String::new() };
+        out.push_str(&format!("\x1b[{code}{tail}u"));
+    };
+    for (was, is, code) in keys {
+        if was != is {
+            emit(code, was);
+        }
+    }
+    // Caps lock is a toggle: only the switch is visible, so report it as a press and release.
+    if old.1 != caps {
+        emit(57358, false);
+        emit(57358, true);
+    }
+    out.into_bytes()
+}
+
 /// The kitty keyboard protocol (https://sw.kovidgoyal.net/kitty/keyboard-protocol/), for
 /// programs that turned it on (CSI > flags u): keys as CSI code ; modifiers u, so they can
 /// tell shift+enter from enter, ctrl+i from tab, and esc from alt prefixes.
@@ -170,6 +229,10 @@ fn kitty(k: &Keystroke, mode: TermMode, option_as_meta: bool, ev: Event) -> Opti
     // ⌥ is a modifier only when it's Meta; otherwise it types characters (é, ∑).
     let alt = m.alt && option_as_meta;
     let mods = 1 + m.shift as u32 + 2 * alt as u32 + 4 * m.control as u32;
+    // Caps lock rides along on CSI u keys, but not on keys that type text unless every key is
+    // wanted (so it doesn't break programs reading text keys), nor on the legacy-form keys
+    // (arrows, F-keys), which have no encoding for it.
+    let lock = if CAPS.with(Cell::get) { CAPS_BIT } else { 0 };
     let ev_n = match ev {
         Event::Press => 1,
         Event::Repeat => 2,
@@ -179,22 +242,22 @@ fn kitty(k: &Keystroke, mode: TermMode, option_as_meta: bool, ev: Event) -> Opti
         return None;
     }
     // "; mods[:event]", left out when both are the defaults.
-    let tail = |force: bool| -> String {
+    let tail = |force: bool, mods: u32| -> String {
         let e = if events && ev_n != 1 { format!(":{ev_n}") } else { String::new() };
         if mods > 1 || !e.is_empty() || force { format!(";{mods}{e}") } else { String::new() }
     };
     let app_cursor = mode.contains(TermMode::APP_CURSOR);
     let letter = |c: char| -> Vec<u8> {
-        let t = tail(false);
+        let t = tail(false, mods);
         if t.is_empty() {
             if app_cursor { format!("\x1bO{c}") } else { format!("\x1b[{c}") }.into_bytes()
         } else {
             format!("\x1b[1{t}{c}").into_bytes()
         }
     };
-    let tilde = |n: u32| format!("\x1b[{n}{}~", tail(false)).into_bytes();
-    let csi_u = |code: u32, extra: &str, text: &str| -> Vec<u8> {
-        let mut t = tail(!text.is_empty());
+    let tilde = |n: u32| format!("\x1b[{n}{}~", tail(false, mods)).into_bytes();
+    let csi_u = |code: u32, extra: &str, text: &str, lock: u32| -> Vec<u8> {
+        let mut t = tail(!text.is_empty(), mods + lock);
         if !text.is_empty() {
             t.push(';');
             t.push_str(text);
@@ -225,7 +288,7 @@ fn kitty(k: &Keystroke, mode: TermMode, option_as_meta: bool, ev: Event) -> Opti
         "f10" => tilde(21),
         "f11" => tilde(23),
         "f12" => tilde(24),
-        "escape" => csi_u(27, "", ""),
+        "escape" => csi_u(27, "", "", lock),
         // Plain enter, tab and backspace stay legacy (so `reset` still works after a crashed
         // program left the mode on), unless every key is wanted as an escape.
         "enter" | "tab" | "backspace" => {
@@ -235,7 +298,7 @@ fn kitty(k: &Keystroke, mode: TermMode, option_as_meta: bool, ev: Event) -> Opti
                 _ => 127,
             };
             if all || mods > 1 {
-                csi_u(code, "", "")
+                csi_u(code, "", "", lock)
             } else if ev != Event::Press {
                 return None;
             } else {
@@ -267,9 +330,9 @@ fn kitty(k: &Keystroke, mode: TermMode, option_as_meta: bool, ev: Event) -> Opti
                 } else {
                     String::new()
                 };
-                csi_u(base as u32, &extra, &assoc)
+                csi_u(base as u32, &extra, &assoc, lock)
             } else if m.control || alt {
-                csi_u(base as u32, &extra, "")
+                csi_u(base as u32, &extra, "", 0)
             } else if ev != Event::Press {
                 // Keys that type text report only the press, unless every key is wanted.
                 return None;
@@ -347,6 +410,34 @@ mod tests {
         sa.key_char = Some("A".into());
         let alt = TermMode::DISAMBIGUATE_ESC_CODES | TermMode::REPORT_ALL_KEYS_AS_ESC | TermMode::REPORT_ALTERNATE_KEYS;
         assert_eq!(to_esc(&sa, alt, true).unwrap(), b"\x1b[97:65;2u");
+    }
+
+    #[test]
+    fn kitty_modifier_keys() {
+        let all = TermMode::DISAMBIGUATE_ESC_CODES | TermMode::REPORT_ALL_KEYS_AS_ESC;
+        let ev = all | TermMode::REPORT_EVENT_TYPES;
+        let none = Modifiers::default();
+        let shift = Modifiers { shift: true, ..Default::default() };
+        let s = |b: Vec<u8>| String::from_utf8(b).unwrap();
+        assert_eq!(s(modifier_keys((none, false), (shift, false), all, true)), "\x1b[57441;2u");
+        assert_eq!(s(modifier_keys((shift, false), (none, false), all, true)), "");
+        assert_eq!(s(modifier_keys((shift, false), (none, false), ev, true)), "\x1b[57441;1:3u");
+        assert_eq!(s(modifier_keys((none, false), (none, true), ev, true)), "\x1b[57358;65u\x1b[57358;65:3u");
+        assert!(modifier_keys((none, false), (shift, false), TermMode::DISAMBIGUATE_ESC_CODES, true).is_empty());
+    }
+
+    #[test]
+    fn kitty_caps_lock_bit() {
+        let m = TermMode::DISAMBIGUATE_ESC_CODES;
+        set_caps_lock(true);
+        assert_eq!(to_esc(&ks("escape"), m, true).unwrap(), b"\x1b[27;65u");
+        assert_eq!(to_esc(&ks("ctrl-c"), m, true).unwrap(), b"\x1b[99;5u");
+        assert_eq!(to_esc(&ks("up"), m, true).unwrap(), b"\x1b[A");
+        let mut a = ks("a");
+        a.key_char = Some("a".into());
+        assert_eq!(to_esc(&a, m, true).unwrap(), b"a");
+        assert_eq!(to_esc(&a, m | TermMode::REPORT_ALL_KEYS_AS_ESC, true).unwrap(), b"\x1b[97;65u");
+        set_caps_lock(false);
     }
 
     #[test]
