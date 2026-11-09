@@ -58,6 +58,8 @@ pub struct SpawnOptions {
     /// Run this (program, then arguments) instead of the login shell. Demo mode runs a silent
     /// placeholder, so the screen holds only what it feeds in.
     pub command: Option<Vec<String>>,
+    /// Answer the kitty keyboard protocol's query and honor its modes.
+    pub kitty_keyboard: bool,
 }
 
 pub struct Terminal {
@@ -163,7 +165,8 @@ impl Terminal {
         let pty_fd = pty.file().as_raw_fd();
         let shell_pid = pty.child().id() as i32;
 
-        let config = Config { scrolling_history: 10_000, ..Config::default() };
+        // kitty_keyboard: answer CSI ? u and track the modes programs push (input.rs encodes).
+        let config = Config { scrolling_history: 10_000, kitty_keyboard: opts.kitty_keyboard, ..Config::default() };
         let term = Term::new(config, &TermSize::new(size.cols, size.rows), listener.clone());
         let mut term = term;
         if opts.start_at_bottom {

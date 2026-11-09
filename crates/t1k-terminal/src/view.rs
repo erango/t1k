@@ -19,7 +19,7 @@ use gpui::{
     UnderlineStyle, Window,
 };
 
-use crate::input::to_esc;
+use crate::input::{key_up, to_esc_held};
 use crate::links::{find_path_candidates, find_pr_refs, find_tickets, find_urls, Link, LinkRules};
 use crate::palette::{dim, Palette};
 use crate::scrollbar::{Fade, Metrics, BUTTON_DELAY, IDLE};
@@ -585,13 +585,20 @@ impl TerminalView {
             }
         }
         let mode = self.terminal.mode();
-        if let Some(bytes) = to_esc(&ev.keystroke, mode, self.style.option_as_meta) {
+        if let Some(bytes) = to_esc_held(&ev.keystroke, mode, self.style.option_as_meta, ev.is_held) {
             self.terminal.clear_selection();
             self.terminal.scroll_to_bottom();
             self.sync_offset(true);
             self.terminal.write(bytes);
             cx.stop_propagation();
             cx.notify();
+        }
+    }
+
+    /// Releases, only for programs that asked for them (kitty keyboard protocol, flag 2).
+    fn on_key_up(&mut self, ev: &gpui::KeyUpEvent, _: &mut Window, _: &mut Context<Self>) {
+        if let Some(bytes) = key_up(&ev.keystroke, self.terminal.mode(), self.style.option_as_meta) {
+            self.terminal.write(bytes);
         }
     }
 
@@ -1630,6 +1637,7 @@ impl Render for TerminalView {
             .py(style.padding)
             .px(style.padding_x)
             .on_key_down(cx.listener(Self::on_key_down))
+            .on_key_up(cx.listener(Self::on_key_up))
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::paste))
             .on_action(cx.listener(Self::clear_scrollback))

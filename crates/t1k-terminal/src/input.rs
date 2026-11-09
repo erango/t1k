@@ -33,6 +33,9 @@ pub fn to_esc(k: &Keystroke, mode: TermMode, option_as_meta: bool) -> Option<Vec
             _ => {}
         }
     }
+    if mode.intersects(TermMode::KITTY_KEYBOARD_PROTOCOL) {
+        return kitty(k, mode, option_as_meta, Event::Press);
+    }
     let m = modifier_param(k);
     let has_mods = m > 1;
     let app_cursor = mode.contains(TermMode::APP_CURSOR);
@@ -131,6 +134,155 @@ pub fn to_esc(k: &Keystroke, mode: TermMode, option_as_meta: bool) -> Option<Vec
     Some(bytes)
 }
 
+/// A key event, for the kitty protocol's event types (flag 2).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Event {
+    Press,
+    Repeat,
+    Release,
+}
+
+/// A held key's repeats: marked as repeats for programs that asked for event types.
+pub fn to_esc_held(k: &Keystroke, mode: TermMode, option_as_meta: bool, held: bool) -> Option<Vec<u8>> {
+    if held && mode.contains(TermMode::REPORT_EVENT_TYPES) && !k.modifiers.platform {
+        return kitty(k, mode, option_as_meta, Event::Repeat).or_else(|| to_esc(k, mode, option_as_meta));
+    }
+    to_esc(k, mode, option_as_meta)
+}
+
+/// A key release, for programs that asked for them (kitty flag 2). None otherwise.
+pub fn key_up(k: &Keystroke, mode: TermMode, option_as_meta: bool) -> Option<Vec<u8>> {
+    if !mode.contains(TermMode::REPORT_EVENT_TYPES) || k.modifiers.platform {
+        return None;
+    }
+    kitty(k, mode, option_as_meta, Event::Release)
+}
+
+/// The kitty keyboard protocol (https://sw.kovidgoyal.net/kitty/keyboard-protocol/), for
+/// programs that turned it on (CSI > flags u): keys as CSI code ; modifiers u, so they can
+/// tell shift+enter from enter, ctrl+i from tab, and esc from alt prefixes.
+fn kitty(k: &Keystroke, mode: TermMode, option_as_meta: bool, ev: Event) -> Option<Vec<u8>> {
+    let all = mode.contains(TermMode::REPORT_ALL_KEYS_AS_ESC);
+    let events = mode.contains(TermMode::REPORT_EVENT_TYPES);
+    let alternates = mode.contains(TermMode::REPORT_ALTERNATE_KEYS);
+    let with_text = mode.contains(TermMode::REPORT_ASSOCIATED_TEXT);
+    let m = &k.modifiers;
+    // ⌥ is a modifier only when it's Meta; otherwise it types characters (é, ∑).
+    let alt = m.alt && option_as_meta;
+    let mods = 1 + m.shift as u32 + 2 * alt as u32 + 4 * m.control as u32;
+    let ev_n = match ev {
+        Event::Press => 1,
+        Event::Repeat => 2,
+        Event::Release => 3,
+    };
+    if ev != Event::Press && !events {
+        return None;
+    }
+    // "; mods[:event]", left out when both are the defaults.
+    let tail = |force: bool| -> String {
+        let e = if events && ev_n != 1 { format!(":{ev_n}") } else { String::new() };
+        if mods > 1 || !e.is_empty() || force { format!(";{mods}{e}") } else { String::new() }
+    };
+    let app_cursor = mode.contains(TermMode::APP_CURSOR);
+    let letter = |c: char| -> Vec<u8> {
+        let t = tail(false);
+        if t.is_empty() {
+            if app_cursor { format!("\x1bO{c}") } else { format!("\x1b[{c}") }.into_bytes()
+        } else {
+            format!("\x1b[1{t}{c}").into_bytes()
+        }
+    };
+    let tilde = |n: u32| format!("\x1b[{n}{}~", tail(false)).into_bytes();
+    let csi_u = |code: u32, extra: &str, text: &str| -> Vec<u8> {
+        let mut t = tail(!text.is_empty());
+        if !text.is_empty() {
+            t.push(';');
+            t.push_str(text);
+        }
+        format!("\x1b[{code}{extra}{t}u").into_bytes()
+    };
+    let key = k.key.as_str();
+    let out = match key {
+        "up" => letter('A'),
+        "down" => letter('B'),
+        "right" => letter('C'),
+        "left" => letter('D'),
+        "home" => letter('H'),
+        "end" => letter('F'),
+        "f1" => letter('P'),
+        "f2" => letter('Q'),
+        "f4" => letter('S'),
+        "insert" => tilde(2),
+        "delete" => tilde(3),
+        "pageup" => tilde(5),
+        "pagedown" => tilde(6),
+        "f3" => tilde(13),
+        "f5" => tilde(15),
+        "f6" => tilde(17),
+        "f7" => tilde(18),
+        "f8" => tilde(19),
+        "f9" => tilde(20),
+        "f10" => tilde(21),
+        "f11" => tilde(23),
+        "f12" => tilde(24),
+        "escape" => csi_u(27, "", ""),
+        // Plain enter, tab and backspace stay legacy (so `reset` still works after a crashed
+        // program left the mode on), unless every key is wanted as an escape.
+        "enter" | "tab" | "backspace" => {
+            let code = match key {
+                "enter" => 13,
+                "tab" => 9,
+                _ => 127,
+            };
+            if all || mods > 1 {
+                csi_u(code, "", "")
+            } else if ev != Event::Press {
+                return None;
+            } else {
+                match key {
+                    "enter" => b"\r".to_vec(),
+                    "tab" => b"\t".to_vec(),
+                    _ => b"\x7f".to_vec(),
+                }
+            }
+        }
+        _ => {
+            // A text key: its code is the unshifted character, lowercase.
+            let base = if key == "space" { ' ' } else {
+                let mut cs = key.chars();
+                match (cs.next(), cs.next()) {
+                    (Some(c), None) => c.to_ascii_lowercase(),
+                    _ => return None,
+                }
+            };
+            let text = k.key_char.clone().unwrap_or_else(|| if key == "space" { " ".into() } else { String::new() });
+            let shifted = text.chars().next().filter(|&c| m.shift && c != base && text.chars().count() == 1);
+            let extra = match shifted {
+                Some(c) if alternates => format!(":{}", c as u32),
+                _ => String::new(),
+            };
+            if all {
+                let assoc = if with_text && !m.control && !alt && ev != Event::Release && !text.is_empty() {
+                    text.chars().map(|c| (c as u32).to_string()).collect::<Vec<_>>().join(":")
+                } else {
+                    String::new()
+                };
+                csi_u(base as u32, &extra, &assoc)
+            } else if m.control || alt {
+                csi_u(base as u32, &extra, "")
+            } else if ev != Event::Press {
+                // Keys that type text report only the press, unless every key is wanted.
+                return None;
+            } else if !text.is_empty() {
+                text.into_bytes()
+            } else {
+                return None;
+            }
+        }
+    };
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,5 +318,45 @@ mod tests {
     #[test]
     fn cmd_is_app() {
         assert!(to_esc(&ks("cmd-c"), TermMode::NONE, false).is_none());
+    }
+
+    #[test]
+    fn kitty_disambiguate() {
+        let m = TermMode::DISAMBIGUATE_ESC_CODES;
+        let k = |s: &str| to_esc(&ks(s), m, true).map(|b| String::from_utf8(b).unwrap());
+        assert_eq!(k("escape").unwrap(), "\x1b[27u");
+        assert_eq!(k("shift-enter").unwrap(), "\x1b[13;2u");
+        assert_eq!(k("enter").unwrap(), "\r");
+        assert_eq!(k("ctrl-c").unwrap(), "\x1b[99;5u");
+        assert_eq!(k("alt-x").unwrap(), "\x1b[120;3u");
+        assert_eq!(k("up").unwrap(), "\x1b[A");
+        assert_eq!(k("ctrl-up").unwrap(), "\x1b[1;5A");
+        assert_eq!(k("shift-delete").unwrap(), "\x1b[3;2~");
+        assert_eq!(k("cmd-left").unwrap(), "\x01");
+    }
+
+    #[test]
+    fn kitty_text_and_all_keys() {
+        let mut a = ks("a");
+        a.key_char = Some("a".into());
+        assert_eq!(to_esc(&a, TermMode::DISAMBIGUATE_ESC_CODES, true).unwrap(), b"a");
+        let all = TermMode::DISAMBIGUATE_ESC_CODES | TermMode::REPORT_ALL_KEYS_AS_ESC | TermMode::REPORT_ASSOCIATED_TEXT;
+        assert_eq!(to_esc(&a, all, true).unwrap(), b"\x1b[97;1;97u");
+        assert_eq!(to_esc(&ks("enter"), all, true).unwrap(), b"\x1b[13u");
+        let mut sa = ks("shift-a");
+        sa.key_char = Some("A".into());
+        let alt = TermMode::DISAMBIGUATE_ESC_CODES | TermMode::REPORT_ALL_KEYS_AS_ESC | TermMode::REPORT_ALTERNATE_KEYS;
+        assert_eq!(to_esc(&sa, alt, true).unwrap(), b"\x1b[97:65;2u");
+    }
+
+    #[test]
+    fn kitty_releases() {
+        let m = TermMode::DISAMBIGUATE_ESC_CODES | TermMode::REPORT_EVENT_TYPES;
+        assert_eq!(key_up(&ks("escape"), m, true).unwrap(), b"\x1b[27;1:3u");
+        assert_eq!(key_up(&ks("up"), m, true).unwrap(), b"\x1b[1;1:3A");
+        let mut a = ks("a");
+        a.key_char = Some("a".into());
+        assert!(key_up(&a, m, true).is_none());
+        assert!(key_up(&ks("escape"), TermMode::DISAMBIGUATE_ESC_CODES, true).is_none());
     }
 }

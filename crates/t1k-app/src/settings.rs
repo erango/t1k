@@ -443,6 +443,8 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
             toggle(ui, "rag", c.terminal.resume_agents, &["terminal", "resume_agents"], cx).into_any_element()),
         e(Terminal, "Behavior", "Prompt position", "Where a new tab's first prompt appears", "terminal.prompt_gravity", "gravity bottom top start",
             seg(ui, "gravity", &c.terminal.prompt_gravity, &[("bottom", "Bottom"), ("top", "Top")], &["terminal", "prompt_gravity"], cx)),
+        e(Terminal, "Behavior", "Kitty keyboard protocol", "Programs that ask can tell ⇧↵ from ↵ and get key releases (new tabs)", "terminal.kitty_keyboard", "keys shift enter csi u neovim helix",
+            toggle(ui, "kitty", c.terminal.kitty_keyboard, &["terminal", "kitty_keyboard"], cx).into_any_element()),
         e(Terminal, "Behavior", "Shell integration", "zsh prompt marks for ⌘↑ / ⌘↓ (new tabs)", "terminal.shell_integration", "zsh prompt",
             toggle(ui, "shellint", c.terminal.shell_integration, &["terminal", "shell_integration"], cx).into_any_element()),
         e(Agents, "Notifications", "When a tab needs you", "", "notify.needs_input", "banner alert",

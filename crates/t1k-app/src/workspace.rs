@@ -1008,7 +1008,7 @@ impl Workspace {
             }
         }
         let command = crate::demo::on().then(crate::demo::command);
-        let opts = SpawnOptions { working_directory: cwd, env, tab_id, start_at_bottom: self.config.terminal.prompt_gravity != "top", restore, command };
+        let opts = SpawnOptions { working_directory: cwd, env, tab_id, start_at_bottom: self.config.terminal.prompt_gravity != "top", restore, command, kitty_keyboard: self.config.terminal.kitty_keyboard };
         let palette = self.theme.palette();
         let style = self.terminal_style();
         cx.new(|cx| {
