@@ -175,10 +175,12 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         .h_full()
         .flex()
         .flex_col()
-        .bg(ui.bg_sidebar)
+        .when(!ws.translucent(), |d| d.bg(ui.bg_sidebar))
         // The edge hairline is drawn first and under everything, so the selected row (and its
         // curves) can paint over it where it joins the terminal; a border can't be covered.
-        .child(div().absolute().top_0().bottom_0().right_0().w(px(1.)).bg(ui.sidebar_edge))
+        .when(!ws.translucent(), |d| d.child(div().absolute().top_0().bottom_0().right_0().w(px(1.)).bg(ui.sidebar_edge)))
+        // See-through, layers would add up: the sidebar paints around the selected row instead.
+        .when(ws.translucent(), |d| d.child(backdrop(ws)))
         // Title-bar strip: traffic lights, then back / forward; drags the window. 44 tall like
         // the title bar, so lights, icons and the title share one center (22).
         .child(
@@ -806,16 +808,94 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         const R: f32 = 8.;
         // Where the row is this frame, for the selected-tab outline (canvas v3-as).
         let at = ws.selected_row.clone();
-        el = el
-            .child(gpui::canvas(move |b, _, _| at.set(Some(b)), |_, _, _, _| {}).absolute().inset_0())
-            .bg(ui.bg_terminal)
-            .rounded_l(px(R))
-            .child(fillet(true))
-            .child(fillet(false));
+        el = el.child(gpui::canvas(move |b, _, _| at.set(Some(b)), |_, _, _, _| {}).absolute().inset_0()).rounded_l(px(R));
+        // See-through, the sidebar's backdrop leaves the row's shape for the terminal color.
+        if !ws.translucent() {
+            el = el.bg(ui.bg_terminal).child(fillet(true)).child(fillet(false));
+        }
     } else {
         el = el.mr(px(INSET)).rounded(px(6.)).hover(move |d| d.bg(ui.sidebar_hover));
     }
     el.into_any_element()
+}
+
+/// The see-through sidebar's background (canvas v3-ar): the sidebar color with a notch where
+/// the selected row joins the terminal, the notch in the terminal color, and the edge hairline
+/// above and below it. Painted as shapes so no two translucent layers overlap.
+fn backdrop(ws: &Workspace) -> AnyElement {
+    use gpui::{point, Bounds, PathBuilder, Pixels};
+    const R: f32 = 8.;
+    let (side, term, edge) = (ws.side_bg(), ws.term_bg(), ws.ui.sidebar_edge);
+    let row = ws.selected_row.clone();
+    let view = ws.sidebar_scroll.clone();
+    gpui::canvas(
+        |_, _, _| (),
+        move |b, _, window, _| {
+            let (w, h) = (f32::from(b.size.width), f32::from(b.size.height));
+            let at = |x: f32, y: f32| b.origin + point(px(x), px(y));
+            let arc = |p: &mut PathBuilder, sweep: bool, x: f32, y: f32| p.arc_to(point(px(R), px(R)), px(0.), false, sweep, at(x, y));
+            // The row as drawn: clipped to the list, with a fillet only where its edge shows.
+            let notch = row.get().and_then(|r| {
+                let v = view.bounds();
+                let (top, bottom) = if v.size.height > px(0.) { (v.top(), v.bottom()) } else { (b.top(), b.bottom()) };
+                let (y0, y1) = (r.top().max(top), r.bottom().min(bottom));
+                (y1 > y0).then(|| {
+                    let y = |p: Pixels| f32::from(p - b.top());
+                    (f32::from(r.left() - b.left()), y(y0), y(y1), r.top() >= top, r.bottom() <= bottom)
+                })
+            });
+            let Some((x0, y0, y1, ft, fb)) = notch else {
+                window.paint_quad(gpui::fill(b, side));
+                window.paint_quad(gpui::fill(Bounds::new(at(w - 1., 0.), gpui::size(px(1.), b.size.height)), edge));
+                return;
+            };
+            // Top-right, down to the notch, around it, and back out to the bottom-right.
+            let notch_edge = |p: &mut PathBuilder| {
+                if ft {
+                    p.line_to(at(w, y0 - R));
+                    arc(p, true, w - R, y0);
+                    p.line_to(at(x0 + R, y0));
+                    arc(p, false, x0, y0 + R);
+                } else {
+                    p.line_to(at(w, y0));
+                    p.line_to(at(x0, y0));
+                }
+                if fb {
+                    p.line_to(at(x0, y1 - R));
+                    arc(p, false, x0 + R, y1);
+                    p.line_to(at(w - R, y1));
+                    arc(p, true, w, y1 + R);
+                } else {
+                    p.line_to(at(x0, y1));
+                    p.line_to(at(w, y1));
+                }
+            };
+            let mut p = PathBuilder::fill();
+            p.move_to(at(0., 0.));
+            p.line_to(at(w, 0.));
+            notch_edge(&mut p);
+            p.line_to(at(w, h));
+            p.line_to(at(0., h));
+            p.close();
+            if let Ok(p) = p.build() {
+                window.paint_path(p, side);
+            }
+            let mut n = PathBuilder::fill();
+            n.move_to(at(w, if ft { y0 - R } else { y0 }));
+            notch_edge(&mut n);
+            n.close();
+            if let Ok(n) = n.build() {
+                window.paint_path(n, term);
+            }
+            let top_end = if ft { y0 - R } else { y0 };
+            let bottom_start = if fb { y1 + R } else { y1 };
+            window.paint_quad(gpui::fill(Bounds::new(at(w - 1., 0.), gpui::size(px(1.), px(top_end.max(0.)))), edge));
+            window.paint_quad(gpui::fill(Bounds::new(at(w - 1., bottom_start), gpui::size(px(1.), px((h - bottom_start).max(0.)))), edge));
+        },
+    )
+    .absolute()
+    .inset_0()
+    .into_any_element()
 }
 
 /// Floating detail card for a hovered row: full title, status, what it's doing or its recap,

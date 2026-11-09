@@ -129,9 +129,9 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
             crate::rail::Shown::Hidden => 84.,
         }))
         .relative()
-        .bg(ui.bg_terminal)
+        .bg(ws.term_bg())
         .when_some(alarm, |d, c| {
-            d.bg(gpui::Hsla::blend(ui.bg_terminal, c.opacity(0.06)))
+            d.bg(gpui::Hsla::blend(ui.bg_terminal, c.opacity(0.06)).opacity(ws.config.window.alpha()))
                 .child(div().absolute().top_0().left_0().right_0().h(px(2.)).bg(c))
         })
         .border_b_1()

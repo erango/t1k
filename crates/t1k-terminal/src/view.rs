@@ -54,6 +54,10 @@ pub struct TerminalStyle {
     pub option_as_meta: bool,
     /// Copy the selection to the clipboard as soon as the mouse is released.
     pub copy_on_select: bool,
+    /// Background alpha (1.0 solid); the window behind shows through the rest.
+    pub bg_alpha: f32,
+    /// Whether colors programs paint behind text take `bg_alpha` too, or stay solid.
+    pub cell_alpha: bool,
 }
 
 impl TerminalStyle {
@@ -82,6 +86,8 @@ impl Default for TerminalStyle {
             padding_x: px(20.),
             option_as_meta: false,
             copy_on_select: false,
+            bg_alpha: 1.,
+            cell_alpha: false,
         }
     }
 }
@@ -1468,7 +1474,7 @@ fn build_frame_locked(view: &TerminalView, term: &alacritty_terminal::Term<crate
         }
 
         if bg != default_bg {
-            let color = hsla(bg);
+            let color = if view.style.cell_alpha { hsla(bg).opacity(view.style.bg_alpha) } else { hsla(bg) };
             match bg_rects.last_mut() {
                 Some(r) if r.row == row && r.col + r.cols == col && r.color == color => r.cols += width,
                 _ => bg_rects.push(BgRect { col, row, cols: width, color }),
@@ -1633,7 +1639,7 @@ impl Render for TerminalView {
             .size_full()
             .relative()
             .overflow_hidden()
-            .bg(hsla(palette.background))
+            .bg(hsla(palette.background).opacity(style.bg_alpha))
             .py(style.padding)
             .px(style.padding_x)
             .on_key_down(cx.listener(Self::on_key_down))

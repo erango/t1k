@@ -793,7 +793,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         .h_full()
         .flex()
         .flex_col()
-        .bg(ui.bg_sidebar)
+        .bg(ui.bg_sidebar.opacity(ws.config.window.alpha()))
         .child(header)
         .child(chips)
         .child(

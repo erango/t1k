@@ -17,6 +17,15 @@ appearance = "system"
 dark = "Mercury Dark"
 light = "Mercury Light"
 
+[window]
+# How much of the desktop shows through: 1.0 is solid, 0.7 the most see-through. The
+# sidebar stays a little more solid so it reads; menus and popovers stay solid.
+background_opacity = 1.0
+# Blur what's behind the window while it's see-through.
+background_blur = true
+# Let colors that programs paint behind text show through too (off keeps them solid).
+background_opacity_cells = false
+
 [terminal]
 # Space around the text: this many px above and below, about 1.4× that at the sides.
 padding = 14
@@ -164,6 +173,7 @@ pub struct Config {
     pub updates: UpdatesCfg,
     pub privacy: PrivacyCfg,
     pub helper: HelperCfg,
+    pub window: WindowCfg,
     /// Shortcut overrides by `keymap::Bind::id`.
     pub keys: std::collections::BTreeMap<String, String>,
 }
@@ -363,9 +373,31 @@ impl Default for Config {
             privacy: PrivacyCfg::default(),
             keys: Default::default(),
             helper: HelperCfg::default(),
+            window: WindowCfg::default(),
         }
     }
 }
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[serde(default)]
+pub struct WindowCfg {
+    pub background_opacity: f32,
+    pub background_blur: bool,
+    pub background_opacity_cells: bool,
+}
+
+impl Default for WindowCfg {
+    fn default() -> Self {
+        Self { background_opacity: 1.0, background_blur: true, background_opacity_cells: false }
+    }
+}
+
+impl WindowCfg {
+    /// The terminal's background alpha, kept in the range where text stays readable.
+    pub fn alpha(&self) -> f32 {
+        self.background_opacity.clamp(0.7, 1.0)
+    }
+}
+
 impl Default for ThemeCfg {
     fn default() -> Self {
         Self { dark: "Mercury Dark".into(), light: "Mercury Light".into() }

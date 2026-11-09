@@ -248,7 +248,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                     .items_center()
                     .justify_center()
                     .cursor_pointer()
-                    .when(selected, |d| d.bg(ui.bg_terminal))
+                    .when(selected, |d| d.bg(ws.term_bg()))
                     .when(!selected, |d| d.hover(move |d| d.bg(ui.sidebar_hover)))
                     .on_click(cx.listener(move |this, _, window, cx| this.activate(i, window, cx)))
                     // Design v3-r: on hover, a small × badge at the icon's top-right.
@@ -299,7 +299,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         .h_full()
         .flex()
         .flex_col()
-        .bg(ui.bg_sidebar)
+        .bg(ws.side_bg())
         .on_hover(cx.listener(|this, over: &bool, _, cx| this.rail_hover(*over, cx)))
         // Title strip height: the traffic lights sit over it.
         .child(

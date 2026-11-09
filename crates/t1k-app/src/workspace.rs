@@ -281,6 +281,8 @@ pub struct Workspace {
     /// The sidebar list's scroll position (for the sticky group header).
     pub sidebar_scroll: gpui::ScrollHandle,
     /// The selected sidebar row's bounds, set while it paints (for the selected-tab outline).
+    /// The window background last asked of macOS, so it's set only when it changes.
+    window_look: Option<gpui::WindowBackgroundAppearance>,
     pub selected_row: std::rc::Rc<std::cell::Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
     pub outputs_scroll: gpui::ScrollHandle,
     pub outputs_bar: crate::scroll_bar::Drag,
@@ -502,6 +504,7 @@ impl Workspace {
             turns_done: Vec::new(),
             sidebar_scroll: gpui::ScrollHandle::new(),
             selected_row: Default::default(),
+            window_look: None,
             outputs_scroll: gpui::ScrollHandle::new(),
             outputs_bar: Default::default(),
             drag_scroll: 0.,
@@ -2334,6 +2337,21 @@ impl Workspace {
         }
     }
 
+    /// Whether the window is see-through (canvas v3-ar).
+    pub fn translucent(&self) -> bool {
+        self.config.window.alpha() < 1.
+    }
+
+    /// The terminal-side background: terminal, title strip, outputs panel.
+    pub fn term_bg(&self) -> gpui::Hsla {
+        self.ui.bg_terminal.opacity(self.config.window.alpha())
+    }
+
+    /// The sidebar's background: a little more solid than the terminal, so its text reads.
+    pub fn side_bg(&self) -> gpui::Hsla {
+        self.ui.bg_sidebar.opacity((self.config.window.alpha() + 0.05).min(1.))
+    }
+
     pub fn terminal_style(&self) -> TerminalStyle {
         let t = &self.config.terminal;
         TerminalStyle {
@@ -2346,6 +2364,8 @@ impl Workspace {
             padding_x: px((t.padding.clamp(0., 64.) * 10. / 7.).round()),
             option_as_meta: t.option_as_meta,
             copy_on_select: t.copy_on_select,
+            bg_alpha: self.config.window.alpha(),
+            cell_alpha: self.config.window.background_opacity_cells,
         }
     }
 
@@ -2517,6 +2537,15 @@ impl Render for Workspace {
         if self.drop_hover.is_some() && !cx.has_active_drag() && std::env::var_os("T1K_DEBUG_DROP").is_none() {
             self.drop_hover = None;
         }
+        let look = match (self.translucent(), self.config.window.background_blur) {
+            (false, _) => gpui::WindowBackgroundAppearance::Opaque,
+            (true, true) => gpui::WindowBackgroundAppearance::Blurred,
+            (true, false) => gpui::WindowBackgroundAppearance::Transparent,
+        };
+        if self.window_look != Some(look) {
+            window.set_background_appearance(look);
+            self.window_look = Some(look);
+        }
         let active_view = crate::import_ui::waiting_pane(self, self.active, cx)
             .or_else(|| self.tabs.get(self.active).map(|t| crate::split::render_panes(self, t, window, cx)));
 
@@ -2537,7 +2566,8 @@ impl Render for Workspace {
             .size_full()
             .flex()
             .flex_row()
-            .bg(self.ui.bg_terminal)
+            // See-through, each surface paints its own background, so none doubles up.
+            .when(!self.translucent() || self.tabs.is_empty(), |d| d.bg(self.term_bg()))
             .font_family(".SystemUIFont")
             .on_action(cx.listener(Self::new_tab))
             .on_action(cx.listener(Self::close_tab))
