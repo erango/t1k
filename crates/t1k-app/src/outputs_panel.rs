@@ -720,7 +720,17 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                     // Artifacts (v3-ae): their type's icon in a tile, the title, the description.
                     // Docs and files (v3-am) get the same tile, with an icon for their type.
                     .map(|d| match o.kind {
-                        Kind::Artifact | Kind::Doc | Kind::File => d.child(
+                        // Files: the type icon alone, bigger, in the same 28 pt slot (no tile).
+                        Kind::File => d.child(
+                            div()
+                                .size(px(28.))
+                                .flex_none()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(crate::icons::artifact(t1k_agent::outputs::file_icon(&o.target), ui.text_secondary, 24.)),
+                        ),
+                        Kind::Artifact | Kind::Doc => d.child(
                             div()
                                 .size(px(28.))
                                 .flex_none()
@@ -732,7 +742,6 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                                 .child(crate::icons::artifact(
                                     match o.kind {
                                         Kind::Doc => t1k_agent::outputs::doc_kind(&o.target).0,
-                                        Kind::File => t1k_agent::outputs::file_icon(&o.target),
                                         _ => o.icon.as_deref().unwrap_or("link"),
                                     },
                                     ui.text_secondary,
