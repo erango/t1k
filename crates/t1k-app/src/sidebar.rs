@@ -21,6 +21,9 @@ const INSET: f32 = 8.;
 const ROW_LEFT: f32 = 14.;
 /// Group line x (design v3-y c), where the rows' left edge used to be.
 const LINE_X: f32 = 8.;
+/// The selected row starts in line with the group name (the header's inset plus its padding),
+/// leaving room between it and the group line.
+const SELECTED_LEFT: f32 = INSET + 16.;
 
 pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
     let k = ws.config.interface.text_scale();
@@ -603,6 +606,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
     let ui = ws.ui;
     let tab = &ws.tabs[ix];
     let selected = ix == ws.active;
+    let row_left = if selected { SELECTED_LEFT } else { ROW_LEFT };
     let running = tab.program.is_some();
 
     let glyph = glyph(tab, ui, ws.started, running, k);
@@ -686,7 +690,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         .flex_none()
         .h(px(height))
         .mt(px(ROW_GAP))
-        .ml(px(ROW_LEFT))
+        .ml(px(row_left))
         .pl(px(10.))
         .pr(px(12.))
         .flex()
@@ -708,7 +712,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         // B: the row tinted; C: the group line beside it in the session's color.
         .when_some(scolor.filter(|_| smode == "tint"), |d, c| d.bg(c.opacity(0.10)))
         .when_some(scolor.filter(|_| smode == "line"), |d, c| {
-            d.child(div().absolute().left(px(LINE_X - ROW_LEFT)).top(px(-(ROW_GAP / 2.).floor())).bottom(px(-(ROW_GAP / 2.).ceil())).w(px(2.)).bg(c))
+            d.child(div().absolute().left(px(LINE_X - row_left)).top(px(-(ROW_GAP / 2.).floor())).bottom(px(-(ROW_GAP / 2.).ceil())).w(px(2.)).bg(c))
         })
         .child(
             div()
@@ -768,7 +772,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         .on_hover(cx.listener(move |this, hovered: &bool, _, cx| this.row_hovered(hover_id.clone(), *hovered, cx)))
         .when(carded, |d| {
             // Card floats over the terminal, level with the row; drawn last so nothing clips it.
-            let left = ws.config.sidebar.width.clamp(200., 480.) - ROW_LEFT + 6.;
+            let left = ws.config.sidebar.width.clamp(200., 480.) - row_left + 6.;
             d.child(
                 div().absolute().top(px(-4.)).left(px(left)).child(
                     deferred(anchored().snap_to_window_with_margin(px(8.)).child(card(ws, ix, cx))).with_priority(1),
