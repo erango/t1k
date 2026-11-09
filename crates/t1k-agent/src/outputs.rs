@@ -71,6 +71,17 @@ pub fn artifact_icon(word: &str) -> &'static str {
 
 /// The icon for a file in the outputs panel (canvas v3-am), from its name: a few whole names
 /// first (tsconfig.json is config, not data), then the last extension.
+/// The tracker a ticket URL belongs to, as an icon kind for `icons::artifact`.
+pub fn ticket_icon(url: &str) -> &'static str {
+    let host = url.trim_start_matches("https://").split('/').next().unwrap_or("");
+    match host {
+        "linear.app" => "t-linear",
+        "github.com" => "t-github",
+        h if h.ends_with(".atlassian.net") => "t-jira",
+        _ => "link",
+    }
+}
+
 pub fn file_icon(path: &str) -> &'static str {
     let name = path.rsplit('/').next().unwrap_or(path).to_ascii_lowercase();
     const LOCKS: &[&str] = &["cargo.lock", "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "gemfile.lock", "poetry.lock", "go.sum", "composer.lock"];

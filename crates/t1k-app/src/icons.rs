@@ -260,6 +260,65 @@ pub fn artifact(kind: &str, color: Hsla, size: f32) -> impl IntoElement {
                 p.line_to(pt(7.5, 8.));
                 p.line_to(pt(9., 8.));
             }
+            // Copy a link: two chain links on a diagonal.
+            "chain" => {
+                let capsule = |p: &mut PathBuilder, cx: f32, cy: f32| {
+                    // A 4 x 8 capsule turned 45°, centered at (cx, cy).
+                    let (c, s) = (std::f32::consts::FRAC_1_SQRT_2, std::f32::consts::FRAC_1_SQRT_2);
+                    let rot = |x: f32, y: f32| (cx + x * c - y * s, cy + x * s + y * c);
+                    let mut pts = Vec::new();
+                    for k in 0..=12 {
+                        let a = std::f32::consts::PI + k as f32 / 12. * std::f32::consts::PI;
+                        pts.push(rot(2.2 * a.cos(), -2. + 2.2 * a.sin()));
+                    }
+                    for k in 0..=12 {
+                        let a = k as f32 / 12. * std::f32::consts::PI;
+                        pts.push(rot(2.2 * a.cos(), 2. + 2.2 * a.sin()));
+                    }
+                    p.move_to(pt(pts[0].0, pts[0].1));
+                    for &(x, y) in &pts[1..] {
+                        p.line_to(pt(x, y));
+                    }
+                    p.close();
+                };
+                capsule(p, 5.2, 8.8);
+                capsule(p, 8.8, 5.2);
+            }
+            // Copy a path: a folder.
+            "folder" => {
+                p.move_to(pt(1.5, 3.));
+                p.line_to(pt(5.5, 3.));
+                p.line_to(pt(7., 4.5));
+                p.line_to(pt(12.5, 4.5));
+                p.line_to(pt(12.5, 11.5));
+                p.line_to(pt(1.5, 11.5));
+                p.close();
+            }
+            // Ticket trackers (monochrome marks, like the file icons).
+            "t-linear" => {
+                circle(p, 7., 7., 5.5);
+                line(p, 2.6, 8.8, 5.2, 11.4);
+                line(p, 1.9, 6.1, 7.9, 12.1);
+                line(p, 2.5, 3.7, 10.3, 11.5);
+            }
+            "t-jira" => {
+                // Two nested diamonds, the Jira mark's chevrons simplified.
+                p.move_to(pt(7., 1.5));
+                p.line_to(pt(12.5, 7.));
+                p.line_to(pt(7., 12.5));
+                p.line_to(pt(1.5, 7.));
+                p.close();
+                p.move_to(pt(7., 4.5));
+                p.line_to(pt(9.5, 7.));
+                p.line_to(pt(7., 9.5));
+                p.line_to(pt(4.5, 7.));
+                p.close();
+            }
+            "t-github" => {
+                // GitHub's open-issue mark: a ring with a dot.
+                circle(p, 7., 7., 5.5);
+                circle(p, 7., 7., 1.2);
+            }
             "closed" => {
                 line(p, 3.5, 3.5, 10.5, 10.5);
                 line(p, 10.5, 3.5, 3.5, 10.5);

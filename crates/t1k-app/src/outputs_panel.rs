@@ -665,22 +665,22 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                             }))
                             .child("Show"),
                     ))
+                    // A link icon copies the URL; a folder, a file's path.
                     .child(
                         div()
                             .id(SharedString::from(format!("copy-{n}")))
-                            .px(px(6.))
-                            .h(px(22.))
+                            .size(px(22.))
                             .rounded(px(5.))
                             .flex()
                             .items_center()
-                            .text_size(px(11. * k))
-                            .text_color(ui.text_tertiary)
-                            .hover(move |d| d.bg(ui.bg_control).text_color(ui.text_primary))
+                            .justify_center()
+                            .hover(move |d| d.bg(ui.bg_control))
+                            .tooltip(crate::tooltip::text(ui, if is_file { "Copy path" } else { "Copy URL" }.to_string()))
                             .on_click(cx.listener(move |_, _, _, cx| {
                                 cx.stop_propagation();
                                 cx.write_to_clipboard(ClipboardItem::new_string(copy_target.clone()));
                             }))
-                            .child("Copy"),
+                            .child(crate::icons::artifact(if is_file { "folder" } else { "chain" }, ui.text_tertiary, 14.)),
                     )
             };
             if o.kind == Kind::Pr && is_finished(o) {
@@ -834,7 +834,18 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                                     16.,
                                 )),
                         ),
-                        _ => d.child(div().w(px(16.)).flex_none().text_size(px(13. * k)).text_color(ui.text_tertiary).child(icon(o.kind))),
+                        // Tickets: their tracker's mark (Linear, Jira, GitHub issues).
+                        Kind::Ticket => d.child(
+                            div()
+                                .size(px(28.))
+                                .flex_none()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(crate::icons::artifact(t1k_agent::outputs::ticket_icon(&o.target), ui.text_secondary, 20.)),
+                        ),
+                        // In the same 28 pt slot as the rest, so every title lines up.
+                        _ => d.child(div().size(px(28.)).flex_none().flex().items_center().justify_center().text_size(px(13. * k)).text_color(ui.text_tertiary).child(icon(o.kind))),
                     })
                     .child(
                         div()
