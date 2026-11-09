@@ -170,6 +170,11 @@ impl Workspace {
             // quit (the dialog says what's still running).
             loop {
                 cx.background_executor().timer(Duration::from_millis(100)).await;
+                // Backed out of (Cancel): stop waiting, quit nothing.
+                let backed_out = this.update(cx, |ws, _| ws.quitting.is_none()).unwrap_or(true);
+                if backed_out {
+                    break;
+                }
                 let done = this.update(cx, |ws, cx| ws.running_programs(cx).is_empty()).unwrap_or(true);
                 if done {
                     // A moment for the last output to be drawn into the grid.
@@ -190,6 +195,10 @@ impl Workspace {
         if let Some(at) = self.quitting {
             if k == "enter" && cmd && at.elapsed() > GRACE {
                 crate::platform::quit(cx);
+            }
+            if k == "escape" {
+                self.cancel_quit(cx);
+                return None;
             }
             return Some(Overlay::QuitRunning { expanded, selected });
         }
@@ -231,6 +240,17 @@ impl Workspace {
             _ => {}
         }
         Some(Overlay::QuitRunning { expanded, selected })
+    }
+
+    /// Back out of quitting: whatever already stopped stays stopped (its tab keeps its
+    /// output), the rest keeps running, and T1K stays open.
+    /// Claude sessions the quit already stopped stay marked to resume, so the next launch
+    /// brings back every session the quit closed, not just the ones still running then.
+    pub fn cancel_quit(&mut self, cx: &mut Context<Self>) {
+        self.quitting = None;
+        self.save();
+        self.overlay = Overlay::None;
+        cx.notify();
     }
 
     pub fn show_running(&mut self, cx: &mut Context<Self>) {
@@ -312,13 +332,12 @@ pub fn render(ws: &Workspace, expanded: bool, selected: usize, cx: &mut Context<
             } else {
                 format!("Waiting for {} to finish.", names(&list))
             })))
-            .when(late, |d| {
-                d.child(
-                    row()
-                        .justify_end()
-                        .child(button(ws, "quit-force", "Force quit  ⌘↵", true).on_click(|_, _, cx| crate::platform::quit(cx))),
-                )
-            })
+            .child(
+                row()
+                    .justify_end()
+                    .child(button(ws, "quit-cancel", "Cancel  esc", false).on_click(cx.listener(|this, _, _, cx| this.cancel_quit(cx))))
+                    .when(late, |d| d.child(button(ws, "quit-force", "Force quit  ⌘↵", true).on_click(|_, _, cx| crate::platform::quit(cx)))),
+            )
             .into_any_element();
     }
 
