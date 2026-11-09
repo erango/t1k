@@ -569,9 +569,18 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             let is_file = o.kind == Kind::File;
             let tab_title = ws.tabs.get(tab).map(|t| t.title()).unwrap_or_default();
             let row_id = SharedString::from(format!("out-{n}"));
-            let open = cx.listener(move |_, _, _, cx| {
+            let open = cx.listener(move |this, _, _, cx| {
                 if is_file {
-                    cx.open_with_system(std::path::Path::new(&target));
+                    // Text files open in the viewer, as ⌘-clicked paths do (links.text_files);
+                    // closing it comes back here.
+                    let path = std::path::Path::new(&target);
+                    if this.config.links.text_files != "editor" && this.view_file(path, None, cx) {
+                        if let Some(v) = this.viewer.as_mut() {
+                            v.from_outputs = true;
+                        }
+                        return;
+                    }
+                    cx.open_with_system(path);
                 } else {
                     cx.open_url(&target);
                 }

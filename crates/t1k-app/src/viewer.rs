@@ -24,6 +24,8 @@ pub struct Viewer {
     markdown: Option<Vec<Block>>,
     pub show_source: bool,
     scroll: UniformListScrollHandle,
+    /// Opened from the outputs panel: closing the viewer goes back to it.
+    pub from_outputs: bool,
 }
 
 /// Whether a file should open in the viewer: a regular file, not huge, that looks like text
@@ -54,7 +56,7 @@ impl Viewer {
         }
         // A link to a specific line shows the source there, even for Markdown.
         let show_source = markdown.is_none() || line.is_some();
-        Some(Viewer { path: path.to_path_buf(), line, lines: Arc::new(lines), markdown, show_source, scroll })
+        Some(Viewer { path: path.to_path_buf(), line, lines: Arc::new(lines), markdown, show_source, scroll, from_outputs: false })
     }
 }
 
@@ -72,7 +74,9 @@ impl Workspace {
     }
 
     pub fn close_viewer(&mut self, cx: &mut Context<Self>) {
-        self.viewer = None;
+        if self.viewer.take().is_some_and(|v| v.from_outputs) {
+            self.panel.open = true;
+        }
         cx.notify();
     }
 }
