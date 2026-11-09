@@ -711,7 +711,7 @@ impl TerminalView {
             return;
         }
         let Some((col, row, side)) = self.cell_at(ev.position) else { return };
-        if ev.modifiers.platform {
+        if ev.modifiers.platform && !ev.modifiers.alt {
             if let Some(link) = self.link_at(col, row) {
                 cx.emit(TerminalEvent::OpenLink(link));
                 return;
@@ -724,6 +724,8 @@ impl TerminalView {
         let ty = match ev.click_count {
             2 => SelectionType::Semantic,
             3 => SelectionType::Lines,
+            // ⌥-drag (Terminal, Ghostty) or ⌘⌥-drag (iTerm2) selects a rectangle: columns.
+            _ if ev.modifiers.alt => SelectionType::Block,
             _ => SelectionType::Simple,
         };
         if ev.click_count == 1 {
