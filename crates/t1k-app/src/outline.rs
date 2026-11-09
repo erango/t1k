@@ -118,6 +118,8 @@ fn paths(b: Bounds<Pixels>, s: f32, row: Option<(f32, f32, f32)>, rw: f32) -> Ve
             top.line_to(at(s + c, e + rt));
             arc(&mut top, rt, true, s + c + rt, e);
             top_right(&mut top);
+            // Down the window's right edge, closing the mouth.
+            top.line_to(at(w - e, h - rw.max(e)));
             let mut bottom = new();
             bottom.move_to(at(neck_x, y1 - c));
             bottom.line_to(at(s - rb, y1 - c));
@@ -138,6 +140,7 @@ fn paths(b: Bounds<Pixels>, s: f32, row: Option<(f32, f32, f32)>, rw: f32) -> Ve
             p.line_to(at(s + c, h - e - R));
             arc(&mut p, R, false, s + c + R, h - e);
             bottom_right(&mut p);
+            p.line_to(at(w - e, rw.max(e)));
             vec![p]
         }
     }
