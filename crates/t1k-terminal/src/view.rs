@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use alacritty_terminal::event::Event as AlacEvent;
 use alacritty_terminal::grid::Dimensions;
-use alacritty_terminal::index::Side;
+use alacritty_terminal::index::{Line, Point as GridPoint, Side};
 use alacritty_terminal::selection::SelectionType;
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::TermMode;
@@ -863,7 +863,7 @@ impl TerminalView {
         }
         // A plain click (no drag) on the line being typed moves the cursor there.
         if self.press_cell.take() == Some((col, row)) && self.terminal.selection_text().is_none_or(|t| t.is_empty()) {
-            self.click_to_cursor(col, row);
+            self.click_to_cursor(col, row, cx);
         }
         match self.terminal.selection_text() {
             None => self.terminal.clear_selection(),
@@ -875,43 +875,96 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// Send ← or → so the cursor lands on the clicked cell, when the click is on the cursor's
-    /// line or a line soft-wrapped into it (a long command), the view isn't scrolled back,
-    /// and no full-screen program owns the screen. Shells and Claude Code's input both move
-    /// one character per arrow.
-    fn click_to_cursor(&self, col: usize, row: usize) {
+    /// Move the cursor to the clicked cell with arrow keys, when the view isn't scrolled back
+    /// and no full-screen program owns the screen:
+    /// - on the cursor's line, or a line soft-wrapped into it (a long shell command): ← / →;
+    /// - on another line of the same input box (Claude Code's multi-line input, drawn between
+    ///   two ─ rules): ↑ / ↓ first, then ← / → once the cursor has reached that line.
+    ///
+    /// Shells and Claude Code's input both move one character per arrow.
+    fn click_to_cursor(&self, col: usize, row: usize, cx: &mut Context<Self>) {
         use alacritty_terminal::grid::Dimensions;
-        use alacritty_terminal::index::{Column, Line};
+        use alacritty_terminal::index::Column;
         use alacritty_terminal::term::cell::Flags;
-        let (delta, app_cursor) = {
+        let target = self.terminal.grid_point(col, row);
+        let (vertical, app_cursor) = {
             let term = self.terminal.term.lock();
             let mode = *term.mode();
             if mode.contains(TermMode::ALT_SCREEN) || term.grid().display_offset() != 0 {
                 return;
             }
-            let cols = term.columns() as i64;
+            let cols = term.columns();
             let cur = term.grid().cursor.point;
-            let (click, at) = (row as i32, cur.line.0);
-            let wraps = |l: i32| term.grid()[Line(l)][Column(cols as usize - 1)].flags.contains(Flags::WRAPLINE);
-            // Every line between the two must continue into the next.
-            let (lo, hi) = if click <= at { (click, at) } else { (at, click) };
-            if !(lo..hi).all(wraps) {
+            let (click, at) = (target.line, cur.line);
+            let wraps = |l: i32| term.grid()[Line(l)][Column(cols - 1)].flags.contains(Flags::WRAPLINE);
+            // Every line between the two continues into the next: one long line, ← / → only.
+            let (lo, hi) = if click <= at { (click.0, at.0) } else { (at.0, click.0) };
+            if (lo..hi).all(wraps) {
+                (None, mode.contains(TermMode::APP_CURSOR))
+            } else if Self::same_input_box(&term, lo, hi) {
+                (Some(click.0 - at.0), mode.contains(TermMode::APP_CURSOR))
+            } else {
                 return;
             }
-            let delta = (click - at) as i64 * cols + col as i64 - cur.column.0 as i64;
-            (delta, mode.contains(TermMode::APP_CURSOR))
         };
-        if delta == 0 || delta.unsigned_abs() > 2000 {
+        let Some(lines) = vertical.filter(|&n| n != 0) else {
+            self.arrows_to(target, app_cursor);
             return;
-        }
-        let key: &[u8] = match (delta > 0, app_cursor) {
-            (true, true) => b"\x1bOC",
-            (true, false) => b"\x1b[C",
-            (false, true) => b"\x1bOD",
-            (false, false) => b"\x1b[D",
         };
-        let bytes: Vec<u8> = key.iter().copied().cycle().take(key.len() * delta.unsigned_abs() as usize).collect();
-        self.terminal.write(bytes);
+        let up_down = if lines > 0 { arrow(b'B', app_cursor) } else { arrow(b'A', app_cursor) };
+        self.terminal.write(repeat(up_down, lines.unsigned_abs() as usize));
+        // The program redraws the cursor on the new line (keeping a column of its choosing); then
+        // go sideways. Give up if it never gets there (the input was shorter than it looked).
+        cx.spawn(async move |this, cx| {
+            for _ in 0..25 {
+                cx.background_executor().timer(std::time::Duration::from_millis(12)).await;
+                let arrived = this.update(cx, |v, _| {
+                    let there = v.terminal.term.lock().grid().cursor.point.line == target.line;
+                    if there {
+                        v.arrows_to(target, app_cursor);
+                    }
+                    there
+                });
+                if arrived.unwrap_or(true) {
+                    return;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// ← / → from wherever the cursor is now to `target`, counting soft-wrapped lines.
+    fn arrows_to(&self, target: GridPoint, app_cursor: bool) {
+        use alacritty_terminal::grid::Dimensions;
+        let delta = {
+            let term = self.terminal.term.lock();
+            let cur = term.grid().cursor.point;
+            (target.line.0 - cur.line.0) as i64 * term.columns() as i64 + target.column.0 as i64 - cur.column.0 as i64
+        };
+        if delta != 0 && delta.unsigned_abs() <= 2000 {
+            let k = arrow(if delta > 0 { b'C' } else { b'D' }, app_cursor);
+            self.terminal.write(repeat(k, delta.unsigned_abs() as usize));
+        }
+    }
+
+    /// Lines `lo..=hi` sit inside one box drawn with ─ rules (Claude Code's input): a rule above
+    /// and below within a few lines, and none in between.
+    fn same_input_box<L: alacritty_terminal::event::EventListener>(term: &alacritty_terminal::Term<L>, lo: i32, hi: i32) -> bool {
+        use alacritty_terminal::grid::Dimensions;
+        use alacritty_terminal::index::Column;
+        let cols = term.columns();
+        let (top, bottom) = (term.topmost_line().0, term.bottommost_line().0);
+        let rule = |l: i32| {
+            if l < top || l > bottom {
+                return false;
+            }
+            let row = &term.grid()[Line(l)];
+            let text: String = (0..cols).map(|c| row[Column(c)].c).collect();
+            let t = text.trim_matches(|c: char| c == ' ' || c == '\0');
+            let n = t.chars().count();
+            n >= 8 && t.chars().filter(|&c| c == '─').count() * 10 >= n * 8
+        };
+        hi - lo <= 40 && !(lo..=hi).any(rule) && (lo - 40..lo).any(rule) && (hi + 1..=hi + 40).any(rule)
     }
 
     // ---- scrollbar and scroll-to-bottom button ----------------------------------------------
@@ -2198,7 +2251,23 @@ mod prompt_tests {
         assert_eq!(crate::terminal::gravity_hidden(&term), 0);
     }
 
-    /// Scrolling back from a gravity-shifted bottom moves one line at a time from what was
+    /// A click moves between lines only inside a box drawn with ─ rules (Claude Code's input).
+    #[test]
+    fn input_box_bounds() {
+        let mut term = Term::new(Config::default(), &TermSize::new(30, 10), VoidListener);
+        let mut parser: Processor = Processor::new();
+        let rule = "─".repeat(30);
+        let screen = format!("output one\r\noutput two\r\n{rule}\r\n❯ first\r\n  second\r\n  third\r\n{rule}\r\nstatus");
+        parser.advance(&mut term, screen.as_bytes());
+        // Lines 3..=5 are the input.
+        assert!(super::TerminalView::same_input_box(&term, 3, 5));
+        assert!(super::TerminalView::same_input_box(&term, 4, 4));
+        assert!(!super::TerminalView::same_input_box(&term, 1, 4), "output above the box");
+        assert!(!super::TerminalView::same_input_box(&term, 5, 7), "the status line below");
+        assert!(!super::TerminalView::same_input_box(&term, 0, 1), "no box");
+    }
+
+        /// Scrolling back from a gravity-shifted bottom moves one line at a time from what was
     /// shown; it used to jump to the blank rows first.
     #[test]
     fn gravity_shift_carries_into_scrollback() {
@@ -2225,4 +2294,22 @@ mod prompt_tests {
         term.scroll_display(Scroll::Delta(top as i32 - term.grid().display_offset() as i32));
         assert_eq!(shown(&term), term.grid().history_size());
     }
+}
+
+/// An arrow key's bytes: `A` up, `B` down, `C` right, `D` left.
+fn arrow(dir: u8, app_cursor: bool) -> &'static [u8] {
+    match (dir, app_cursor) {
+        (b'A', true) => b"\x1bOA",
+        (b'A', false) => b"\x1b[A",
+        (b'B', true) => b"\x1bOB",
+        (b'B', false) => b"\x1b[B",
+        (b'C', true) => b"\x1bOC",
+        (b'C', false) => b"\x1b[C",
+        (_, true) => b"\x1bOD",
+        _ => b"\x1b[D",
+    }
+}
+
+fn repeat(key: &[u8], n: usize) -> Vec<u8> {
+    key.iter().copied().cycle().take(key.len() * n).collect()
 }
