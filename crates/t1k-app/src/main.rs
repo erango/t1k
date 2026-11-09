@@ -36,6 +36,7 @@ mod icon_crop;
 mod quit;
 mod icons;
 mod rail;
+mod secure_input;
 mod scroll_bar;
 mod reminders;
 mod usage;
@@ -128,8 +129,11 @@ fn main() {
             if let Some(d) = session::support_dir() {
                 let _ = std::fs::remove_file(t1k_agent::server::socket_path(&d));
             }
+            secure_input::release();
         })
         .detach();
+        // Before the menu is built, so its Secure Keyboard Entry item reads right.
+        secure_input::apply(config::load().terminal.secure_input, false);
         menus::install(cx);
         platform::init_notifications();
         platform::guard_terminate();

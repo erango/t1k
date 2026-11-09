@@ -200,6 +200,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
             )
         })
         // With the sidebar hidden, the usage meter moves here.
+        .children((!matches!(ws.sidebar_shown(), crate::rail::Shown::Full(_))).then(|| crate::secure_input::indicator(ws, "secure-strip", cx)).flatten())
         .children((!matches!(ws.sidebar_shown(), crate::rail::Shown::Full(_))).then(|| crate::usage::meter(ws, "usage-strip", cx)).flatten())
         .child(outputs_button(ws, outputs, fresh, top, cx))
         .child(

@@ -58,6 +58,7 @@ pub fn commands(ws: &Workspace) -> Vec<Command> {
         act("Paste", "⌘V", term::Paste),
         act("Toggle Sidebar", "⌘\\", ToggleSidebar),
         act("Toggle Outputs Panel", "⌘⇧O", ToggleOutputs),
+        act(if c.terminal.secure_input { "Turn Off Secure Keyboard Entry" } else { "Turn On Secure Keyboard Entry" }, "", ToggleSecureInput),
         act("Toggle Dark / Light", "⌘⇧L", ToggleAppearance),
         act("Follow System Appearance", "", FollowSystemAppearance),
         act("Bigger Text", "⌘+", IncreaseFontSize),

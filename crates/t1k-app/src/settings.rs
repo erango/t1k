@@ -490,6 +490,8 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
                     this.tabs[ix].view.read(cx).terminal.write(format!("'{bin}' helper bench\r").into_bytes());
                 })))
                 .into_any_element()),
+        e(Advanced, "Security", "Secure Keyboard Entry", "While T1K is in front, other apps can't read what you type", "terminal.secure_input", "secure keyboard input password keylogger privacy",
+            toggle(ui, "secure", c.terminal.secure_input, &["terminal", "secure_input"], cx).into_any_element()),
         e(Advanced, "Setup", "Set up T1K", "Walks through the settings people miss. Starts from your current settings.", "setup", "setup wizard onboarding start tour walkthrough",
             pill(ui, "run-setup".into(), "Run setup…".into(), false).on_click(cx.listener(|this, _, window, cx| this.open_setup(0, window, cx))).into_any_element()),
         e(Advanced, "Updates", "Check for updates automatically", "Once a day, in the background. Nothing interrupts you.", "updates.check", "update version sparkle auto",

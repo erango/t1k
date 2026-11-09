@@ -576,6 +576,7 @@ impl Workspace {
         if !demo {
             crate::updater::start(&this.config.updates);
         }
+        crate::secure_input::apply(this.config.terminal.secure_input, window.is_window_active());
         // Remember where the window is; saved with the session (debounced through `poll`).
         cx.observe_window_bounds(window, |this, window, _| this.window_frame = Some(frame_of(window))).detach();
         // The window's close button quits T1K (one window), so it asks the same question.
@@ -1649,6 +1650,8 @@ impl Workspace {
         if crate::demo::on() {
             return;
         }
+        // The window can become key before the activation observer exists; catch up here.
+        crate::secure_input::apply(self.config.terminal.secure_input, !self.window_inactive);
         // macOS asked to quit (Dock › Quit, logout): ask about running tabs, as ⌘Q does.
         if crate::platform::QUIT_REQUESTED.swap(false, std::sync::atomic::Ordering::SeqCst) {
             cx.dispatch_action(&crate::actions::Quit);
@@ -2201,8 +2204,14 @@ impl Workspace {
     }
 
     /// Canvas v3-u: 150 ms ease-out into the inactive look, 80 ms back; instant with Reduce motion.
+    /// Flip Secure Keyboard Entry. Written to config.toml; the watcher applies it.
+    pub fn toggle_secure_input(&self) {
+        crate::config::set_value(&["terminal", "secure_input"], (!self.config.terminal.secure_input).into());
+    }
+
     fn set_inactive(&mut self, inactive: bool, cx: &mut Context<Self>) {
         self.window_inactive = inactive;
+        crate::secure_input::apply(self.config.terminal.secure_input, !inactive);
         self.apply_dim(cx);
     }
 
@@ -2344,6 +2353,7 @@ impl Workspace {
         }
         (self.mode, self.dark, self.light) = Self::slots(&self.config);
         crate::updater::apply(&self.config.updates);
+        crate::secure_input::apply(self.config.terminal.secure_input, window.is_window_active());
         self.apply_theme(window, cx);
         let style = self.terminal_style();
         for tab in &self.tabs {
@@ -2555,6 +2565,7 @@ impl Render for Workspace {
                 }
             }))
             .on_action(cx.listener(|this, _: &RenameTab, window, cx| this.start_rename(this.active, window, cx)))
+            .on_action(cx.listener(|this, _: &ToggleSecureInput, _, _| this.toggle_secure_input()))
             .on_action(cx.listener(|this, _: &ToggleOutputs, _, cx| this.toggle_outputs(cx)))
             .on_action(cx.listener(|this, _: &OpenSettings, window, cx| {
                 this.open_overlay(Overlay::Settings { section: crate::settings::Section::Appearance }, window, cx)

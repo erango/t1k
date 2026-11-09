@@ -225,6 +225,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                         .child(crate::icons::plus_at(ui.text_secondary, 16.)),
                 )
                 .child(div().w(px(1.)).h(px(16.)).mx(px(3.)).bg(ui.border))
+                .children(crate::secure_input::indicator(ws, "secure-sidebar", cx))
                 .children(crate::usage::meter(ws, "usage-meter", cx))
                 .child(nav_button(ws, true, cx))
                 .child(nav_button(ws, false, cx))

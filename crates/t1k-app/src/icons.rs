@@ -180,6 +180,26 @@ pub fn chevron_at(color: Hsla, left: bool, size: f32) -> impl IntoElement {
     }, color)
 }
 
+/// A padlock (Secure Keyboard Entry, canvas v3-an).
+pub fn lock(color: Hsla, size: f32) -> impl IntoElement {
+    icon_at(size, |pt, p| {
+        // Body: 3.25,6.25 7.5 × 5.5 (square corners read the same at this size).
+        p.move_to(pt(3.25, 6.25));
+        p.line_to(pt(10.75, 6.25));
+        p.line_to(pt(10.75, 11.75));
+        p.line_to(pt(3.25, 11.75));
+        p.close();
+        // Shackle: up from 5, round over to 9, back down.
+        p.move_to(pt(5., 6.25));
+        p.line_to(pt(5., 4.75));
+        for k in 1..=12 {
+            let a = std::f32::consts::PI * (1. - k as f32 / 12.);
+            p.line_to(pt(7. + 2. * a.cos(), 4.75 - 2. * a.sin()));
+        }
+        p.line_to(pt(9., 6.25));
+    }, color)
+}
+
 /// A plus (new tab).
 pub fn plus(color: Hsla) -> impl IntoElement {
     plus_at(color, 14.)
