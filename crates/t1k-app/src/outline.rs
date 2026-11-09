@@ -1,4 +1,4 @@
-//! The selected-tab outline (canvas v3-as, off by default): one stroke in the group's color
+//! The selected-tab outline (canvas v3-as, on by default): one stroke in the group's color
 //! around the selected row, up and down the sidebar's edge, and around the
 //! terminal to the window's right edge. The row is the neck, the terminal the mouth.
 

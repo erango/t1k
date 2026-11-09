@@ -57,7 +57,7 @@ text_size = 13
 # while a tab needs you. Finder keeps the face.
 app_icon = "face"
 # Draws the group's color around the selected tab and the terminal it opens.
-selected_outline = false
+selected_outline = true
 
 [sidebar]
 width = 300
@@ -228,7 +228,7 @@ pub struct InterfaceCfg {
 
 impl Default for InterfaceCfg {
     fn default() -> Self {
-        Self { density: "comfortable".into(), text_size: 13., app_icon: "face".into(), selected_outline: false }
+        Self { density: "comfortable".into(), text_size: 13., app_icon: "face".into(), selected_outline: true }
     }
 }
 
