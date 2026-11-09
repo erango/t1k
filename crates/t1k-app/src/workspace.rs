@@ -319,6 +319,9 @@ pub struct Workspace {
     /// The group menu's Close group is asking to stop running programs first.
     pub confirm_close_group: Option<PathBuf>,
     pub close_batch: u64,
+    /// (closing tab, tab to land on): chosen when a gentle close starts, because the session
+    /// ending on the way re-sorts the closing tab to the bottom of its group.
+    pub land_after_close: Option<(String, String)>,
     /// Polls in a row a Needs-you tab showed no question on screen.
     needs_gone: HashMap<String, u8>,
     /// The group header under the pointer and since when (its icon placeholder slides in).
@@ -524,6 +527,7 @@ impl Workspace {
             close_toast: None,
             toast_task: None,
             confirm_close: None,
+            land_after_close: None,
             confirm_close_group: None,
             close_batch: 0,
             needs_gone: HashMap::new(),
@@ -1179,7 +1183,8 @@ impl Workspace {
             return;
         }
         // Closing a tab you're not on keeps you where you are.
-        let next = if ix == self.active { self.after_close_target(ix) } else { Some(self.active) };
+        let landing = self.land_after_close.take().filter(|(c, _)| *c == self.tabs[ix].id).and_then(|(_, t)| self.tabs.iter().position(|x| x.id == t));
+        let next = if ix == self.active { landing.or_else(|| self.after_close_target(ix)) } else { Some(self.active) };
         self.remember_session(ix);
         let id = self.tabs[ix].id.clone();
         self.restore_handled(&id);
@@ -1197,7 +1202,7 @@ impl Workspace {
     /// Where to land after closing tab `ix` ([tabs] after_close, close_stays_in_group): the
     /// neighbor in sidebar order, in the chosen direction first; with "stay in the group", the
     /// nearest tab left in its group, if any.
-    fn after_close_target(&self, ix: usize) -> Option<usize> {
+    pub(crate) fn after_close_target(&self, ix: usize) -> Option<usize> {
         let order = self.visual_order();
         let pos = order.iter().position(|&i| i == ix)?;
         let above_first = self.config.tabs.after_close == "above";

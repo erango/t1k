@@ -106,6 +106,11 @@ impl Workspace {
 
     /// Claude asks for a second Ctrl-C to exit; then close, so its session is saved for Recent.
     fn close_claude_gently(&mut self, id: String, batch: u64, toast: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        // Pick where to land now, in the order you see: once the session ends the tab sorts
+        // to the bottom of its group, and its neighbors then would be the wrong ones.
+        if self.tabs.get(self.active).is_some_and(|t| t.id == id) {
+            self.land_after_close = self.after_close_target(self.active).map(|i| (id.clone(), self.tabs[i].id.clone()));
+        }
         if let Some(t) = self.tabs.iter().find(|t| t.id == id) {
             t.view.read(cx).terminal.write(b"\x03".to_vec());
         }
