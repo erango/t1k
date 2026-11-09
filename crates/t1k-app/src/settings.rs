@@ -81,7 +81,6 @@ fn row(ui: UiColors, e: Entry, n: usize) -> impl IntoElement {
         .gap(px(16.))
         .border_b_1()
         .border_color(ui.border)
-        .hover(move |d| d.bg(ui.bg_hover))
         .child(
             div()
                 .flex_1()
@@ -104,7 +103,20 @@ fn card(ui: UiColors, label: &str, rows: Vec<AnyElement>) -> impl IntoElement {
         .when(!label.is_empty(), |d| {
             d.child(div().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_tertiary).child(label.to_uppercase()))
         })
-        .child(div().rounded(px(9.)).bg(ui.bg_terminal).border_1().border_color(ui.border).overflow_hidden().flex().flex_col().children(rows))
+        .child(div().rounded(px(9.)).bg(ui.bg_terminal).border_1().border_color(ui.border).overflow_hidden().flex().flex_col().children({
+            // The hover fill follows the card's rounded corners on its first and last rows:
+            // clipping is square, so a square fill would poke out at the corners.
+            let n = rows.len();
+            let key = label.to_string();
+            rows.into_iter().enumerate().map(move |(i, r)| {
+                div()
+                    .id(SharedString::from(format!("card-{key}-{i}")))
+                    .when(i == 0, |d| d.rounded_t(px(8.)))
+                    .when(i + 1 == n, |d| d.rounded_b(px(8.)))
+                    .hover(move |d| d.bg(ui.bg_hover))
+                    .child(r)
+            })
+        }))
 }
 
 pub(crate) fn pill(ui: UiColors, id: String, label: String, on: bool) -> gpui::Stateful<gpui::Div> {
