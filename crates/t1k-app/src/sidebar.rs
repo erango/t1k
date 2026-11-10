@@ -280,6 +280,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                     .child(group_header(ws, &key, &tabs, true, cx))
             })),
         )
+        .children(crate::broadcast::pick_bar(ws, cx))
         .when(!dragging, |d| {
             d.children(crate::close::toast(ws, cx)).children(crate::import_ui::notice(ws, cx)).children(crate::import_ui::offer(ws, cx)).children(crate::match_ui::offer(ws, cx))
         })
@@ -626,8 +627,11 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
             .child(crate::app_icon::program_badge(h.program.as_deref(), ui, 12.))
     });
     let asker_icon = tab.asker().map(|h| h.program.clone());
+    // Ticking tabs for a broadcast: the checkbox takes the place of the wait and the spinner.
+    let picking = ws.broadcast_picking.is_some();
+    let waiting = waiting.filter(|_| !picking);
     let working = match tab.status() {
-        Some(Status::Working) => tab.agent.as_ref().map(|a| elapsed(a.since)),
+        Some(Status::Working) if !picking => tab.agent.as_ref().map(|a| elapsed(a.since)),
         _ => None,
     };
     let unseen = tab.unread || tab.reminder_due;
@@ -751,6 +755,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
                         }))
                         .children(pending)
                         .children(crate::restore::row_note(ws, &tab.id, ui))
+                        .children(crate::broadcast::row_mark(ws, &tab.id, k))
                         .children(asker)
                         .children(waiting.map(|w| {
                             div().flex_none().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(w)
@@ -799,6 +804,15 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         })
         .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, window, cx| {
             this.hide_card(cx);
+            // Ticking tabs for a broadcast: a click ticks, it doesn't switch.
+            let id = this.tabs.get(ix).map(|t| t.id.clone()).unwrap_or_default();
+            if let Some(picked) = &mut this.broadcast_picking {
+                if !picked.remove(&id) {
+                    picked.insert(id);
+                }
+                cx.notify();
+                return;
+            }
             if ev.click_count() == 2 {
                 this.start_rename(ix, window, cx);
             } else {

@@ -112,6 +112,15 @@ Amber and red are used only for states where a person needs to act.
 - The badge counts NeedsInput and Error tabs only. (Superseded by v2 below: reminders that are due count too.)
 - ⌘J walks the queue from the longest-waiting tab. ⌘⇧J walks it backwards.
 
+## Broadcast input (canvas v3-aw)
+
+- What you type goes to several terminals: this tab's panes (⌥⌘I), a group's tabs (group menu, palette), or tabs ticked in the sidebar (palette). It needs at least two.
+- It's loud on purpose, in the accent (amber stays "needs you"): a solid chip in the strip with Stop, an accent frame on every receiving pane, the glyph in pane headers and on receiving rows. A one-pane tab shows a "Receiving" chip. Esc never stops it.
+- Shells and plain programs get live keys, encoded per terminal. If the set holds an agent, typing goes to a compose bar at the bottom and Enter sends the line whole; busy agents (working, or waiting on a question) are skipped and marked "busy".
+- A pane's header glyph takes that pane out or puts it back.
+- It stops on ⌥⌘I, Stop, when one terminal is left, or when you switch to a tab outside the set (a toast offers Resume). It isn't restored after a restart, and adds nothing to the Dock or notifications.
+- A paste of more than one line asks first. A password prompt (echo off) in any receiving terminal pauses it: the chip turns to an outline and keys go only where you type.
+
 ## Helper pane needs you (canvas v3-av)
 
 - An agent in a helper pane keeps its own status. Only its needs-you and error states reach the tab: the row shows one state at a time (error, then needs-you, then the main pane's own), with the usual badge on the tab's icon. Title, recap and "now" stay the main pane's.

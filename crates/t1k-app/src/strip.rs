@@ -207,6 +207,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
                 .on_click(cx.listener(|this, _, window, cx| this.toggle_zoom(window, cx)))
                 .child(format!("Zoomed · {pos} of {} panes · {key}", n.len()))
         }))
+        .children(crate::broadcast::chip(ws, cx))
         .children(ctx)
         .when(needs, |d| {
             d.child(

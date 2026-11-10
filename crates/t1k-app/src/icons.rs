@@ -497,6 +497,24 @@ pub fn artifact(kind: &str, color: Hsla, size: f32) -> impl IntoElement {
                 line(p, 5.05, 8.1, 2.6, 4.);
                 line(p, 8.95, 8.1, 6.25, 12.45);
             }
+            // Broadcast input (canvas v3-aw): a dot with a wave each side; "-off" struck through.
+            b if b.starts_with("x-broadcast") => {
+                circle(p, 7., 7., 1.2);
+                let arc = |p: &mut PathBuilder, r: f32, side: f32| {
+                    for k in 0..=8 {
+                        let a = (-0.9 + 1.8 * k as f32 / 8.) + if side < 0. { std::f32::consts::PI } else { 0. };
+                        let q = pt(7. + r * a.cos(), 7. + r * a.sin());
+                        if k == 0 { p.move_to(q) } else { p.line_to(q) }
+                    }
+                };
+                arc(p, 3.4, 1.);
+                arc(p, 3.4, -1.);
+                arc(p, 5.8, 1.);
+                arc(p, 5.8, -1.);
+                if b.ends_with("-off") {
+                    line(p, 2., 12., 12., 2.);
+                }
+            }
             "x-info" => {
                 circle(p, 7., 7., 5.5);
                 line(p, 7., 6.25, 7., 10.);

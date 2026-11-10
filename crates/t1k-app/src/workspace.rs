@@ -355,6 +355,12 @@ pub struct Workspace {
     pub close_toast: Option<(String, Instant)>,
     pub toast_task: Option<gpui::Task<()>>,
     /// A tab whose × asked "Stop <program>?" in its row.
+    /// Broadcast input (canvas v3-aw): the receiving set while it's on.
+    pub broadcast: Option<crate::broadcast::Broadcast>,
+    /// Tabs being ticked for a broadcast (their ids).
+    pub broadcast_picking: Option<HashSet<String>>,
+    /// The set you left by switching tabs, while its "Resume" toast shows.
+    pub broadcast_resume: Option<crate::broadcast::Broadcast>,
     pub confirm_close: Option<String>,
     /// A helper pane asked to close while something runs in it: (tab id, pane), confirming
     /// in its header.
@@ -579,6 +585,9 @@ impl Workspace {
             closed: Vec::new(),
             close_toast: None,
             toast_task: None,
+            broadcast: None,
+            broadcast_picking: None,
+            broadcast_resume: None,
             confirm_close: None,
             confirm_pane: None,
             hook_alias: HashMap::new(),
@@ -928,6 +937,52 @@ impl Workspace {
                 _ => {}
             }
         }
+        // Debug aid: T1K_DEBUG_BROADCAST=panes|group|pick[,text:<line>][,send:<text>][,paste]
+        // turns broadcast input on (canvas v3-aw). `send` repeats the text from the main pane
+        // into the other receiving terminals 2.5 s after launch, as typing would.
+        if let Ok(spec) = std::env::var("T1K_DEBUG_BROADCAST") {
+            for step in spec.split(',') {
+                match step.split_once(':').unwrap_or((step, "")) {
+                    ("panes", _) => this.broadcast_panes(window, cx),
+                    ("group", _) => {
+                        if let Some(g) = this.tabs.get(this.active).map(|t| t.group.clone()) {
+                            this.broadcast_group(g, window, cx);
+                        }
+                    }
+                    ("pick", _) => {
+                        this.broadcast_pick(cx);
+                        let more: Vec<String> = this.tabs.iter().take(3).map(|t| t.id.clone()).collect();
+                        if let Some(p) = &mut this.broadcast_picking {
+                            p.extend(more);
+                        }
+                    }
+                    ("text", t) => {
+                        if let Some(b) = &mut this.broadcast {
+                            b.text = t.to_string();
+                        }
+                    }
+                    ("send", t) => {
+                        let text = t.to_string();
+                        cx.spawn(async move |this, cx| {
+                            cx.background_executor().timer(Duration::from_millis(2500)).await;
+                            let _ = this.update(cx, |ws, cx| {
+                                if let Some(v) = ws.tabs.get(ws.active).map(|t| t.view.clone()) {
+                                    v.read(cx).terminal.paste(&text);
+                                    ws.broadcast_typed(&v, &t1k_terminal::view::Typed::Paste(text.clone()), cx);
+                                }
+                            });
+                        })
+                        .detach();
+                    }
+                    ("paste", _) => {
+                        if let Some(v) = this.tabs.get(this.active).map(|t| t.view.clone()) {
+                            this.overlay = Overlay::BroadcastPaste { text: "one\ntwo\nthree\n".into(), from: v };
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
         // T1K_DEBUG_CONTEXT=<transcript>:pane opens the panel on the Context tab.
         if std::env::var("T1K_DEBUG_CONTEXT").is_ok_and(|v| v.ends_with(":pane")) {
             this.panel.open = true;
@@ -1064,6 +1119,8 @@ impl Workspace {
                     cx.notify();
                 }
                 TerminalEvent::Exited => this.close_tab_at(ix, window, cx),
+                TerminalEvent::Typed(t) => this.broadcast_typed(view, t, cx),
+                TerminalEvent::PasteHeld(text) => this.broadcast_paste_held(view, text, window, cx),
                 TerminalEvent::Bell => {}
                 TerminalEvent::Notify(n) => this.program_notice(ix, n, true, window, cx),
                 TerminalEvent::OpenLink(link) => this.open_link(ix, link, cx),
@@ -1256,6 +1313,7 @@ impl Workspace {
             }
         }
         self.active = ix;
+        self.broadcast_tab_changed(cx);
         let t = &mut self.tabs[ix];
         t.unread = false;
         t.last_active = Instant::now();
@@ -1863,6 +1921,10 @@ impl Workspace {
     /// Refresh each tab's cwd and foreground program; regroup tabs that changed project.
     fn poll(&mut self, cx: &mut Context<Self>) {
         self.context_tick(cx);
+        self.sync_broadcast(cx);
+        if self.broadcast_resume.is_some() && self.notice.is_none() {
+            self.broadcast_resume = None;
+        }
         // Demo tabs keep their made-up state: no processes, folders or gh to look at.
         if crate::demo::on() {
             return;
@@ -2925,6 +2987,14 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &FocusPaneLeft, window, cx| this.focus_dir(crate::split::Dir::Left, window, cx)))
             .on_action(cx.listener(|this, _: &FocusPaneRight, window, cx| this.focus_dir(crate::split::Dir::Right, window, cx)))
             .on_action(cx.listener(|this, _: &FocusNextPane, window, cx| this.focus_next_pane(window, cx)))
+            .on_action(cx.listener(|this, _: &ToggleBroadcast, window, cx| this.toggle_broadcast(window, cx)))
+            .on_action(cx.listener(|this, _: &BroadcastGroup, window, cx| {
+                if let Some(g) = this.tabs.get(this.active).map(|t| t.group.clone()) {
+                    this.broadcast_group(g, window, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &BroadcastPick, _, cx| this.broadcast_pick(cx)))
+            .capture_key_down(cx.listener(Self::broadcast_key))
             .on_action(cx.listener(|this, _: &FocusPaneUp, window, cx| this.focus_dir(crate::split::Dir::Up, window, cx)))
             .on_action(cx.listener(|this, _: &FocusPaneDown, window, cx| this.focus_dir(crate::split::Dir::Down, window, cx)))
             .on_action(cx.listener(|this, _: &ZoomPane, window, cx| this.toggle_zoom(window, cx)))
@@ -3014,7 +3084,8 @@ impl Render for Workspace {
                 .flex()
                 .flex_col()
                 .child(self.render_titlebar(cx))
-                .child(div().flex_1().min_h_0().children(active_view)),
+                .child(div().flex_1().min_h_0().children(active_view))
+                .children(crate::broadcast::compose_bar(self, cx)),
         )
         .children(panel)
         .children(outline)

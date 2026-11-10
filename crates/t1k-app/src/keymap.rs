@@ -70,6 +70,7 @@ pub const ALL: &[Bind] = &[
     b!("pane_up", "Pane above", "Window", ["cmd-alt-up"], FocusPaneUp),
     b!("pane_down", "Pane below", "Window", ["cmd-alt-down"], FocusPaneDown),
     b!("next_pane", "Next pane", "Window", [], FocusNextPane),
+    b!("toggle_broadcast", "Broadcast input to this tab's panes (or stop)", "Window", ["cmd-alt-i"], ToggleBroadcast),
     b!("zoom_pane", "Zoom pane", "Window", ["cmd-shift-enter"], ZoomPane),
     b!("bigger_text", "Bigger text", "Window", ["cmd-=", "cmd-+"], IncreaseFontSize),
     b!("smaller_text", "Smaller text", "Window", ["cmd--"], DecreaseFontSize),

@@ -677,6 +677,18 @@ pub fn notice(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement>
             .gap(px(8.))
             .text_color(ui.text_secondary)
             .child(div().flex_1().min_w_0().truncate().child(text.clone()))
+            .when(ws.broadcast_resume.is_some(), |d| {
+                d.child(
+                    div()
+                        .id("notice-resume")
+                        .flex_none()
+                        .text_color(ui.accent)
+                        .font_weight(FontWeight::MEDIUM)
+                        .cursor_pointer()
+                        .on_click(cx.listener(|this, _, window, cx| this.resume_broadcast(window, cx)))
+                        .child("Resume"),
+                )
+            })
             .when(ws.notice_undo, |d| {
                 d.child(
                     div()

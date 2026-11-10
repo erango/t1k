@@ -257,6 +257,16 @@ impl Terminal {
         crate::process::name(self.foreground_pid())
     }
 
+    /// A password prompt: the line discipline still collects a line but echoes nothing
+    /// (sudo, ssh, read -s). Full-screen programs turn both off and aren't one.
+    pub fn password_prompt(&self) -> bool {
+        let mut t: libc::termios = unsafe { std::mem::zeroed() };
+        if unsafe { libc::tcgetattr(self.pty_fd, &mut t) } != 0 {
+            return false;
+        }
+        t.c_lflag & libc::ICANON != 0 && t.c_lflag & libc::ECHO == 0
+    }
+
     pub fn write(&self, bytes: impl Into<std::borrow::Cow<'static, [u8]>>) {
         self.notifier.notify(bytes);
     }

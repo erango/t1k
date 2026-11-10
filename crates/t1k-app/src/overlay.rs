@@ -32,6 +32,8 @@ pub enum Overlay {
     Match,
     /// A theme file dropped on a pane: import it, or insert its path (canvas v3-aa).
     DropTheme { path: std::path::PathBuf, pane: crate::split::PaneId, at: gpui::Point<gpui::Pixels> },
+    /// A paste of several lines while input is broadcast (canvas v3-aw): where should it go?
+    BroadcastPaste { text: String, from: gpui::Entity<t1k_terminal::TerminalView> },
     /// The update dialog (any phase).
     Update,
     /// ⌘Q while an update waits.
@@ -404,6 +406,14 @@ impl Workspace {
                 Some(Overlay::Update)
             }
             Overlay::QuitUpdate => (ev.keystroke.key != "escape").then_some(Overlay::QuitUpdate),
+            Overlay::BroadcastPaste { text, from } => match ev.keystroke.key.as_str() {
+                "escape" => None,
+                "enter" => {
+                    self.broadcast_paste(&text, &from, true, window, cx);
+                    None
+                }
+                _ => Some(Overlay::BroadcastPaste { text, from }),
+            },
             Overlay::QuitRunning { expanded, selected } => self.quit_key(expanded, selected, ev, window, cx),
             Overlay::ThemePicker { query, selected, dark } => self.theme_picker_key(query, selected, dark, ev, window, cx),
             Overlay::Setup { step } => self.setup_key(step, ev, window, cx),
@@ -910,6 +920,10 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
         Overlay::Import { selected } => {
             let c = crate::import_ui::sheet(ws, *selected, window, cx);
             Some(scrim(ws, false, cx).bg(gpui::black().opacity(0.35)).flex().justify_center().items_start().child(c).into_any_element())
+        }
+        Overlay::BroadcastPaste { text, from } => {
+            let c = crate::broadcast::paste_confirm(ws, text, from, cx);
+            Some(scrim(ws, true, cx).bg(gpui::black().opacity(0.35)).flex().justify_center().items_start().child(c).into_any_element())
         }
         Overlay::DropTheme { path, pane, at } => {
             let c = crate::drop::theme_choice(ws, path, *pane, *at, cx);
@@ -1695,6 +1709,13 @@ fn group_menu(ws: &Workspace, key: std::path::PathBuf, at: Point<Pixels>, window
             }
             this.save();
             this.close_overlay(window, cx);
+        })));
+    }
+    if ws.tabs.iter().filter(|t| t.group == key).count() > 1 {
+        let k = key.clone();
+        m = m.child(sep()).child(item("broadcast", "Broadcast input to this group".into()).on_click(cx.listener(move |this, _, window, cx| {
+            this.close_overlay(window, cx);
+            this.broadcast_group(k.clone(), window, cx);
         })));
     }
     if key.is_dir() {

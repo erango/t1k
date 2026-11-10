@@ -255,7 +255,12 @@ pub fn pane_mark(layout: &Layout, pane: PaneId, color: gpui::Hsla) -> impl IntoE
 /// Each pane takes file drops (`drop::pane`).
 pub fn render_panes(ws: &Workspace, t: &Tab, window: &mut Window, cx: &mut Context<Workspace>) -> AnyElement {
     if !t.panes.multi() {
-        return crate::drop::pane(ws, MAIN, cached(&t.view), cx);
+        let pane = crate::drop::pane(ws, MAIN, cached(&t.view), cx);
+        if ws.broadcast_receives(&t.id, MAIN) {
+            // No header to carry the glyph: a frame and a "Receiving" chip.
+            return div().relative().size_full().child(pane).child(crate::broadcast::frame(ws)).child(crate::broadcast::receiving_chip(ws)).into_any_element();
+        }
+        return pane;
     }
     let focused = ws.focused_pane(window, cx);
     if let Some(z) = t.panes.zoomed {
@@ -355,7 +360,9 @@ fn leaf(ws: &Workspace, t: &Tab, id: PaneId, focused: PaneId, header: bool, cx: 
                 .min_h_0()
                 .relative()
                 .bg(ws.term_bg())
-                .child(div().size_full().when(header && !is_focused, |d| d.opacity(0.72)).child(crate::drop::pane(ws, id, cached(&view), cx))),
+                .child(div().size_full().when(header && !is_focused, |d| d.opacity(0.72)).child(crate::drop::pane(ws, id, cached(&view), cx)))
+                // Receiving broadcast input (canvas v3-aw): an accent frame.
+                .when(ws.broadcast_receives(&t.id, id), |d| d.child(crate::broadcast::frame(ws))),
         )
         .into_any_element()
 }
@@ -404,6 +411,7 @@ fn pane_header(ws: &Workspace, t: &Tab, id: PaneId, focused: bool, cx: &mut Cont
         .border_color(ui.border)
         .child(pane_icon(ws, t, id, 14.))
         .child(div().flex_1().min_w_0().truncate().text_size(px(11.5)).text_color(if focused { ui.text_primary } else { ui.text_tertiary }).child(title))
+        .children(crate::broadcast::header_glyph(ws, &t.id, id, cx))
         .child(
             div()
                 .flex()
@@ -593,6 +601,8 @@ impl Workspace {
                     }
                     cx.notify();
                 }
+                TerminalEvent::Typed(t) => this.broadcast_typed(view, t, cx),
+                TerminalEvent::PasteHeld(text) => this.broadcast_paste_held(view, text, window, cx),
                 TerminalEvent::Bell => {}
             }
         });

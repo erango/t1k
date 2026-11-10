@@ -16,6 +16,7 @@ mod app_icon;
 mod brand;
 mod bug_report;
 mod cli;
+mod broadcast;
 mod config;
 mod context_ui;
 mod input;

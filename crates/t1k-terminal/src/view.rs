@@ -41,6 +41,28 @@ pub enum TerminalEvent {
     /// A program asked for a desktop notification (OSC 9 / OSC 777).
     Notify(crate::notify_scan::Notice),
     Exited,
+    /// The person typed or pasted here (not a program's reply): what broadcast input repeats
+    /// in other terminals.
+    Typed(Typed),
+    /// A paste the app asked to hold (`paste_hold`): nothing was written.
+    PasteHeld(String),
+}
+
+/// Input from the person, before it's encoded for this terminal's modes.
+#[derive(Clone, Debug)]
+pub enum Typed {
+    Key(gpui::Keystroke, bool),
+    Paste(String),
+}
+
+/// Which pastes the view hands to the app instead of writing (broadcast input).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum PasteHold {
+    #[default]
+    None,
+    /// Pastes of more than one line (the app confirms them).
+    Multiline,
+    All,
 }
 
 #[derive(Clone)]
@@ -99,6 +121,8 @@ pub type FeedOnSize = Box<dyn FnOnce(usize, usize) -> Vec<u8>>;
 
 pub struct TerminalView {
     pub terminal: Terminal,
+    /// Set by the app while input is broadcast.
+    pub paste_hold: PasteHold,
     focus_handle: FocusHandle,
     pub palette: Palette,
     pub style: TerminalStyle,
@@ -294,6 +318,7 @@ impl TerminalView {
             scroll_accum: 0.,
             press_cell: None,
             sel_head: None,
+            paste_hold: PasteHold::None,
             link_map: HashMap::new(),
             links: Vec::new(),
             link_rules: LinkRules { files: true, prs: false, tickets: false },
@@ -607,9 +632,40 @@ impl TerminalView {
             self.terminal.scroll_to_bottom();
             self.sync_offset(true);
             self.terminal.write(bytes);
+            cx.emit(TerminalEvent::Typed(Typed::Key(ev.keystroke.clone(), ev.is_held)));
             cx.stop_propagation();
             cx.notify();
         }
+    }
+
+    /// Input typed in another terminal, repeated here (broadcast input): keys are encoded
+    /// for this terminal's own modes.
+    pub fn typed_elsewhere(&mut self, t: &Typed, cx: &mut Context<Self>) {
+        match t {
+            Typed::Key(k, held) => {
+                if let Some(bytes) = to_esc_held(k, self.terminal.mode(), self.style.option_as_meta, *held) {
+                    self.terminal.scroll_to_bottom();
+                    self.terminal.write(bytes);
+                }
+            }
+            Typed::Paste(text) => self.terminal.paste(text),
+        }
+        self.sync_offset(true);
+        cx.notify();
+    }
+
+    fn paste_text(&mut self, text: String, cx: &mut Context<Self>) {
+        let held = match self.paste_hold {
+            PasteHold::None => false,
+            PasteHold::Multiline => text.trim_end_matches(['\n', '\r']).contains('\n'),
+            PasteHold::All => true,
+        };
+        if held {
+            cx.emit(TerminalEvent::PasteHeld(text));
+            return;
+        }
+        self.terminal.paste(&text);
+        cx.emit(TerminalEvent::Typed(Typed::Paste(text)));
     }
 
     /// Releases, only for programs that asked for them (kitty keyboard protocol, flag 2).
@@ -627,7 +683,7 @@ impl TerminalView {
 
     fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) {
-            self.terminal.paste(&text);
+            self.paste_text(text, cx);
             self.sync_offset(true);
             cx.notify();
         }
@@ -703,9 +759,9 @@ impl TerminalView {
         }
     }
 
-    pub fn paste_clipboard(&self, cx: &mut Context<Self>) {
+    pub fn paste_clipboard(&mut self, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) {
-            self.terminal.paste(&text);
+            self.paste_text(text, cx);
         }
     }
 
