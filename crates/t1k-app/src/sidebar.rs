@@ -611,9 +611,21 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
 
     let glyph = glyph(tab, ui, ws.started, running, k);
     let waiting = match tab.status() {
-        Some(Status::NeedsInput { .. }) | Some(Status::Error { .. }) => tab.agent.as_ref().map(|a| elapsed(a.since)),
+        Some(Status::NeedsInput { .. }) | Some(Status::Error { .. }) => tab.shown_agent().map(|a| elapsed(a.since)),
         _ => None,
     };
+    // A helper pane is the one asking (canvas v3-av): a neutral mark of which pane, and its
+    // program's icon, before the wait. The badge stays on the tab's own icon.
+    let asker = tab.asker().map(|h| {
+        div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .child(crate::split::pane_mark(&tab.panes.layout, h.id, ui.text_secondary))
+            .child(crate::app_icon::program_badge(h.program.as_deref(), ui, 12.))
+    });
+    let asker_icon = tab.asker().map(|h| h.program.clone());
     let working = match tab.status() {
         Some(Status::Working) => tab.agent.as_ref().map(|a| elapsed(a.since)),
         _ => None,
@@ -739,6 +751,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
                         }))
                         .children(pending)
                         .children(crate::restore::row_note(ws, &tab.id, ui))
+                        .children(asker)
                         .children(waiting.map(|w| {
                             div().flex_none().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(w)
                         }))
@@ -758,14 +771,19 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
                         .into_any_element()
                 })
                 .when(two_lines, |d| {
+                    // A helper pane's ask is led by that pane's program icon.
+                    let ask_icon = asker_icon.filter(|_| second.as_deref() == Some(tab.subtitle().as_str()));
                     d.child(
                         div()
                             .when(!icons, |d| d.pl(px(21.)))
-                            .truncate()
+                            .flex()
+                            .items_center()
+                            .gap(px(5.))
                             // Clearly below the title: two points smaller and a tier dimmer.
                             .text_size(px(11.5 * k))
                             .text_color(if selected { ui.text_quiet } else { ui.text_tertiary })
-                            .child(second.unwrap_or_default()),
+                            .children(ask_icon.map(|p| crate::app_icon::program_badge(p.as_deref(), ui, 11.)))
+                            .child(div().min_w_0().truncate().child(second.unwrap_or_default())),
                     )
                 }),
         )
@@ -923,7 +941,14 @@ pub(crate) fn card(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> im
         None if tab.program.is_some() => ("Running", ui.text_secondary),
         None => ("Shell", ui.text_tertiary),
     };
-    let since = agent.filter(|a| a.status != Status::Idle).map(|a| elapsed(a.since));
+    // A helper pane asking (canvas v3-av): say which pane.
+    let asker_no = tab.asker().map(|h| crate::split::pane_number(tab, h.id));
+    let status = match (asker_no, tab.status()) {
+        (Some(n), Some(Status::Error { .. })) => format!("Error in pane {n}"),
+        (Some(n), _) => format!("Needs you in pane {n}"),
+        _ => status.to_string(),
+    };
+    let since = tab.shown_agent().filter(|a| a.status != Status::Idle).map(|a| elapsed(a.since));
     let why = match tab.status() {
         Some(Status::NeedsInput { .. }) => Some(needs_reason(tab)),
         Some(Status::Working) => agent.and_then(|a| a.now.clone()),
@@ -1030,12 +1055,21 @@ pub(crate) fn card(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> im
                     .child(div().text_size(px(11. * k)).text_color(ui.text_tertiary).child(format!("{} panes", ids.len())))
                     .children(ids.into_iter().map(|id| {
                         let (title, _) = crate::split::pane_label(tab, id);
+                        // The asking pane says so; while one asks, the main pane says what it's at.
+                        let st = if id == crate::split::MAIN { tab.main_status().filter(|_| asker_no.is_some()) } else { tab.panes.helper(id).and_then(|h| h.asking()).map(|a| &a.status) };
+                        let note = st.and_then(|s| match s {
+                            Status::NeedsInput { .. } => Some(("Needs you", ui.status_needs)),
+                            Status::Error { .. } => Some(("Error", ui.status_error)),
+                            Status::Working => Some(("Working", ui.text_tertiary)),
+                            _ => None,
+                        });
                         div()
                             .flex()
                             .items_center()
                             .gap(px(7.))
                             .child(crate::split::pane_icon(ws, tab, id, 14.))
-                            .child(div().min_w_0().truncate().text_size(px(12. * k)).text_color(ui.text_secondary).child(title))
+                            .child(div().flex_1().min_w_0().truncate().text_size(px(12. * k)).text_color(ui.text_secondary).child(title))
+                            .children(note.map(|(l, c)| div().flex_none().text_size(px(11.5 * k)).text_color(c).child(l)))
                     })),
             )
         })
@@ -1193,11 +1227,16 @@ fn title_color(tab: &Tab, selected: bool, alt: bool, ui: UiColors) -> gpui::Hsla
 /// amber when it needs you, red on error, mercury when unread or a reminder is due. Ended and
 /// idle sessions fade the icon instead.
 pub(crate) fn status_icon(tab: &Tab, ui: UiColors, sidebar_bg: gpui::Hsla, selected: bool, size: f32) -> Div {
+    status_icon_for(tab, tab.status(), ui, sidebar_bg, selected, size)
+}
+
+/// The tab's icon badged for `status` (the tab's own, or just its main pane's).
+pub(crate) fn status_icon_for(tab: &Tab, status: Option<&Status>, ui: UiColors, sidebar_bg: gpui::Hsla, selected: bool, size: f32) -> Div {
     let ring = if selected { ui.bg_terminal } else { sidebar_bg };
     // The status dot scales with the icon (never below 9 px, so small icons still show it).
     let d = (size * 0.42).round().max(9.);
     let dot = |c: gpui::Hsla| Some(div().size(px(d)).rounded_full().bg(c).border_2().border_color(ring));
-    let corner = match tab.status() {
+    let corner = match status {
         Some(Status::NeedsInput { .. }) => dot(ui.status_needs),
         Some(Status::Error { .. }) => dot(ui.status_error),
         _ if tab.reminder_due || tab.unread => dot(ui.accent),
@@ -1207,7 +1246,7 @@ pub(crate) fn status_icon(tab: &Tab, ui: UiColors, sidebar_bg: gpui::Hsla, selec
     };
     // Idle, ended, and plain shells with nothing running fade the icon; the title stays readable.
     let quiet = !tab.unread
-        && (matches!(tab.status(), Some(Status::Ended) | Some(Status::Idle)) || (tab.program.is_none() && tab.agent.is_none()));
+        && (matches!(status, Some(Status::Ended) | Some(Status::Idle)) || (tab.program.is_none() && tab.agent.is_none()));
     let off = -(d / 3.).round();
     div()
         .relative()
@@ -1362,7 +1401,12 @@ fn elapsed(since: Instant) -> String {
 
 /// Why a tab is in the Needs-you list, in a few words.
 pub fn needs_reason(tab: &Tab) -> String {
-    match tab.status() {
+    reason_for(tab.status(), tab.reminder_due)
+}
+
+/// What a waiting agent wants, in a few words ("Approve Bash", "Waiting for you", "Error").
+pub fn reason_for(status: Option<&Status>, reminder_due: bool) -> String {
+    match status {
         Some(Status::NeedsInput { reason }) => {
             if let Some(tool) = reason.split("permission to use ").nth(1) {
                 format!("Approve {}", tool.trim().trim_end_matches('.'))
@@ -1373,7 +1417,7 @@ pub fn needs_reason(tab: &Tab) -> String {
             }
         }
         Some(Status::Error { .. }) => "Error".into(),
-        _ if tab.reminder_due => "Reminder".into(),
+        _ if reminder_due => "Reminder".into(),
         _ => String::new(),
     }
 }
@@ -1484,17 +1528,32 @@ fn needs_area(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement>
             .child(div().flex_1())
             .child(div().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child("⌘J")),
     );
-    for &i in queue.iter().take(4) {
+    for &(i, pane) in queue.iter().take(4) {
         let t = &ws.tabs[i];
-        let age = match t.status() {
-            Some(Status::NeedsInput { .. }) | Some(Status::Error { .. }) => t.agent.as_ref().map(|a| elapsed(a.since)).unwrap_or_default(),
+        // One entry per asking pane (canvas v3-av): a helper's shows its own ask and which pane.
+        let helper = t.panes.helper(pane).filter(|_| pane != crate::split::MAIN);
+        let (status, since) = match helper.and_then(|h| h.agent.as_ref()) {
+            Some(a) => (Some(&a.status), Some(a.since)),
+            None => (t.main_status(), t.agent.as_ref().map(|a| a.since)),
+        };
+        let age = match status {
+            Some(Status::NeedsInput { .. }) | Some(Status::Error { .. }) => since.map(elapsed).unwrap_or_default(),
             _ => "due".into(),
         };
-        let error = matches!(t.status(), Some(Status::Error { .. }));
+        let error = matches!(status, Some(Status::Error { .. }));
         let tone = if error { ui.status_error } else { ui.status_needs };
+        let mark = helper.map(|h| {
+            div()
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .child(crate::split::pane_mark(&t.panes.layout, h.id, ui.text_secondary))
+                .child(div().text_size(px(10.5 * k)).text_color(ui.text_tertiary).child(format!("pane {}", crate::split::pane_number(t, h.id))))
+        });
         area = area.child(
             div()
-                .id(SharedString::from(format!("needs-{}", t.id)))
+                .id(SharedString::from(format!("needs-{}-{pane}", t.id)))
                 .h(px(28.))
                 .flex_none()
                 .mx(px(INSET))
@@ -1505,9 +1564,10 @@ fn needs_area(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement>
                 .items_center()
                 .gap(px(8.))
                 .hover(move |d| d.bg(ui.sidebar_hover))
-                .on_click(cx.listener(move |this, _, window, cx| this.activate(i, window, cx)))
+                .on_click(cx.listener(move |this, _, window, cx| this.jump_to_pane(i, pane, window, cx)))
                 .child(div().flex_1().min_w_0().truncate().text_size(px(12.5 * k)).text_color(ui.text_primary).child(t.title()))
-                .child(div().flex_none().text_size(px(11. * k)).text_color(tone).child(needs_reason(t)))
+                .child(div().flex_none().text_size(px(11. * k)).text_color(tone).child(reason_for(status, t.reminder_due && helper.is_none())))
+                .children(mark)
                 .child(div().w(px(28.)).flex_none().flex().justify_end().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(tone).child(age)),
         );
     }

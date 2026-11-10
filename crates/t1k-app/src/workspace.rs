@@ -76,8 +76,33 @@ impl Tab {
             .unwrap_or(0)
     }
 
-    /// Hook-driven agent status; without hooks, what the program's title glyph says while it runs.
+    /// The helper pane whose agent the row speaks for (canvas v3-av): one that hit an error
+    /// or asks for you, when that outranks the main pane (error, then needs-you, then the
+    /// longest wait). None while the main pane's own state is what shows.
+    pub fn asker(&self) -> Option<&crate::split::Helper> {
+        let rank = |a: &AgentState| (!matches!(a.status, Status::Error { .. }), a.since);
+        let best = self.panes.helpers.iter().filter(|h| h.asking().is_some()).min_by_key(|h| rank(h.asking().unwrap()))?;
+        match self.agent.as_ref().filter(|a| a.status.needs_you()) {
+            Some(main) if rank(main) <= rank(best.asking().unwrap()) => None,
+            _ => Some(best),
+        }
+    }
+
+    /// The agent whose state the row shows: an asking helper pane's, else the main pane's.
+    pub fn shown_agent(&self) -> Option<&AgentState> {
+        self.asker().and_then(|h| h.agent.as_ref()).or(self.agent.as_ref())
+    }
+
+    /// The tab's status: a helper pane's error or question first, else the main pane's.
     pub fn status(&self) -> Option<&Status> {
+        match self.asker() {
+            Some(h) => h.agent.as_ref().map(|a| &a.status),
+            None => self.main_status(),
+        }
+    }
+
+    /// Hook-driven agent status; without hooks, what the program's title glyph says while it runs.
+    pub fn main_status(&self) -> Option<&Status> {
         match &self.agent {
             Some(a) => Some(&a.status),
             None if self.program.is_some() => self.title_state.map(|s| s.status()),
@@ -147,6 +172,14 @@ impl Tab {
 
     /// Status line for the detail card and the ⌥ view: what it is doing, else where it is.
     pub fn subtitle(&self) -> String {
+        // A helper pane's question or error is what the row is about while it waits.
+        if let Some(a) = self.asker().and_then(|h| h.agent.as_ref()) {
+            match &a.status {
+                Status::NeedsInput { reason } => return reason.clone(),
+                Status::Error { message } => return message.clone(),
+                _ => {}
+            }
+        }
         if let Some(a) = &self.agent {
             let line = match &a.status {
                 Status::Working => Some(a.now.clone().unwrap_or_else(|| "Thinking…".into())),
@@ -849,6 +882,22 @@ impl Workspace {
                     "zoom" => this.toggle_zoom(window, cx),
                     "menu" => this.overlay = Overlay::PaneMenu { tab: this.active, pane: 1, at: gpui::point(px(700.), px(130.)) },
                     "confirm" => this.confirm_pane = this.tabs.get(this.active).map(|t| (t.id.clone(), 1)),
+                    // A helper pane's agent asks for you / hits an error (canvas v3-av).
+                    "ask" | "err" => {
+                        let active = this.active;
+                        if let Some(h) = this.tabs.get_mut(active).and_then(|t| t.panes.helpers.first_mut()) {
+                            let mut a = AgentState::new("debug".into());
+                            a.status = if step == "ask" {
+                                Status::NeedsInput { reason: "Claude needs your permission to use Bash".into() }
+                            } else {
+                                Status::Error { message: "API error 529 · overloaded".into() }
+                            };
+                            a.since = Instant::now() - Duration::from_secs(120);
+                            h.program = Some("claude".into());
+                            h.agent = Some(a);
+                        }
+                    }
+                    "other" => this.active = (this.active + 1) % this.tabs.len().max(1),
                     _ => {}
                 }
             }
@@ -1690,6 +1739,29 @@ impl Workspace {
                 changed = true;
             }
         }
+        // The same for agents in helper panes.
+        for t in &mut self.tabs {
+            for h in &mut t.panes.helpers {
+                let key = format!("{}-p{}", t.id, h.id);
+                let Some(a) = h.agent.as_mut().filter(|a| matches!(a.status, Status::NeedsInput { .. }) && a.session_id != "debug") else {
+                    self.needs_gone.remove(&key);
+                    continue;
+                };
+                let lines = h.view.read(cx).terminal.last_lines(20);
+                if lines.iter().any(|l| ASKING.iter().any(|m| l.contains(m))) {
+                    self.needs_gone.remove(&key);
+                    continue;
+                }
+                let n = self.needs_gone.entry(key.clone()).or_insert(0);
+                *n += 1;
+                if *n >= 2 {
+                    self.needs_gone.remove(&key);
+                    a.status = Status::Idle;
+                    a.since = Instant::now();
+                    changed = true;
+                }
+            }
+        }
         changed
     }
 
@@ -2035,7 +2107,9 @@ impl Workspace {
                 }
             }
         }
-        let Some(ix) = self.tabs.iter().position(|t| t.id == env.tab_id) else { return usage_changed };
+        let Some(ix) = self.tabs.iter().position(|t| t.id == env.tab_id) else {
+            return self.apply_helper_hook(&env, window) || usage_changed;
+        };
         // Its agent is talking again: it's back.
         self.restore_heard(&env.tab_id);
         let Some((hook, session_id)) = Hook::parse(&env.payload) else { return usage_changed };
@@ -2077,6 +2151,46 @@ impl Workspace {
             };
             if let Some((what, body)) = msg {
                 crate::platform::notify_tab(&tab.id, &format!("T1K · {what}"), &tab.title(), &body);
+            }
+        }
+        true
+    }
+
+    /// A hook from an agent in a helper pane ("<tab>-p<n>"): keeps that pane's status. Only
+    /// its needs-you and error states show on the tab (canvas v3-av), with a banner naming
+    /// the pane.
+    fn apply_helper_hook(&mut self, env: &Envelope, window: &Window) -> bool {
+        let Some((tab_id, pane)) = env.tab_id.rsplit_once("-p").and_then(|(t, n)| Some((t, n.parse::<crate::split::PaneId>().ok()?))) else { return false };
+        let Some(ix) = self.tabs.iter().position(|t| t.id == tab_id) else { return false };
+        let Some((hook, session_id)) = Hook::parse(&env.payload) else { return false };
+        let active = ix == self.active && window.is_window_active();
+        let tab = &mut self.tabs[ix];
+        let number = crate::split::pane_number(tab, pane);
+        let title = tab.title();
+        let Some(h) = tab.panes.helpers.iter_mut().find(|h| h.id == pane) else { return false };
+        let sid = session_id.unwrap_or_default();
+        if h.agent.as_ref().is_none_or(|a| !sid.is_empty() && a.session_id != sid) {
+            let mut a = AgentState::new(sid);
+            a.kind = env.payload.get("t1k_agent").and_then(|v| v.as_str()).and_then(t1k_agent::agents::AgentKind::from_id).unwrap_or_default();
+            h.agent = Some(a);
+        }
+        let a = h.agent.as_mut().unwrap();
+        let before = a.status.clone();
+        a.apply_hook(hook);
+        let after = a.status.clone();
+        if after == Status::Ended {
+            h.agent = None;
+        }
+        // Looking at the tab isn't looking at the pane, but the pane's header shows it.
+        if !active && after != before {
+            let n = &self.config.notify;
+            let msg = match &after {
+                Status::NeedsInput { reason } if n.needs_input => Some(("Needs you", reason.clone())),
+                Status::Error { message } if n.error => Some(("Error", message.clone())),
+                _ => None,
+            };
+            if let Some((what, body)) = msg {
+                crate::platform::notify_tab(tab_id, &format!("T1K · {what}"), &format!("{title} · pane {number}"), &body);
             }
         }
         true
@@ -2166,14 +2280,25 @@ impl Workspace {
     }
 
     /// Tabs that need you, longest-waiting first.
-    pub fn needs_queue(&self) -> Vec<usize> {
-        let mut v: Vec<usize> = (0..self.tabs.len()).filter(|&i| self.tabs[i].needs_you()).collect();
-        v.sort_by_key(|&i| {
-            let t = &self.tabs[i];
-            // Reminders wait from when they fired; agents from when their state began.
-            (t.agent.as_ref().filter(|a| a.status.needs_you()).map(|a| a.since), t.reminder_at)
-        });
-        v
+    /// What waits on you, longest first: a tab's main pane (or its reminder) and each
+    /// helper pane that asks, as (tab, pane).
+    pub fn needs_queue(&self) -> Vec<(usize, crate::split::PaneId)> {
+        let mut v: Vec<(usize, crate::split::PaneId, Option<Instant>, Option<SystemTime>)> = Vec::new();
+        for (i, t) in self.tabs.iter().enumerate() {
+            let main = t.agent.as_ref().filter(|a| a.status.needs_you());
+            // Without hooks the title glyph can say it too.
+            if main.is_some() || t.reminder_due || t.main_status().is_some_and(Status::needs_you) {
+                // Reminders wait from when they fired; agents from when their state began.
+                v.push((i, crate::split::MAIN, main.map(|a| a.since), t.reminder_at));
+            }
+            for h in &t.panes.helpers {
+                if let Some(a) = h.asking() {
+                    v.push((i, h.id, Some(a.since), None));
+                }
+            }
+        }
+        v.sort_by_key(|e| (e.2, e.3));
+        v.into_iter().map(|(i, p, _, _)| (i, p)).collect()
     }
 
     fn jump_to_needs(&mut self, _: &JumpToNeeds, window: &mut Window, cx: &mut Context<Self>) {
@@ -2193,12 +2318,27 @@ impl Workspace {
         }
         self.unread_offer = None;
         let n = q.len() as isize;
-        let next = match q.iter().position(|&i| i == self.active) {
+        // From the pane you're in, if it's in the queue; else from this tab's first entry.
+        let here = (self.active, self.focused_pane(window, cx));
+        let at = q.iter().position(|e| *e == here).or_else(|| q.iter().position(|e| e.0 == self.active && q.iter().filter(|x| x.0 == e.0).count() == 1));
+        let (tab, pane) = match at {
             Some(p) => q[((p as isize + dir).rem_euclid(n)) as usize],
             None if dir > 0 => q[0],
             None => q[(n - 1) as usize],
         };
-        self.activate(next, window, cx);
+        self.jump_to_pane(tab, pane, window, cx);
+    }
+
+    /// Open a tab on one of its panes (unzooming another pane first).
+    pub fn jump_to_pane(&mut self, tab: usize, pane: crate::split::PaneId, window: &mut Window, cx: &mut Context<Self>) {
+        self.activate(tab, window, cx);
+        let Some(t) = self.tabs.get_mut(tab) else { return };
+        if t.panes.multi() && t.panes.layout.leaves().contains(&pane) {
+            if t.panes.zoomed.is_some_and(|z| z != pane) {
+                t.panes.zoomed = None;
+            }
+            self.focus_pane(tab, pane, window, cx);
+        }
     }
 
     /// ⌘J with nothing waiting: say so (a key that does nothing feels broken). With unread tabs,

@@ -104,7 +104,17 @@ pub struct Helper {
     /// That program's command line ("npm run dev"), its header title.
     pub command: Option<String>,
     pub osc_title: Option<String>,
+    /// An agent session running in this pane (from hooks). Only its needs-you and error
+    /// states reach the tab (canvas v3-av); title and recap stay the main pane's.
+    pub agent: Option<t1k_agent::AgentState>,
     _sub: Subscription,
+}
+
+impl Helper {
+    /// Waiting on a person: a permission prompt, a question, or an error.
+    pub fn asking(&self) -> Option<&t1k_agent::AgentState> {
+        self.agent.as_ref().filter(|a| a.status.needs_you())
+    }
 }
 
 pub struct Panes {
@@ -181,15 +191,64 @@ pub fn pane_label(t: &Tab, id: PaneId) -> (String, Option<String>) {
     (title, h.program.clone())
 }
 
-/// The icon in a pane's header: the tab's icon with its status badge for the main pane,
-/// the running program's for a helper.
+/// "pane 2": panes are numbered in reading order (left to right, then top to bottom).
+pub fn pane_number(t: &Tab, id: PaneId) -> usize {
+    t.panes.layout.leaves().iter().position(|p| *p == id).map_or(1, |i| i + 1)
+}
+
+/// The icon in a pane's header: the tab's icon with the main pane's own status badge, or a
+/// helper's program icon, badged while its agent asks for you.
 pub fn pane_icon(ws: &Workspace, t: &Tab, id: PaneId, size: f32) -> AnyElement {
+    let ui = ws.ui;
     if id == MAIN {
-        crate::sidebar::status_icon(t, ws.ui, ws.ui.bg_terminal, true, size).into_any_element()
-    } else {
-        let program = t.panes.helper(id).and_then(|h| h.program.clone());
-        crate::app_icon::program_badge(program.as_deref(), ws.ui, size).into_any_element()
+        return crate::sidebar::status_icon_for(t, t.main_status(), ui, ui.bg_terminal, true, size).into_any_element();
     }
+    let h = t.panes.helper(id);
+    let program = h.and_then(|h| h.program.clone());
+    let tone = h.and_then(Helper::asking).map(|a| if matches!(a.status, t1k_agent::Status::Error { .. }) { ui.status_error } else { ui.status_needs });
+    let d = (size * 0.42).round().max(9.);
+    let off = -(d / 3.).round();
+    div()
+        .relative()
+        .size(px(size))
+        .flex_none()
+        .child(crate::app_icon::program_badge(program.as_deref(), ui, size))
+        .children(tone.map(|c| div().absolute().right(px(off)).bottom(px(off)).child(div().size(px(d)).rounded_full().bg(c).border_2().border_color(ui.bg_terminal))))
+        .into_any_element()
+}
+
+/// A 14 × 12 outline of the tab's split with one pane filled: which pane is asking
+/// (canvas v3-av). Neutral, so the row keeps one colored badge.
+pub fn pane_mark(layout: &Layout, pane: PaneId, color: gpui::Hsla) -> impl IntoElement {
+    fn rects(l: &Layout, x: f32, y: f32, w: f32, h: f32, out: &mut Vec<(PaneId, [f32; 4])>) {
+        match l {
+            Layout::Leaf(id) => out.push((*id, [x, y, w, h])),
+            Layout::Split { down, ratio, a, b } => {
+                if *down {
+                    rects(a, x, y, w, h * ratio, out);
+                    rects(b, x, y + h * ratio, w, h * (1. - ratio), out);
+                } else {
+                    rects(a, x, y, w * ratio, h, out);
+                    rects(b, x + w * ratio, y, w * (1. - ratio), h, out);
+                }
+            }
+        }
+    }
+    let mut v = Vec::new();
+    rects(layout, 0.5, 0.5, 13., 11., &mut v);
+    gpui::canvas(|_, _, _| {}, move |b, _, window, _| {
+        let o = b.origin;
+        for (id, [x, y, w, h]) in &v {
+            let r = Bounds::new(gpui::point(o.x + px(*x), o.y + px(*y)), gpui::size(px(*w), px(*h)));
+            if *id == pane {
+                window.paint_quad(gpui::fill(r, color.opacity(0.55)));
+            }
+            window.paint_quad(gpui::outline(r, color.opacity(0.7), gpui::BorderStyle::Solid));
+        }
+    })
+    .w(px(14.))
+    .h(px(12.))
+    .flex_none()
 }
 
 /// The active tab's terminal area: one pane, or the tree of them with hairlines between.
@@ -304,6 +363,12 @@ fn leaf(ws: &Workspace, t: &Tab, id: PaneId, focused: PaneId, header: bool, cx: 
 fn pane_header(ws: &Workspace, t: &Tab, id: PaneId, focused: bool, cx: &mut Context<Workspace>) -> AnyElement {
     let ui = ws.ui;
     let (title, _) = pane_label(t, id);
+    // A helper whose agent asks shows the ask (canvas v3-av).
+    let title = match t.panes.helper(id).filter(|_| id != MAIN).and_then(Helper::asking).map(|a| &a.status) {
+        Some(t1k_agent::Status::NeedsInput { reason }) => reason.clone(),
+        Some(t1k_agent::Status::Error { message }) => format!("Error: {message}"),
+        _ => title,
+    };
     let group = SharedString::from(format!("pane-head-{id}"));
     let tab = ws.active;
     let button = |key: &'static str, glyph: &'static str, tip: String| {
@@ -531,7 +596,7 @@ impl Workspace {
                 TerminalEvent::Bell => {}
             }
         });
-        self.tabs[ix].panes.helpers.push(Helper { id, view, cwd, program: None, command: None, osc_title: None, _sub: sub });
+        self.tabs[ix].panes.helpers.push(Helper { id, view, cwd, program: None, command: None, osc_title: None, agent: None, _sub: sub });
         id
     }
 

@@ -112,6 +112,13 @@ Amber and red are used only for states where a person needs to act.
 - The badge counts NeedsInput and Error tabs only. (Superseded by v2 below: reminders that are due count too.)
 - ⌘J walks the queue from the longest-waiting tab. ⌘⇧J walks it backwards.
 
+## Helper pane needs you (canvas v3-av)
+
+- An agent in a helper pane keeps its own status. Only its needs-you and error states reach the tab: the row shows one state at a time (error, then needs-you, then the main pane's own), with the usual badge on the tab's icon. Title, recap and "now" stay the main pane's.
+- The row shows which pane asks with a neutral mark (a 14 × 12 outline of the split, the asking pane filled) and that pane's program icon before the wait. With a status second line, the line is the ask, led by the pane's icon.
+- The Needs-you queue has one entry per asking pane, with the mark and "pane N" (reading order). ⌘J and a click land on that pane. The Dock badge counts entries; banners name the pane.
+- In the tab, the asking pane's header shows the badge and the ask.
+
 ## Context details (canvas v3-au)
 
 - Hidden until asked for. Clicking a Claude tab's context meter in the strip opens a popover: the % used, a stacked bar, the four biggest categories plus free space, the last compaction, and "Details ›".
