@@ -3,6 +3,16 @@
   <channel>
     <title>T1K</title>
     <item>
+      <title>T1K 0.1.5</title>
+      <pubDate>Tue, 10 Nov 2026 09:46:35 +0200</pubDate>
+      <sparkle:version>0.1.5</sparkle:version>
+      <sparkle:shortVersionString>0.1.5</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/erango/t1k/releases/tag/v0.1.5</sparkle:fullReleaseNotesLink>
+      <description><![CDATA[<ul><li>Notifications from any program: OSC 9 and OSC 777 messages show as macOS notifications and mark their tab unread.</li><li>Column selection: hold ⌥ and drag to select a block of text.</li><li>Kitty keyboard protocol, so programs that ask for it can tell ⇧↵ from ↵ and ctrl+i from tab, and see key releases and lone modifier keys.</li><li>Secure Keyboard Entry (Settings › Advanced): while T1K is in front, other apps can&#x27;t read what you type.</li><li>The selected tab is outlined in its group&#x27;s color, around the row and the terminal it opens (Settings › Interface to turn it off).</li><li>Background opacity and blur (Settings › Appearance › Window).</li><li>⌘⇧C copies the last command&#x27;s output, and hovering a finished command shows Copy output and Copy command (needs shell integration).</li><li>⌘Z undoes typing in Claude Code, zsh and bash; while a &quot;Moved…&quot; notice shows, it undoes the tab move, and that notice now stays 12 seconds.</li><li>Clicking to move the cursor works across the lines of Claude&#x27;s multi-line input.</li><li>Outputs: long sessions fold to the newest 5 per section with &quot;+N more&quot;; open PRs always show, merged and closed ones take one quiet line.</li><li>Outputs: files that no longer exist move behind an &quot;N deleted&quot; row.</li><li>Outputs: text files open in the preview panel, which now has a Default app button.</li><li>Outputs: reopened sessions keep their whole list, with the times things happened.</li><li>Outputs: tickets show their tracker&#x27;s mark (Linear, Jira, GitHub), icons are bigger, and copying is an icon.</li><li>Quitting can be cancelled while programs stop, and every Claude session the quit closed resumes next launch.</li><li>Fix: closing an idle Claude tab goes to the neighbor your setting asks for, not the last tab in its group.</li><li>Fix: a Claude tab stuck on Working after a turn ended without a reply goes back to Idle.</li><li>Fix: a path printed before its file existed becomes a link once the file is there.</li><li>Fix: no empty space at the bottom of a tab after a program redraws a short screen.</li></ul>]]></description>
+      <enclosure url="https://github.com/erango/t1k/releases/download/v0.1.5/T1K-0.1.5.zip" type="application/octet-stream" sparkle:edSignature="DK8JbORPzC7lQbnxQ5rJ/9SqN3DtxUXqdEDcokRXI5XDLy/O960ASub6BZ8Xt+kRcUtM5IZdCFFOftdvARMSAQ==" length="11629363" />
+    </item>
+    <item>
       <title>T1K 0.1.4</title>
       <pubDate>Mon, 09 Nov 2026 12:37:34 +0200</pubDate>
       <sparkle:version>0.1.4</sparkle:version>
