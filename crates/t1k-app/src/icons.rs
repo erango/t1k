@@ -314,6 +314,73 @@ pub fn artifact(kind: &str, color: Hsla, size: f32) -> impl IntoElement {
                 p.line_to(pt(4.5, 7.));
                 p.close();
             }
+            // A fox head: GitLab's mark as one outline.
+            "t-gitlab" => {
+                p.move_to(pt(7., 12.5));
+                p.line_to(pt(1.5, 8.));
+                p.line_to(pt(3., 2.5));
+                p.line_to(pt(4.75, 7.));
+                p.line_to(pt(9.25, 7.));
+                p.line_to(pt(11., 2.5));
+                p.line_to(pt(12.5, 8.));
+                p.close();
+            }
+            // Shortcut: a tilted flag.
+            "t-shortcut" => {
+                p.move_to(pt(2., 9.));
+                p.line_to(pt(8., 2.));
+                p.line_to(pt(12., 5.5));
+                p.line_to(pt(6., 12.5));
+                p.close();
+                line(p, 5., 5.5, 9., 9.);
+            }
+            // Asana: three dots.
+            "t-asana" => {
+                circle(p, 7., 4., 2.2);
+                circle(p, 3.6, 9.8, 2.2);
+                circle(p, 10.4, 9.8, 2.2);
+            }
+            // ClickUp: a chevron over an arc.
+            "t-clickup" => {
+                p.move_to(pt(3., 6.5));
+                p.line_to(pt(7., 2.5));
+                p.line_to(pt(11., 6.5));
+                p.move_to(pt(2.5, 9.5));
+                p.line_to(pt(4.75, 11.5));
+                p.line_to(pt(7., 12.25));
+                p.line_to(pt(9.25, 11.5));
+                p.line_to(pt(11.5, 9.5));
+            }
+            // Trello: a board with two lists.
+            "t-trello" => {
+                rect(p, 1.5, 1.5, 12.5, 12.5);
+                rect(p, 3.5, 3.5, 6., 10.5);
+                rect(p, 8., 3.5, 10.5, 7.5);
+            }
+            // Azure Boards: a card with a tick.
+            "t-azure" => {
+                rect(p, 1.5, 2.5, 12.5, 11.5);
+                p.move_to(pt(4., 7.25));
+                p.line_to(pt(6.25, 9.5));
+                p.line_to(pt(10., 5.));
+            }
+            // YouTrack: a ring cut by a slash.
+            "t-youtrack" => {
+                circle(p, 7., 7., 5.5);
+                line(p, 4., 10., 10., 4.);
+                line(p, 4., 4., 7., 7.);
+            }
+            // Sentry: a peak with an arc inside.
+            "t-sentry" => {
+                p.move_to(pt(1.5, 11.5));
+                p.line_to(pt(7., 2.));
+                p.line_to(pt(12.5, 11.5));
+                p.line_to(pt(9.5, 11.5));
+                p.move_to(pt(3.5, 11.5));
+                p.line_to(pt(5.5, 11.5));
+                p.line_to(pt(5.75, 9.5));
+                p.line_to(pt(7., 7.5));
+            }
             "t-github" => {
                 // GitHub's open-issue mark: a ring with a dot.
                 circle(p, 7., 7., 5.5);

@@ -514,6 +514,8 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
                 .into_any_element()),
         e(Advanced, "Security", "Secure Keyboard Entry", "While T1K is in front, other apps can't read what you type", "terminal.secure_input", "secure keyboard input password keylogger privacy",
             toggle(ui, "secure", c.terminal.secure_input, &["terminal", "secure_input"], cx).into_any_element()),
+        e(Advanced, "Security", "Secure entry at password prompts", "Turns Secure Keyboard Entry on by itself while a terminal asks for a password", "terminal.secure_input_passwords", "secure keyboard input password sudo ssh automatic",
+            toggle(ui, "secure-pw", c.terminal.secure_input_passwords, &["terminal", "secure_input_passwords"], cx).into_any_element()),
         e(Advanced, "Setup", "Set up T1K", "Walks through the settings people miss. Starts from your current settings.", "setup", "setup wizard onboarding start tour walkthrough",
             pill(ui, "run-setup".into(), "Run setup…".into(), false).on_click(cx.listener(|this, _, window, cx| this.open_setup(0, window, cx))).into_any_element()),
         e(Advanced, "Updates", "Check for updates automatically", "Once a day, in the background. Nothing interrupts you.", "updates.check", "update version sparkle auto",

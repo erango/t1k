@@ -39,6 +39,9 @@ shell_integration = true
 kitty_keyboard = true
 # Secure Keyboard Entry: while a T1K window is in front, other apps can't read what you type.
 secure_input = false
+# Turn it on by itself while the terminal you're typing in asks for a password (sudo, ssh),
+# and off again after.
+secure_input_passwords = true
 # Where a new tab's first prompt appears: "bottom" (input stays where your eyes are) or "top".
 prompt_gravity = "bottom"
 # Keep each tab's scrollback (text and colors) when T1K quits or restarts for an update.
@@ -334,6 +337,7 @@ pub struct TerminalCfg {
     pub shell_integration: bool,
     pub kitty_keyboard: bool,
     pub secure_input: bool,
+    pub secure_input_passwords: bool,
     pub prompt_gravity: String,
     pub font: FontCfg,
 }
@@ -409,7 +413,7 @@ impl Default for ThemeCfg {
 }
 impl Default for TerminalCfg {
     fn default() -> Self {
-        Self { padding: 14., option_as_meta: false, copy_on_select: true, restore_scrollback: true, resume_agents: true, offer_import: true, shell_integration: true, kitty_keyboard: true, secure_input: false, prompt_gravity: "bottom".into(), font: FontCfg::default() }
+        Self { padding: 14., option_as_meta: false, copy_on_select: true, restore_scrollback: true, resume_agents: true, offer_import: true, shell_integration: true, kitty_keyboard: true, secure_input: false, secure_input_passwords: true, prompt_gravity: "bottom".into(), font: FontCfg::default() }
     }
 }
 impl Default for FontCfg {

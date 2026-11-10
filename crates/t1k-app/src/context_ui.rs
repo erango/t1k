@@ -489,6 +489,7 @@ fn section(ws: &Workspace, key: &'static str, title: &'static str, default_open:
             if !this.ctx.toggled.remove(key) {
                 this.ctx.toggled.insert(key.to_string());
             }
+            this.save();
             cx.notify();
         }));
     let mut s = div().flex().flex_col().child(header);

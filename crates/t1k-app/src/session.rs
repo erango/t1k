@@ -117,6 +117,12 @@ pub struct Session {
     pub sidebar_open: Option<bool>,
     #[serde(default)]
     pub outputs_open: bool,
+    /// The panel is on its Context tab (canvas v3-au).
+    #[serde(default)]
+    pub panel_context: bool,
+    /// Context sections flipped from their default open or closed state.
+    #[serde(default)]
+    pub context_toggled: Vec<String>,
     #[serde(default)]
     pub appearance: Option<String>,
     #[serde(default)]

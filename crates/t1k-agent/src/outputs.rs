@@ -77,7 +77,15 @@ pub fn ticket_icon(url: &str) -> &'static str {
     match host {
         "linear.app" => "t-linear",
         "github.com" => "t-github",
-        h if h.ends_with(".atlassian.net") => "t-jira",
+        "app.shortcut.com" => "t-shortcut",
+        "app.asana.com" => "t-asana",
+        "app.clickup.com" => "t-clickup",
+        "trello.com" => "t-trello",
+        "dev.azure.com" => "t-azure",
+        h if h.ends_with(".atlassian.net") || h.starts_with("jira.") => "t-jira",
+        h if h == "gitlab.com" || h.starts_with("gitlab.") => "t-gitlab",
+        h if h.ends_with(".youtrack.cloud") || h.starts_with("youtrack.") => "t-youtrack",
+        h if h == "sentry.io" || h.ends_with(".sentry.io") => "t-sentry",
         _ => "link",
     }
 }
@@ -198,6 +206,52 @@ pub fn classify(url: &str) -> Option<(Kind, String, String)> {
         h if h.ends_with(".atlassian.net") && seg.first() == Some(&"browse") && seg.len() >= 2 => {
             Some((Kind::Ticket, base.into(), seg[1].to_string()))
         }
+        // Jira on a company's own host.
+        h if h.starts_with("jira.") && seg.first() == Some(&"browse") && seg.len() >= 2 => Some((Kind::Ticket, base.into(), seg[1].to_string())),
+        // GitLab issues: <group>/…/<project>/-/issues/<n>.
+        h if (h == "gitlab.com" || h.starts_with("gitlab.")) && seg.len() >= 4 => {
+            let n = seg.len();
+            let num = seg[n - 1].chars().all(|c| c.is_ascii_digit());
+            (num && seg[n - 2] == "issues" && seg[n - 3] == "-").then(|| (Kind::Ticket, base.into(), format!("{}#{}", seg[n - 4], seg[n - 1])))
+        }
+        // Shortcut stories: <org>/story/<n>/<slug>.
+        "app.shortcut.com" if seg.len() >= 3 && seg[1] == "story" && seg[2].chars().all(|c| c.is_ascii_digit()) => {
+            Some((Kind::Ticket, format!("https://app.shortcut.com/{}/story/{}", seg[0], seg[2]), format!("sc-{}", seg[2])))
+        }
+        // Asana tasks: 0/<project>/<task>, or 1/<workspace>/project/<p>/task/<t>.
+        "app.asana.com" => {
+            let digits = |s: &&str| s.len() >= 8 && s.chars().all(|c| c.is_ascii_digit());
+            let task = match seg.as_slice() {
+                ["0", _, t, ..] if digits(t) => Some(*t),
+                ["1", .., "task", t] | ["1", .., "task", t, _] if digits(t) => Some(*t),
+                _ => None,
+            };
+            task.map(|_| (Kind::Ticket, base.into(), "Asana task".to_string()))
+        }
+        // ClickUp tasks: t/<id>, or t/<team>/<CUSTOM-ID>.
+        "app.clickup.com" if seg.first() == Some(&"t") && (2..=3).contains(&seg.len()) => {
+            Some((Kind::Ticket, base.into(), seg[seg.len() - 1].to_string()))
+        }
+        // Trello cards: c/<id>/<n>-<slug>.
+        "trello.com" if seg.first() == Some(&"c") && seg.len() >= 2 => {
+            let label = seg.get(2).map(|s| s.replace('-', " ")).unwrap_or_else(|| "Trello card".into());
+            Some((Kind::Ticket, format!("https://trello.com/c/{}", seg[1]), label))
+        }
+        // Azure Boards work items: <org>/<project>/_workitems/edit/<n>.
+        "dev.azure.com" if seg.len() >= 5 && seg[2] == "_workitems" && seg[3] == "edit" && seg[4].chars().all(|c| c.is_ascii_digit()) => {
+            Some((Kind::Ticket, base.into(), format!("{}#{}", seg[1], seg[4])))
+        }
+        // YouTrack issues: issue/<ID>.
+        h if (h.ends_with(".youtrack.cloud") || h.starts_with("youtrack.")) && seg.len() >= 2 && seg[seg.len() - 2] == "issue" => {
+            Some((Kind::Ticket, base.into(), seg[seg.len() - 1].to_string()))
+        }
+        // Sentry issues: <org>.sentry.io/issues/<n>, or sentry.io/organizations/<org>/issues/<n>.
+        h if h == "sentry.io" || h.ends_with(".sentry.io") => {
+            let at = seg.iter().position(|s| *s == "issues")?;
+            let num = seg.get(at + 1).filter(|s| s.chars().all(|c| c.is_ascii_digit()))?;
+            let canon = format!("https://{h}/{}", seg[..=at + 1].join("/"));
+            Some((Kind::Ticket, canon, format!("Sentry {num}")))
+        }
         h if h.ends_with(".atlassian.net") && seg.first() == Some(&"wiki") => {
             Some((Kind::Doc, base.into(), "Confluence page".into()))
         }
@@ -248,6 +302,20 @@ mod tests {
     fn classifies_known_hosts_only() {
         assert_eq!(classify("https://acme.atlassian.net/browse/ENG-43").unwrap().2, "ENG-43");
         assert_eq!(classify("https://linear.app/acme/issue/ENG-7/fix-it").unwrap().2, "ENG-7");
+        // More trackers.
+        let t = |u: &str| classify(u).map(|(k, canon, label)| (k, canon, label, ticket_icon(u)));
+        assert_eq!(t("https://gitlab.com/grp/sub/proj/-/issues/42?x=1").unwrap(), (Kind::Ticket, "https://gitlab.com/grp/sub/proj/-/issues/42".into(), "proj#42".into(), "t-gitlab"));
+        assert_eq!(classify("https://gitlab.com/grp/proj/-/merge_requests/3"), None);
+        assert_eq!(t("https://app.shortcut.com/acme/story/123/fix-login").unwrap().2, "sc-123");
+        assert_eq!(t("https://app.asana.com/0/1200000000000001/1200000000000002/f").unwrap().3, "t-asana");
+        assert_eq!(classify("https://app.asana.com/0/home"), None);
+        assert_eq!(t("https://app.clickup.com/t/86abc12").unwrap().2, "86abc12");
+        assert_eq!(t("https://trello.com/c/AbCd1234/17-fix-the-thing").unwrap().2, "17 fix the thing");
+        assert_eq!(t("https://dev.azure.com/org/Proj/_workitems/edit/77").unwrap().2, "Proj#77");
+        assert_eq!(t("https://acme.youtrack.cloud/issue/T1K-9").unwrap().2, "T1K-9");
+        assert_eq!(t("https://acme.sentry.io/issues/6001/events/latest/").unwrap().1, "https://acme.sentry.io/issues/6001");
+        assert_eq!(t("https://jira.acme.com/browse/OPS-5").unwrap().3, "t-jira");
+        assert_eq!(classify("https://acme.sentry.io/settings/"), None);
         assert_eq!(classify("https://docs.google.com/document/d/abc/edit").unwrap().0, Kind::Doc);
         assert_eq!(classify("https://my-app-git-x.vercel.app/").unwrap().0, Kind::Deploy);
         assert_eq!(classify("https://claude.ai/code/artifact/123e4567-e89b").unwrap().0, Kind::Artifact);

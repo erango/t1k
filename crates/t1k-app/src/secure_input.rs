@@ -8,6 +8,8 @@ static ON: AtomicBool = AtomicBool::new(false);
 /// Whether we hold the system's secure input now. Enable/Disable are counted by macOS, so
 /// every enable is paired with exactly one disable.
 static ENGAGED: AtomicBool = AtomicBool::new(false);
+/// On only because the focused terminal is at a password prompt (the setting itself is off).
+static AUTO: AtomicBool = AtomicBool::new(false);
 
 #[cfg(target_os = "macos")]
 #[link(name = "Carbon", kind = "framework")]
@@ -20,9 +22,15 @@ unsafe extern "C" {
 /// hidden). Clicking it turns it off.
 pub fn indicator(ws: &crate::workspace::Workspace, id: &'static str, cx: &mut gpui::Context<crate::workspace::Workspace>) -> Option<gpui::AnyElement> {
     use gpui::{div, prelude::*, px, MouseButton};
-    if !ws.config.terminal.secure_input {
+    let auto = AUTO.load(Ordering::Relaxed);
+    if !ws.config.terminal.secure_input && !auto {
         return None;
     }
+    let tip = if ws.config.terminal.secure_input {
+        "Secure Keyboard Entry is on. Other apps can't read what you type in T1K. Click to turn it off."
+    } else {
+        "Secure Keyboard Entry is on for this password prompt. It turns off when the prompt is answered."
+    };
     let ui = ws.ui;
     Some(
         div()
@@ -35,8 +43,12 @@ pub fn indicator(ws: &crate::workspace::Workspace, id: &'static str, cx: &mut gp
             .justify_center()
             .hover(move |d| d.bg(ui.bg_selected))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .tooltip(crate::tooltip::text(ui, "Secure Keyboard Entry is on. Other apps can't read what you type in T1K. Click to turn it off."))
-            .on_click(cx.listener(|this, _, _, _| this.toggle_secure_input()))
+            .tooltip(crate::tooltip::text(ui, tip))
+            .on_click(cx.listener(move |this, _, _, _| {
+                if !auto {
+                    this.toggle_secure_input()
+                }
+            }))
             .child(crate::icons::lock(ui.text_secondary, 14.))
             .into_any_element(),
     )
@@ -48,8 +60,16 @@ pub fn on() -> bool {
 
 /// Apply the setting for a window that is or isn't key.
 pub fn apply(setting: bool, window_key: bool) {
+    apply_with(setting, false, window_key);
+}
+
+/// As `apply`, also holding it while `password` (the focused terminal asks for one).
+/// Returns whether the lock's look changed.
+pub fn apply_with(setting: bool, password: bool, window_key: bool) -> bool {
     ON.store(setting, Ordering::Relaxed);
-    engage(setting && window_key);
+    let auto = !setting && password && window_key;
+    engage((setting || password) && window_key);
+    AUTO.swap(auto, Ordering::Relaxed) != auto
 }
 
 /// Let go at quit.

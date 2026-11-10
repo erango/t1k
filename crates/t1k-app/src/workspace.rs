@@ -361,6 +361,8 @@ pub struct Workspace {
     pub broadcast_picking: Option<HashSet<String>>,
     /// The set you left by switching tabs, while its "Resume" toast shows.
     pub broadcast_resume: Option<crate::broadcast::Broadcast>,
+    /// The terminal that has the keyboard, as of the last tick.
+    pub typing_view: Option<Entity<TerminalView>>,
     pub confirm_close: Option<String>,
     /// A helper pane asked to close while something runs in it: (tab id, pane), confirming
     /// in its header.
@@ -588,6 +590,7 @@ impl Workspace {
             broadcast: None,
             broadcast_picking: None,
             broadcast_resume: None,
+            typing_view: None,
             confirm_close: None,
             confirm_pane: None,
             hook_alias: HashMap::new(),
@@ -621,9 +624,13 @@ impl Workspace {
             back: Vec::new(),
             forward: Vec::new(),
             navigating: false,
-            panel: crate::outputs_panel::PanelState { open: saved.outputs_open, ..Default::default() },
+            panel: crate::outputs_panel::PanelState {
+                open: saved.outputs_open,
+                tab: if saved.panel_context { crate::context_ui::PanelTab::Context } else { Default::default() },
+                ..Default::default()
+            },
             ctx: crate::context_ui::CtxState {
-                toggled: std::env::var("T1K_DEBUG_CONTEXT_OPEN").map(|v| v.split(',').map(str::to_string).collect()).unwrap_or_default(),
+                toggled: std::env::var("T1K_DEBUG_CONTEXT_OPEN").map(|v| v.split(',').map(str::to_string).collect()).unwrap_or_else(|_| saved.context_toggled.iter().cloned().collect()),
                 ..Default::default()
             },
             ctx_debug: std::env::var("T1K_DEBUG_CONTEXT").ok().map(|v| PathBuf::from(v.split(':').next().unwrap_or_default())),
@@ -1930,7 +1937,7 @@ impl Workspace {
             return;
         }
         // The window can become key before the activation observer exists; catch up here.
-        crate::secure_input::apply(self.config.terminal.secure_input, !self.window_inactive);
+        self.apply_secure(cx);
         // macOS asked to quit (Dock › Quit, logout): ask about running tabs, as ⌘Q does.
         if crate::platform::QUIT_REQUESTED.swap(false, std::sync::atomic::Ordering::SeqCst) {
             cx.dispatch_action(&crate::actions::Quit);
@@ -2013,6 +2020,10 @@ impl Workspace {
 
     /// Every 100 ms: apply agent messages; keep spinners moving while anything works.
     fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // The terminal with the keyboard, for the password check (every 100 ms: a password is
+        // typed right after its prompt appears).
+        self.typing_view = matches!(self.overlay, Overlay::None).then(|| self.focused_view(window, cx)).flatten();
+        self.apply_secure(cx);
         let needs = !self.needs_queue().is_empty();
         if self.had_needs && !needs {
             self.caught_up_at = Some(Instant::now());
@@ -2474,6 +2485,13 @@ impl Workspace {
             group_names: self.group_names.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             sidebar_open: Some(self.sidebar_open),
             outputs_open: self.panel.open,
+            panel_context: self.panel.tab == crate::context_ui::PanelTab::Context,
+            // Tool groups come and go with MCP servers; the ten sections are what's kept.
+            context_toggled: {
+                let mut v: Vec<String> = self.ctx.toggled.iter().filter(|k| !k.contains(':')).cloned().collect();
+                v.sort();
+                v
+            },
             recent: self.recent.clone(),
             window: self.window_frame,
             welcomed: true,
@@ -2572,6 +2590,16 @@ impl Workspace {
     }
 
     /// Canvas v3-u: 150 ms ease-out into the inactive look, 80 ms back; instant with Reduce motion.
+    /// Secure Keyboard Entry follows its setting, and (unless switched off) also comes on
+    /// while the terminal you're typing in asks for a password.
+    pub fn apply_secure(&mut self, cx: &mut Context<Self>) {
+        let t = &self.config.terminal;
+        let password = t.secure_input_passwords && !t.secure_input && !crate::demo::on() && self.typing_view.as_ref().is_some_and(|v| v.read(cx).terminal.password_prompt());
+        if crate::secure_input::apply_with(t.secure_input, password, !self.window_inactive) {
+            cx.notify();
+        }
+    }
+
     /// Flip Secure Keyboard Entry. Written to config.toml; the watcher applies it.
     pub fn toggle_secure_input(&self) {
         crate::config::set_value(&["terminal", "secure_input"], (!self.config.terminal.secure_input).into());
@@ -2579,7 +2607,7 @@ impl Workspace {
 
     fn set_inactive(&mut self, inactive: bool, cx: &mut Context<Self>) {
         self.window_inactive = inactive;
-        crate::secure_input::apply(self.config.terminal.secure_input, !inactive);
+        self.apply_secure(cx);
         self.apply_dim(cx);
     }
 
