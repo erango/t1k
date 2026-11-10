@@ -347,6 +347,10 @@ pub struct Workspace {
     pub forward: Vec<String>,
     navigating: bool,
     pub panel: crate::outputs_panel::PanelState,
+    /// Context details: transcript reads and which sections are open (canvas v3-au).
+    pub ctx: crate::context_ui::CtxState,
+    /// `T1K_DEBUG_CONTEXT`: a transcript shown as the active tab's context.
+    pub ctx_debug: Option<PathBuf>,
     pub overlay_focus: FocusHandle,
     pub config: Config,
     watcher: config::Watcher,
@@ -568,6 +572,11 @@ impl Workspace {
             forward: Vec::new(),
             navigating: false,
             panel: crate::outputs_panel::PanelState { open: saved.outputs_open, ..Default::default() },
+            ctx: crate::context_ui::CtxState {
+                toggled: std::env::var("T1K_DEBUG_CONTEXT_OPEN").map(|v| v.split(',').map(str::to_string).collect()).unwrap_or_default(),
+                ..Default::default()
+            },
+            ctx_debug: std::env::var("T1K_DEBUG_CONTEXT").ok().map(|v| PathBuf::from(v.split(':').next().unwrap_or_default())),
             overlay_focus: cx.focus_handle(),
             config,
             watcher,
@@ -861,6 +870,11 @@ impl Workspace {
                 _ => {}
             }
         }
+        // T1K_DEBUG_CONTEXT=<transcript>:pane opens the panel on the Context tab.
+        if std::env::var("T1K_DEBUG_CONTEXT").is_ok_and(|v| v.ends_with(":pane")) {
+            this.panel.open = true;
+            this.panel.tab = crate::context_ui::PanelTab::Context;
+        }
         // Debug aid for screenshots without a keyboard: T1K_DEBUG_OVERLAY=palette|switcher|
         // overview|settings|menu|groupmenu|termmenu|card opens that surface at launch.
         if let Ok(which) = std::env::var("T1K_DEBUG_OVERLAY") {
@@ -872,6 +886,7 @@ impl Workspace {
                 "more" => Some(Overlay::MoreMenu { at: gpui::point(px(480.), px(44.)) }),
                 "sidebarview" => Some(Overlay::SidebarView { at: gpui::point(px(90.), px(44.)) }),
                 "usage" => Some(Overlay::Usage { at: gpui::point(px(60.), px(40.)) }),
+                "context" => Some(Overlay::Context { at: gpui::point(px(760.), px(40.)) }),
                 "switcher" => Some(Overlay::Switcher { query: std::env::var("T1K_DEBUG_QUERY").unwrap_or_default(), selected: 0 }),
                 "overview" => Some(Overlay::Overview { selected: 0 }),
                 "settings" => Some(Overlay::Settings { section: crate::settings::Section::Appearance }),
@@ -1766,6 +1781,7 @@ impl Workspace {
 
     /// Refresh each tab's cwd and foreground program; regroup tabs that changed project.
     fn poll(&mut self, cx: &mut Context<Self>) {
+        self.context_tick(cx);
         // Demo tabs keep their made-up state: no processes, folders or gh to look at.
         if crate::demo::on() {
             return;
@@ -1981,6 +1997,12 @@ impl Workspace {
                 if let Some(a) = self.tabs.iter_mut().find(|t| t.id == env.tab_id).and_then(|t| t.agent.as_mut()) {
                     ctx_changed = a.context_reported != Some(ctx);
                     a.context_reported = Some(ctx);
+                }
+            }
+            if let Some(cost) = t1k_agent::statusline::cost(&env.payload) {
+                if let Some(a) = self.tabs.iter_mut().find(|t| t.id == env.tab_id).and_then(|t| t.agent.as_mut()) {
+                    ctx_changed |= a.cost != Some(cost);
+                    a.cost = Some(cost);
                 }
             }
             let Some(usage) = t1k_agent::statusline::parse(&env.payload) else { return ctx_changed };

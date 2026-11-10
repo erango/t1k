@@ -402,6 +402,106 @@ pub fn artifact(kind: &str, color: Hsla, size: f32) -> impl IntoElement {
                 rect(p, 8., 6.5, 12.5, 12.5);
                 rect(p, 1.5, 9., 6., 12.5);
             }
+            // Context pane (canvas v3-au): tool glyphs, server marks, the info icon.
+            "x-terminal" => {
+                rect(p, 1.5, 2.5, 12.5, 11.5);
+                p.move_to(pt(3.75, 5.));
+                p.line_to(pt(5.75, 7.));
+                p.line_to(pt(3.75, 9.));
+                line(p, 7., 9., 10., 9.);
+            }
+            "x-pencil" => {
+                p.move_to(pt(2., 12.));
+                p.line_to(pt(2.5, 9.5));
+                p.line_to(pt(9.5, 2.5));
+                p.line_to(pt(11.5, 4.5));
+                p.line_to(pt(4.5, 11.5));
+                p.close();
+                line(p, 8., 4., 10., 6.);
+            }
+            "x-doc-plus" => {
+                page(p);
+                line(p, 7., 6.5, 7., 10.5);
+                line(p, 5., 8.5, 9., 8.5);
+            }
+            "x-search" => {
+                circle(p, 6., 6., 4.);
+                line(p, 9., 9., 12.5, 12.5);
+            }
+            "x-globe" => {
+                circle(p, 7., 7., 5.5);
+                line(p, 1.5, 7., 12.5, 7.);
+                p.move_to(pt(7., 1.5));
+                p.line_to(pt(5., 4.));
+                p.line_to(pt(4.5, 7.));
+                p.line_to(pt(5., 10.));
+                p.line_to(pt(7., 12.5));
+                p.line_to(pt(9., 10.));
+                p.line_to(pt(9.5, 7.));
+                p.line_to(pt(9., 4.));
+                p.close();
+            }
+            "x-agent" => {
+                circle(p, 5., 4.5, 2.);
+                p.move_to(pt(1.5, 12.));
+                p.line_to(pt(2., 9.5));
+                p.line_to(pt(3.5, 8.));
+                p.line_to(pt(6.5, 8.));
+                p.line_to(pt(8., 9.5));
+                p.line_to(pt(8.5, 12.));
+                circle(p, 11.5, 4., 1.);
+                circle(p, 11.5, 9., 1.);
+                line(p, 7., 5., 10.5, 4.);
+                line(p, 8.5, 7., 10.5, 8.5);
+            }
+            "x-check" => {
+                p.move_to(pt(1.5, 3.5));
+                p.line_to(pt(2.75, 4.75));
+                p.line_to(pt(4.75, 2.25));
+                p.move_to(pt(1.5, 9.));
+                p.line_to(pt(2.75, 10.25));
+                p.line_to(pt(4.75, 7.75));
+                line(p, 6.5, 3.5, 12.5, 3.5);
+                line(p, 6.5, 9., 12.5, 9.);
+            }
+            "x-wrench" => {
+                p.move_to(pt(2., 12.));
+                p.line_to(pt(7., 7.));
+                p.move_to(pt(7., 7.));
+                p.line_to(pt(6.5, 5.));
+                p.line_to(pt(7.5, 2.75));
+                p.line_to(pt(9.75, 1.75));
+                p.line_to(pt(9., 4.25));
+                p.line_to(pt(9.75, 5.));
+                p.line_to(pt(12.25, 4.25));
+                p.line_to(pt(11.25, 6.5));
+                p.line_to(pt(9., 7.5));
+                p.line_to(pt(7., 7.));
+            }
+            "x-plug" => {
+                line(p, 5., 1.5, 5., 4.5);
+                line(p, 9., 1.5, 9., 4.5);
+                p.move_to(pt(3., 4.5));
+                p.line_to(pt(11., 4.5));
+                p.line_to(pt(11., 7.));
+                p.line_to(pt(9., 9.5));
+                p.line_to(pt(5., 9.5));
+                p.line_to(pt(3., 7.));
+                p.close();
+                line(p, 7., 9.5, 7., 12.5);
+            }
+            "x-chrome" => {
+                circle(p, 7., 7., 5.5);
+                circle(p, 7., 7., 2.25);
+                line(p, 7., 4.75, 11.75, 4.25);
+                line(p, 5.05, 8.1, 2.6, 4.);
+                line(p, 8.95, 8.1, 6.25, 12.45);
+            }
+            "x-info" => {
+                circle(p, 7., 7., 5.5);
+                line(p, 7., 6.25, 7., 10.);
+                line(p, 7., 4., 7., 4.6);
+            }
             f if f.starts_with("f-") => {
                 page(p);
                 let poly = |p: &mut PathBuilder, pts: &[(f32, f32)]| {

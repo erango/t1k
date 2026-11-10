@@ -136,7 +136,7 @@ fn contains(hay: &[u8], needle: &[u8]) -> bool {
 const OUTPUT_HINTS: &[&str] = &["https://", "pr-link", "\"file_path\"", "\"notebook_path\""];
 
 /// RFC 3339 UTC time as Claude writes it ("2026-11-09T20:30:31.123Z").
-fn parse_time(s: &str) -> Option<SystemTime> {
+pub(crate) fn parse_time(s: &str) -> Option<SystemTime> {
     let b = s.as_bytes();
     if b.len() < 19 || b[4] != b'-' || b[10] != b'T' {
         return None;

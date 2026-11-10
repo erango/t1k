@@ -94,6 +94,8 @@ impl PrInfo {
 #[derive(Default)]
 pub struct PanelState {
     pub open: bool,
+    /// Outputs, or Context for a Claude tab (canvas v3-au).
+    pub tab: crate::context_ui::PanelTab,
     pub scope: Scope,
     pub filter: Option<Kind>,
     /// The folded "N artifact links" row is open.
@@ -459,6 +461,14 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             .child(label.to_string())
     };
     let scope = ws.panel.scope;
+    // Claude tabs get a Context tab beside Outputs (canvas v3-au); others only Outputs.
+    let ctx_tab = ws.ctx_debug.is_some() || ws.tabs.get(ws.active).and_then(|t| t.agent.as_ref()).is_some_and(crate::context_ui::has_details);
+    let on_context = ctx_tab && ws.panel.tab == crate::context_ui::PanelTab::Context;
+    let title = if ctx_tab {
+        div().flex_1().ml(px(2.)).child(crate::context_ui::switch(ws, cx))
+    } else {
+        div().flex_1().ml(px(2.)).text_size(px(13. * k)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).child("Outputs")
+    };
     let header = div()
         .h(px(38.))
         .flex_none()
@@ -481,8 +491,8 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 .on_click(cx.listener(|this, _, _, cx| this.toggle_outputs(cx)))
                 .child(crate::icons::collapse_right(ui.text_tertiary)),
         )
-        .child(div().flex_1().ml(px(2.)).text_size(px(13. * k)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).child("Outputs"))
-        .child(seg("tab", "Tab", scope == Scope::Tab).on_click(cx.listener(|this, _, _, cx| {
+        .child(title)
+        .when(!on_context, |d| d.child(seg("tab", "Tab", scope == Scope::Tab).on_click(cx.listener(|this, _, _, cx| {
             this.panel.scope = Scope::Tab;
             this.refresh_prs(cx);
             cx.notify();
@@ -496,7 +506,20 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             this.panel.scope = Scope::All;
             this.refresh_prs(cx);
             cx.notify();
-        })));
+        }))));
+    if on_context {
+        return div()
+            .id("outputs-panel")
+            .w(px(380.))
+            .flex_none()
+            .h_full()
+            .flex()
+            .flex_col()
+            .bg(ui.bg_sidebar.opacity(ws.config.window.alpha()))
+            .child(header)
+            .child(div().flex_1().min_h_0().relative().child(crate::context_ui::pane(ws, cx)))
+            .into_any_element();
+    }
 
     // Filter chips: only kinds present, with counts.
     let mut chips = div().flex().flex_wrap().gap(px(4.)).px(px(12.)).pb(px(8.));

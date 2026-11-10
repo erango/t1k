@@ -87,17 +87,14 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
         _ => None,
     });
 
-    // Context meter: gray, amber from 70%, red from 90%.
-    let ctx = agent.filter(|a| a.status != Status::Ended).and_then(|a| {
-        let window = a.context_window()?;
-        let p = a.context_percent()?;
-        // Reported by the agent: the tokens follow from its percent, so the two always agree.
-        let used = if a.context_reported.is_some() { window * p as u64 / 100 } else { a.context_tokens? };
-        Some((p, used, window))
-    }).map(|(p, used, window)| {
+    // Context meter: gray, amber from 70%, red from 90%. A Claude tab's opens the context
+    // popover (canvas v3-au).
+    let details = agent.is_some_and(crate::context_ui::has_details);
+    let ctx = agent.filter(|a| a.status != Status::Ended).and_then(crate::context_ui::fill).map(|(p, used, window)| {
         let c = if p >= 90 { ui.status_error } else if p >= 70 { ui.status_needs } else { ui.text_quiet };
         let k = |n: u64| if n >= 1_000_000 { format!("{}M", n / 1_000_000) } else { format!("{}k", n / 1000) };
         let tip = format!("Context window: {} of {} tokens used ({p}%)", k(used), k(window));
+        let open = matches!(ws.overlay, Overlay::Context { .. });
         div()
             .id("context-meter")
             .tooltip(crate::tooltip::text(ui, tip))
@@ -105,6 +102,21 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
             .flex()
             .items_center()
             .gap(px(6.))
+            .px(px(6.))
+            .h(px(24.))
+            .rounded(px(5.))
+            .when(open, |d| d.bg(ui.bg_selected))
+            .when(details, |d| {
+                d.cursor_pointer()
+                    .hover(move |d| d.bg(ui.bg_selected))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(cx.listener(|this, ev: &gpui::ClickEvent, window, cx| {
+                        let p = ev.position();
+                        let at = gpui::point(p.x - px(160.), p.y + px(16.));
+                        this.open_overlay(Overlay::Context { at }, window, cx);
+                        this.context_tick(cx);
+                    }))
+            })
             .child(div().w(px(44.)).h(px(4.)).rounded(px(2.)).bg(ui.border).child(div().w(px(44. * p as f32 / 100.)).h(px(4.)).rounded(px(2.)).bg(c)))
             .child(mono(format!("{p}%"), if p >= 70 { c } else { ui.text_tertiary }))
     });

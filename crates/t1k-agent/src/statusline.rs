@@ -121,10 +121,19 @@ pub fn codex_rollout(tail: &str) -> Option<Usage> {
     None
 }
 
-/// What `t1k statusline` sends to the app: the plan limits and how full the context window
-/// is (two numbers), nothing else about the session.
+/// What `t1k statusline` sends to the app: the plan limits, how full the context window is,
+/// and the session's cost totals (numbers only), nothing else about the session.
 pub fn forward_payload(kind: AgentKind, statusline_json: &Value) -> Option<Value> {
     let mut out = json!({ "hook_event_name": EVENT, "t1k_agent": kind.id() });
+    if let Some(c) = cost(statusline_json) {
+        out["cost"] = json!({
+            "total_cost_usd": c.usd,
+            "total_duration_ms": c.duration_ms,
+            "total_api_duration_ms": c.api_ms,
+            "total_lines_added": c.lines_added,
+            "total_lines_removed": c.lines_removed,
+        });
+    }
     for key in ["rate_limits", "quota"] {
         if let Some(v) = statusline_json.get(key) {
             out[key] = v.clone();
@@ -135,6 +144,28 @@ pub fn forward_payload(kind: AgentKind, statusline_json: &Value) -> Option<Value
         out["context_window"] = json!({ "used_percentage": pct, "context_window_size": size });
     }
     (parse(&out).is_some() || ctx.is_some()).then_some(out)
+}
+
+/// What the session has cost so far, as Claude's status line reports it (subagents included).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Cost {
+    pub usd: f64,
+    pub duration_ms: u64,
+    pub api_ms: u64,
+    pub lines_added: u64,
+    pub lines_removed: u64,
+}
+
+pub fn cost(v: &Value) -> Option<Cost> {
+    let c = v.get("cost")?;
+    let n = |k: &str| c.get(k).and_then(Value::as_u64).unwrap_or(0);
+    Some(Cost {
+        usd: c.get("total_cost_usd").and_then(Value::as_f64)?,
+        duration_ms: n("total_duration_ms"),
+        api_ms: n("total_api_duration_ms"),
+        lines_added: n("total_lines_added"),
+        lines_removed: n("total_lines_removed"),
+    })
 }
 
 /// The context window as the agent reports it: (percent used, window size in tokens). Claude

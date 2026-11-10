@@ -20,6 +20,8 @@ pub enum Overlay {
     SidebarView { at: Point<Pixels> },
     /// The plan usage popover, pinned by clicking the meter.
     Usage { at: Point<Pixels> },
+    /// The context popover, from the strip's context meter (canvas v3-au).
+    Context { at: Point<Pixels> },
     /// T1K menu ▸ About T1K.
     About,
     /// First launch.
@@ -386,7 +388,7 @@ impl Workspace {
             o @ Overlay::TerminalMenu { .. } => (ev.keystroke.key != "escape").then_some(o),
             o @ Overlay::PaneMenu { .. } => (ev.keystroke.key != "escape").then_some(o),
             o @ Overlay::SidebarView { .. } => (ev.keystroke.key != "escape").then_some(o),
-            o @ Overlay::Usage { .. } => (ev.keystroke.key != "escape").then_some(o),
+            o @ (Overlay::Usage { .. } | Overlay::Context { .. }) => (ev.keystroke.key != "escape").then_some(o),
             o @ Overlay::MoreMenu { .. } => (ev.keystroke.key != "escape").then_some(o),
             Overlay::About => (!matches!(ev.keystroke.key.as_str(), "escape" | "enter")).then_some(Overlay::About),
             Overlay::Welcome => (!matches!(ev.keystroke.key.as_str(), "escape" | "enter")).then_some(Overlay::Welcome),
@@ -944,6 +946,12 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
         Overlay::Usage { at } => {
             let c = crate::usage::card_for(ws).on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
             Some(scrim(ws, true, cx).child(div().absolute().left(at.x.max(px(8.))).top(at.y).child(c)).into_any_element())
+        }
+        Overlay::Context { at } => {
+            let c = crate::context_ui::popover(ws, cx).on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
+            // The meter sits near the right edge: keep the 320 pt card inside the window.
+            let x = at.x.min(window.viewport_size().width - px(332.)).max(px(8.));
+            Some(scrim(ws, true, cx).child(div().absolute().left(x).top(at.y).child(c)).into_any_element())
         }
         Overlay::SidebarView { at } => {
             let m = sidebar_view_menu(ws, *at, cx);

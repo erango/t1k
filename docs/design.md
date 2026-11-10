@@ -112,6 +112,15 @@ Amber and red are used only for states where a person needs to act.
 - The badge counts NeedsInput and Error tabs only. (Superseded by v2 below: reminders that are due count too.)
 - ⌘J walks the queue from the longest-waiting tab. ⌘⇧J walks it backwards.
 
+## Context details (canvas v3-au)
+
+- Hidden until asked for. Clicking a Claude tab's context meter in the strip opens a popover: the % used, a stacked bar, the four biggest categories plus free space, the last compaction, and "Details ›".
+- Details opens the right-hand panel on its Context tab, beside Outputs. The tab only exists for Claude tabs.
+- Sections: NOW, COMPACTIONS, SESSION, REQUEST (open by default; COMPACTIONS only when there were any), then LOADED TOOLS, MEMORY FILES, MCP INSTRUCTIONS, SKILLS, SUBAGENTS, DEFERRED TOOLS (closed). Open and closed state is shared by every tab.
+- Only the total in context is exact. The breakdown is estimated from text size (characters ÷ 4) and marked "≈"; Messages is the total minus the estimates. Session totals include compacted history and subagents, and info icons say so.
+- Category colors come from the theme's ANSI blue, cyan, magenta and green and mixes of its fg and bg, never yellow or red. Neighbors too close in hue and lightness switch to the bright slot or a lightness step.
+- The transcript's `session_context` entry (the user's email) is never read.
+
 ## Motion
 
 - The Working arc completes one rotation every 900 ms.

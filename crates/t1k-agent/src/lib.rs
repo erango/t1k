@@ -4,6 +4,7 @@
 //! Claude's own title (`ai-title`), recaps (`away_summary`), PR links and API errors.
 
 pub mod agents;
+pub mod context;
 pub mod helper;
 pub mod hooks;
 pub mod outputs;

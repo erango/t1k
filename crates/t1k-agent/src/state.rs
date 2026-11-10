@@ -66,6 +66,8 @@ pub struct AgentState {
     pub color: Option<String>,
     /// The context window as the agent's status line reports it: (percent, window size).
     pub context_reported: Option<(f64, Option<u64>)>,
+    /// Cost and time totals from the agent's status line.
+    pub cost: Option<crate::statusline::Cost>,
     custom_title: bool,
     tail: Option<Tail>,
     /// Artifact publish calls waiting for their result, by tool call id.
@@ -96,6 +98,7 @@ impl AgentState {
             model: None,
             color: None,
             context_reported: None,
+            cost: None,
             custom_title: false,
             tail: None,
             artifact_calls: Default::default(),
@@ -258,6 +261,11 @@ impl AgentState {
     }
 
     /// Read new transcript entries. Returns true if anything visible changed.
+    /// The transcript being read, if any.
+    pub fn transcript(&self) -> Option<&std::path::Path> {
+        self.tail.as_ref().map(|t| t.path.as_path())
+    }
+
     pub fn poll_transcript(&mut self) -> bool {
         let Some(tail) = self.tail.as_mut() else { return false };
         let entries = tail.poll();

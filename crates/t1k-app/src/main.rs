@@ -17,6 +17,7 @@ mod brand;
 mod bug_report;
 mod cli;
 mod config;
+mod context_ui;
 mod input;
 mod links;
 mod markdown;
