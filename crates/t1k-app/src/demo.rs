@@ -54,7 +54,6 @@ fn ago_sys(secs: u64) -> SystemTime {
 /// A project group: its folder under ~/code (also its name), ANSI color (1-6), and icon.
 struct Group {
     dir: &'static str,
-    color: u8,
     icon: Option<Icon>,
 }
 
@@ -100,11 +99,11 @@ enum Screen {
 
 fn groups() -> Vec<Group> {
     vec![
-        Group { dir: "payments-api", color: 5, icon: Some(Icon::Emoji("💳".into())) },
-        Group { dir: "acme-web", color: 4, icon: Some(Icon::Emoji("🛒".into())) },
-        Group { dir: "infra-terraform", color: 3, icon: Some(Icon::Emoji("🏗️".into())) },
-        Group { dir: "mobile-app", color: 2, icon: Some(Icon::Emoji("📱".into())) },
-        Group { dir: "docs", color: 6, icon: Some(Icon::App("com.apple.Notes".into())) },
+        Group { dir: "payments-api", icon: Some(Icon::Emoji("💳".into())) },
+        Group { dir: "acme-web", icon: Some(Icon::Emoji("🛒".into())) },
+        Group { dir: "infra-terraform", icon: Some(Icon::Emoji("🏗️".into())) },
+        Group { dir: "mobile-app", icon: Some(Icon::Emoji("📱".into())) },
+        Group { dir: "docs", icon: Some(Icon::App("com.apple.Notes".into())) },
     ]
 }
 
@@ -145,7 +144,6 @@ pub fn populate(ws: &mut Workspace, window: &mut Window, cx: &mut Context<Worksp
     let groups = groups();
     let keys: Vec<PathBuf> = groups.iter().map(|g| code.join(g.dir)).collect();
     for (g, key) in groups.iter().zip(&keys) {
-        ws.group_colors.insert(key.clone(), g.color);
         if let Some(icon) = &g.icon {
             ws.group_icons.insert(key.clone(), icon.clone());
         }

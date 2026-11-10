@@ -92,7 +92,7 @@ collapsed = "rail"
 # Rest the pointer on the rail this long to see the full sidebar over the terminal. 0: never.
 peek_ms = 400
 # Group colors (the line down a group's tabs and along the top of the title bar):
-# "auto" (blue, magenta or cyan by name; neighbors differ) or "manual" (only colors you pick).
+# "auto" (a pastel rainbow, in order down the sidebar) or "manual" (only colors you pick).
 group_colors = "auto"
 # How a Claude session's /color shows on its tab: "swatch" (a small bar before the title),
 # "corner" (a triangle on the icon), "tint" (the row), "line" (the group line beside it), "off".

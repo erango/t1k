@@ -130,3 +130,32 @@ mod tests {
         assert_eq!(project_root(&wt), main);
     }
 }
+
+/// Group colors: a pastel rainbow, in rainbow order (rose, peach, butter, mint, aqua, sky,
+/// lavender). Pastel so they never read as a status: needs-you amber, error red and done
+/// green are saturated, these are not. Index 1-7.
+pub const RAINBOW: usize = 7;
+const RAINBOW_HUES: [f32; RAINBOW] = [350., 24., 48., 140., 182., 214., 268.];
+
+/// The `i`th rainbow color (1-7, wrapping) for a dark or light theme: light and soft on
+/// dark, a step deeper on light so a 2 px line still shows.
+pub fn rainbow(i: u8, dark: bool) -> gpui::Hsla {
+    let hue = RAINBOW_HUES[(i.max(1) as usize - 1) % RAINBOW];
+    let (s, l) = if dark { (0.62, 0.78) } else { (0.48, 0.62) };
+    gpui::hsla(hue / 360., s, l, 1.)
+}
+
+/// Colors picked before the rainbow were the theme's ANSI hues (1 red, 2 green, 3 yellow,
+/// 4 blue, 5 magenta, 6 cyan): the nearest rainbow color. Rainbow picks are saved as 11-17.
+pub fn rainbow_from_saved(v: u8) -> u8 {
+    match v {
+        11..=17 => v - 10,
+        1 => 1,
+        2 => 4,
+        3 => 3,
+        4 => 6,
+        5 => 7,
+        6 => 5,
+        _ => 1,
+    }
+}

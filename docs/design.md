@@ -112,6 +112,12 @@ Amber and red are used only for states where a person needs to act.
 - The badge counts NeedsInput and Error tabs only. (Superseded by v2 below: reminders that are due count too.)
 - ⌘J walks the queue from the longest-waiting tab. ⌘⇧J walks it backwards.
 
+## Rainbow
+
+- Group colors are a pastel rainbow in rainbow order: rose, peach, butter, mint, aqua, sky, lavender (`groups::rainbow`). Pastel, so none reads as a status: needs-you amber, error red and done green are saturated, these are not. Softer and lighter on dark themes, a step deeper on light ones.
+- With automatic colors, groups take the rainbow in order down the sidebar, so they always make a rainbow; the eighth group starts over. A color picked for a group stays, and the others keep their places.
+- The Outputs panel does the same by section: each section shown takes the next color, for its heading and its rows' icons. PR cards keep their state colors.
+
 ## Quick terminal (canvas v3-ay)
 
 - A panel over whatever app you're in, on a global shortcut (⌃⌥T by default, a Carbon hot key: no Accessibility permission). Off until switched on in Settings › Quick terminal or the hint card's "Try it".

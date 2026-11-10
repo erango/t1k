@@ -1010,17 +1010,17 @@ struct Group {
     rows: Vec<Mini>,
 }
 
-/// The group's line color when groups get colors on their own (the theme's ANSI hues).
+/// The group's line color when groups get colors on their own (the rainbow, in order).
 fn group_hue(ws: &Workspace, label: &str) -> Option<Hsla> {
     if ws.config.sidebar.group_colors == "manual" {
         return None;
     }
     let i = match label {
-        "t1k" => 4,
-        "infra-terraform" => 6,
-        _ => 2,
+        "t1k" => 1,
+        "infra-terraform" => 2,
+        _ => 3,
     };
-    Some(gpui::rgb(ws.theme.ansi[i]).into())
+    Some(crate::groups::rainbow(i, ws.theme.is_dark()))
 }
 
 /// (one-line row, two-line row, icon) in the preview: the sidebar's sizes at 0.88, so

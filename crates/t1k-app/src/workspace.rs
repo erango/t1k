@@ -523,7 +523,7 @@ impl Workspace {
             recent: Vec::new(),
             recent_open: HashSet::new(),
             group_names: saved.group_names.iter().cloned().collect(),
-            group_colors: saved.group_colors.iter().cloned().collect(),
+            group_colors: saved.group_colors.iter().map(|(k, v)| (k.clone(), groups::rainbow_from_saved(*v))).collect(),
             group_sort: saved.group_sort.iter().cloned().collect(),
             group_order: saved.group_order.clone(),
             group_icons: saved.group_icons.iter().cloned().collect(),
@@ -1575,9 +1575,7 @@ impl Workspace {
     pub fn group_color(&self, key: &PathBuf) -> Option<gpui::Hsla> {
         let picked = self.group_colors.get(key).copied();
         let auto = (self.config.sidebar.group_colors != "manual").then(|| self.auto_hues.get(key).copied()).flatten();
-        let i = picked.or(auto)? as usize;
-        let c = self.theme.ansi.get(i.clamp(1, 6))?;
-        Some(gpui::rgb(*c).into())
+        Some(groups::rainbow(picked.or(auto)?, self.theme.is_dark()))
     }
 
     /// Move a tab into a group by hand, or back to its folder's group with `None`.
@@ -1771,31 +1769,18 @@ impl Workspace {
         }
     }
 
-    /// Automatic hues: blue, magenta or cyan by a hash of the group's key (never the status
-    /// colors), stepping to the next hue when the group above has the same one. Worked out
-    /// again only when the order changes, so colors don't shuffle while you work.
+    /// Automatic colors: the rainbow in order down the sidebar, so the groups always make a
+    /// rainbow (the eighth starts over). A color you picked for a group stays; the groups
+    /// after it carry on from their own places. Worked out again only when the order changes.
     fn update_hues(&mut self) {
         let order: Vec<PathBuf> = self.grouped().into_iter().map(|(g, _)| g).collect();
         if order == self.hues_for {
             return;
         }
-        const HUES: [u8; 3] = [4, 5, 6];
-        let mut prev: Option<u8> = None;
         self.auto_hues.clear();
-        for g in &order {
-            let hue = match self.group_colors.get(g) {
-                Some(&c) => c,
-                None => {
-                    let h = g.to_string_lossy().bytes().fold(2166136261u32, |h, b| (h ^ b as u32).wrapping_mul(16777619));
-                    let mut i = (h % 3) as usize;
-                    if prev == Some(HUES[i]) {
-                        i = (i + 1) % 3;
-                    }
-                    HUES[i]
-                }
-            };
+        for (n, g) in order.iter().enumerate() {
+            let hue = self.group_colors.get(g).copied().unwrap_or((n % groups::RAINBOW) as u8 + 1);
             self.auto_hues.insert(g.clone(), hue);
-            prev = Some(hue);
         }
         self.hues_for = order;
     }
@@ -2583,7 +2568,8 @@ impl Workspace {
             recent: self.recent.clone(),
             window: self.window_frame,
             welcomed: true,
-            group_colors: self.group_colors.iter().map(|(k, v)| (k.clone(), *v)).collect(),
+            // 11-17: a rainbow color (1-6 were ANSI hues, in older sessions).
+            group_colors: self.group_colors.iter().map(|(k, v)| (k.clone(), *v + 10)).collect(),
             group_sort: self.group_sort.iter().map(|(k, v)| (k.clone(), *v)).collect(),
             group_order: self.group_order.clone(),
             group_icons: self.group_icons.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),

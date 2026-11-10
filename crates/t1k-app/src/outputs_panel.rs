@@ -559,6 +559,10 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
     // The demo's files are made up: they'd all read as deleted.
     let demo = crate::demo::on();
     let mut n = 0usize;
+    // Each section shown takes the next rainbow color (the groups' pastels), so a few
+    // sections make a rainbow: its heading, and its rows' icons.
+    let dark = ws.theme.is_dark();
+    let mut hue_n = 0u8;
     for (label, kinds) in sections {
         let in_section: Vec<&&(usize, Output)> = items.iter().filter(|(_, o)| kinds.contains(&o.kind)).collect();
         if in_section.is_empty() {
@@ -602,6 +606,8 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 rows.extend(deleted.into_iter().map(|x| Row::Out(x, true)));
             }
         }
+        hue_n += 1;
+        let tone = crate::groups::rainbow(hue_n, dark);
         list = list.child(
             div()
                 .h(px(24.))
@@ -612,7 +618,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 .gap(px(6.))
                 .text_size(px(10.5 * k))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(ui.text_tertiary)
+                .text_color(tone)
                 .child(label)
                 .child(div().font_family("JetBrains Mono").text_color(ui.text_disabled).child(total.to_string())),
         );
@@ -852,7 +858,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .child(crate::icons::artifact(t1k_agent::outputs::file_icon(&o.target), if gone { ui.text_disabled } else { ui.text_secondary }, 24.)),
+                                .child(crate::icons::artifact(t1k_agent::outputs::file_icon(&o.target), if gone { ui.text_disabled } else { tone }, 24.)),
                         ),
                         // Docs and artifacts too: the icon alone, bigger (no tile).
                         Kind::Artifact | Kind::Doc => d.child(
@@ -867,7 +873,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                                         Kind::Doc => t1k_agent::outputs::doc_kind(&o.target).0,
                                         _ => o.icon.as_deref().unwrap_or("link"),
                                     },
-                                    ui.text_secondary,
+                                    tone,
                                     24.,
                                 )),
                         ),
@@ -879,10 +885,10 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .child(crate::icons::artifact(t1k_agent::outputs::ticket_icon(&o.target), ui.text_secondary, 20.)),
+                                .child(crate::icons::artifact(t1k_agent::outputs::ticket_icon(&o.target), tone, 20.)),
                         ),
                         // In the same 28 pt slot as the rest, so every title lines up.
-                        _ => d.child(div().size(px(28.)).flex_none().flex().items_center().justify_center().text_size(px(13. * k)).text_color(ui.text_tertiary).child(icon(o.kind))),
+                        _ => d.child(div().size(px(28.)).flex_none().flex().items_center().justify_center().text_size(px(13. * k)).text_color(tone).child(icon(o.kind))),
                     })
                     .child(
                         div()

@@ -1679,12 +1679,12 @@ fn group_menu(ws: &Workspace, key: std::path::PathBuf, at: Point<Pixels>, window
             })),
     );
 
-    // Color: none plus the theme's six ANSI hues.
+    // Color: none (its place in the rainbow) plus the seven rainbow colors.
     m = m.child(sep()).child(heading("Color"));
     let current = ws.group_colors.get(&key).copied();
     let mut swatches = div().flex().gap(px(6.)).px(px(10.)).pb(px(6.));
-    for i in 0u8..=6 {
-        let color: Option<gpui::Hsla> = (i > 0).then(|| gpui::rgb(ws.theme.ansi[i as usize]).into());
+    for i in 0u8..=crate::groups::RAINBOW as u8 {
+        let color: Option<gpui::Hsla> = (i > 0).then(|| crate::groups::rainbow(i, ws.theme.is_dark()));
         let on = current.unwrap_or(0) == i;
         let k = key.clone();
         swatches = swatches.child(
