@@ -397,6 +397,14 @@ pub fn artifact(kind: &str, color: Hsla, size: f32) -> impl IntoElement {
                 line(p, 8., 12., 8., 5.);
                 line(p, 11., 12., 11., 3.);
             }
+            // A frame with a play mark: a Motion artifact (animation, video).
+            "motion" => {
+                rect(p, 1.5, 2.5, 12.5, 11.5);
+                p.move_to(pt(5.75, 4.75));
+                p.line_to(pt(9.5, 7.));
+                p.line_to(pt(5.75, 9.25));
+                p.close();
+            }
             "slides" => {
                 rect(p, 1.5, 2.5, 12.5, 9.5);
                 line(p, 7., 9.5, 7., 12.);

@@ -166,6 +166,12 @@ pub struct AgentState {
     tail: Option<Tail>,
     /// Artifact publish calls waiting for their result, by tool call id.
     artifact_calls: std::collections::HashMap<String, ArtifactCall>,
+    /// The last Artifact quickstart's intent ("slides", "design", "document").
+    artifact_intent: Option<String>,
+    /// Read / list calls waiting for their result, by tool call id: the artifact's URL.
+    artifact_seen: std::collections::HashMap<String, String>,
+    /// Artifacts whose type a result named, by canonical URL: that type's icon.
+    artifact_types: std::collections::HashMap<String, &'static str>,
     /// When the transcript line being applied was written (outputs keep their real time).
     stamp: Option<SystemTime>,
     /// Outputs from the part of the transcript attaching skipped, read on a thread.
@@ -200,6 +206,9 @@ impl AgentState {
             custom_title: false,
             tail: None,
             artifact_calls: Default::default(),
+            artifact_intent: None,
+            artifact_seen: Default::default(),
+            artifact_types: Default::default(),
             stamp: None,
             history: None,
         }
@@ -233,7 +242,12 @@ impl AgentState {
         if let Some(t) = title.or_else(|| (o.icon.is_none()).then(|| call.description.as_deref().map(first_words)).flatten()) {
             o.label = t;
         }
-        if let Some(i) = call.icon.as_deref() {
+        if let Some(known) = self.artifact_types.get(&target) {
+            o.icon = Some(known.to_string());
+        } else if call.typed && call.icon.is_some() {
+            // Already a type's icon kind (from the quickstart's intent).
+            o.icon = call.icon.clone();
+        } else if let Some(i) = call.icon.as_deref() {
             o.icon = Some(crate::outputs::artifact_icon(i).to_string());
         } else if o.icon.is_none() {
             o.icon = Some("page".into());
@@ -528,8 +542,26 @@ impl AgentState {
                 }
                 self.add_url(&u);
             }
-            Entry::ArtifactCall { tool_id, icon, description, title, file } => {
-                self.artifact_calls.insert(tool_id, ArtifactCall { icon, description, title, file });
+            Entry::ArtifactCall { tool_id, icon, description, title, file, typed } => {
+                // A typed artifact takes the icon of what the session set out to make.
+                let icon = if typed { self.artifact_intent.as_deref().and_then(crate::outputs::artifact_type_icon).map(str::to_string).or(icon) } else { icon };
+                self.artifact_calls.insert(tool_id, ArtifactCall { typed, icon, description, title, file });
+            }
+            Entry::ArtifactIntent(i) => self.artifact_intent = Some(i),
+            Entry::ArtifactSeen { tool_id, url } => {
+                self.artifact_seen.insert(tool_id, url);
+            }
+            // A read or list said what type an artifact is: its row takes that type's icon.
+            Entry::ArtifactType { tool_id, name } => {
+                let known = self.artifact_seen.remove(&tool_id).and_then(|u| classify(&u)).map(|(_, target, _)| target);
+                if let (Some(target), Some(icon)) = (known, crate::outputs::artifact_type_icon(&name)) {
+                    // Only pages this session published get a row of their own; one it only
+                    // looked at stays folded with the links, and takes the icon if it publishes.
+                    if let Some(o) = self.outputs.iter_mut().find(|o| o.target == target && o.icon.is_some()) {
+                        o.icon = Some(icon.to_string());
+                    }
+                    self.artifact_types.insert(target, icon);
+                }
             }
             Entry::ArtifactResult { tool_id, url } => {
                 if let Some(call) = self.artifact_calls.remove(&tool_id) {
@@ -567,6 +599,31 @@ impl AgentState {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn typed_artifacts_take_their_types_icon() {
+        let dir = std::env::temp_dir().join(format!("t1k-typed-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let t = dir.join("t.jsonl");
+        let lines = [
+            // A deck: the quickstart says slides, then a publish from a type.
+            json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":"q","name":"Artifact","input":{"action":"quickstart","intent":"slides"}}]}}),
+            json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":"p","name":"Artifact","input":{"type_url":"https://claude.ai/artifact/type1","title":"Q3 review"}}]}}),
+            json!({"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"p","content":"Created a new Artifact at https://claude.ai/artifact/deck1 from the Artifact type https://claude.ai/artifact/type1"}]}}),
+            // A canvas from an earlier session: a read names its type, a later publish updates it.
+            json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":"r","name":"Artifact","input":{"action":"read","url":"https://claude.ai/artifact/canvas1"}}]}}),
+            json!({"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"r","content":"File of an Artifact of type \"Design\" saved: \"/tmp/x\""}]}}),
+            json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":"u","name":"Artifact","input":{"url":"https://claude.ai/artifact/canvas1","file_path":"/nope/board.html","title":"Boards"}}]}}),
+            json!({"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"u","content":"Published https://claude.ai/artifact/canvas1"}]}}),
+        ];
+        std::fs::write(&t, lines.iter().map(|l| l.to_string()).collect::<Vec<_>>().join("\n") + "\n").unwrap();
+        let mut a = AgentState::restored("s".into(), t);
+        a.poll_transcript();
+        let icon = |url: &str| a.outputs.iter().find(|o| o.target == url).and_then(|o| o.icon.clone());
+        assert_eq!(icon("https://claude.ai/artifact/deck1").as_deref(), Some("slides"));
+        assert_eq!(icon("https://claude.ai/artifact/canvas1").as_deref(), Some("design"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     #[test]
     fn a_turn_that_leaves_work_running_is_watching() {
@@ -652,6 +709,8 @@ mod tests {
 
 #[derive(Debug, Clone, PartialEq)]
 struct ArtifactCall {
+    /// Made from an Artifact type: its icon follows the type, not an icon word.
+    typed: bool,
     icon: Option<String>,
     description: Option<String>,
     title: Option<String>,

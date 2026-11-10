@@ -18,7 +18,14 @@ const READ_CHUNK: u64 = 2 << 20;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Entry {
     /// An Artifact publish call: its icon word, description, title and source file.
-    ArtifactCall { tool_id: String, icon: Option<String>, description: Option<String>, title: Option<String>, file: Option<String> },
+    ArtifactCall { tool_id: String, icon: Option<String>, description: Option<String>, title: Option<String>, file: Option<String>, typed: bool },
+    /// What the session set out to make (an Artifact quickstart's intent: slides, design...).
+    ArtifactIntent(String),
+    /// A call that looks at an existing artifact (read, list, open): its result may name
+    /// the artifact's type.
+    ArtifactSeen { tool_id: String, url: String },
+    /// A tool result naming an artifact's type ("Design", "Slides").
+    ArtifactType { tool_id: String, name: String },
     /// The result of a tool call, naming the artifact page it published.
     ArtifactResult { tool_id: String, url: String },
     /// The session's `/color` (None: reset).
@@ -50,7 +57,15 @@ impl Entry {
     fn is_output(&self) -> bool {
         matches!(
             self,
-            Entry::Url(_) | Entry::PrLink { .. } | Entry::ArtifactCall { .. } | Entry::ArtifactResult { .. } | Entry::FileEdit(_) | Entry::Stamp(_)
+            Entry::Url(_)
+                | Entry::PrLink { .. }
+                | Entry::ArtifactCall { .. }
+                | Entry::ArtifactResult { .. }
+                | Entry::ArtifactIntent(_)
+                | Entry::ArtifactSeen { .. }
+                | Entry::ArtifactType { .. }
+                | Entry::FileEdit(_)
+                | Entry::Stamp(_)
         )
     }
 }
@@ -177,7 +192,7 @@ fn file_edits(msg: &Value, out: &mut Vec<Entry>) {
 }
 
 const INTERESTING: &[&str] =
-    &["\"file_path\"", "\"notebook_path\"", "\"ai-title\"", "\"custom-title\"", "\"agent-color\"", "\"Artifact\"", "away_summary", "api_error", "pr-link", "turn_duration", "\"turnOrigin\"", "\"gitBranch\"", "\"usage\"", "[Request interrupted by user"];
+    &["\"file_path\"", "\"notebook_path\"", "\"ai-title\"", "\"custom-title\"", "\"agent-color\"", "\"Artifact\"", "Artifact of type", "away_summary", "api_error", "pr-link", "turn_duration", "\"turnOrigin\"", "\"gitBranch\"", "\"usage\"", "[Request interrupted by user"];
 
 /// Text that can mention session outputs: Claude's replies, the user's prompts, and tool
 /// results from tools like artifact publishing, but not file contents or shell output.
@@ -227,9 +242,21 @@ fn artifact_calls(msg: &Value, out: &mut Vec<Entry>) {
         }
         let input = &it["input"];
         let s = |k: &str| input.get(k).and_then(Value::as_str).map(str::to_string);
-        // Reads, lists and deletes say nothing about a page.
-        if !matches!(s("action").as_deref(), None | Some("publish")) {
-            continue;
+        let id = it.get("id").and_then(Value::as_str).unwrap_or_default().to_string();
+        match s("action").as_deref() {
+            None | Some("publish") => {}
+            Some("quickstart") => {
+                out.extend(s("intent").map(Entry::ArtifactIntent));
+                continue;
+            }
+            // Reads and lists say nothing about a page but its type, in their result.
+            Some("read" | "list" | "open") => {
+                if let Some(url) = s("url") {
+                    out.push(Entry::ArtifactSeen { tool_id: id, url });
+                }
+                continue;
+            }
+            _ => continue,
         }
         out.push(Entry::ArtifactCall {
             tool_id: it.get("id").and_then(Value::as_str).unwrap_or_default().to_string(),
@@ -237,6 +264,8 @@ fn artifact_calls(msg: &Value, out: &mut Vec<Entry>) {
             description: s("description"),
             title: s("title"),
             file: s("file_path"),
+            // Made from an Artifact type (slides, a design canvas...): no icon word of its own.
+            typed: s("type_url").is_some(),
         });
     }
 }
@@ -255,6 +284,10 @@ fn artifact_results(msg: &Value, out: &mut Vec<Entry>) {
             Value::String(s) => text.push_str(s),
             Value::Array(a) => a.iter().filter_map(|x| x.get("text").and_then(Value::as_str)).for_each(|t| text.push_str(t)),
             _ => {}
+        }
+        // "an Artifact of type "Design"": what kind of artifact a read or list looked at.
+        if let Some(name) = text.split("Artifact of type \"").nth(1).and_then(|r| r.split('"').next()).filter(|n| !n.is_empty() && n.len() <= 40) {
+            out.push(Entry::ArtifactType { tool_id: id.to_string(), name: name.to_string() });
         }
         // The page it published is the first artifact link (a type's own link comes later).
         if let Some(url) = crate::outputs::urls_in(&text).into_iter().find(|u| matches!(crate::outputs::classify(u), Some((crate::outputs::Kind::Artifact, _, _)))) {

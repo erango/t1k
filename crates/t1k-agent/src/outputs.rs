@@ -41,6 +41,29 @@ pub struct Output {
 }
 
 /// Map the Artifact tool's free-form `icon` word to one of T1K's artifact icons (canvas v3-ae).
+/// The icon for an artifact made from an Artifact type, from the type's name ("Slides",
+/// "Design", "Docs", "Dashboard", "Motion") or a quickstart intent. None for names that say
+/// nothing ("other").
+pub fn artifact_type_icon(name: &str) -> Option<&'static str> {
+    let n = name.trim().to_ascii_lowercase();
+    let has = |w: &str| n.contains(w);
+    if has("slide") || has("deck") || has("presentation") {
+        Some("slides")
+    } else if has("dashboard") {
+        Some("dashboard")
+    } else if has("motion") || has("video") || has("animation") {
+        Some("motion")
+    } else if has("design") {
+        Some("design")
+    } else if has("doc") {
+        Some("doc")
+    } else if has("sheet") || has("table") {
+        Some("table")
+    } else {
+        None
+    }
+}
+
 pub fn artifact_icon(word: &str) -> &'static str {
     let w = word.trim().to_ascii_lowercase();
     let any = |ws: &[&str]| ws.contains(&w.as_str());
