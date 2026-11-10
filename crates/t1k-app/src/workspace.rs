@@ -93,6 +93,15 @@ impl Tab {
         self.asker().and_then(|h| h.agent.as_ref()).or(self.agent.as_ref())
     }
 
+    /// What the main pane's session still watches after its turn ended (canvas v3-ax): it
+    /// will carry on by itself, so it counts as working, in no color.
+    pub fn watching(&self) -> Option<&t1k_agent::state::Watch> {
+        if self.asker().is_some() {
+            return None;
+        }
+        self.agent.as_ref().and_then(|a| a.watching())
+    }
+
     /// The tab's status: a helper pane's error or question first, else the main pane's.
     pub fn status(&self) -> Option<&Status> {
         match self.asker() {
@@ -111,6 +120,10 @@ impl Tab {
     }
 
     pub fn urgency(&self) -> u8 {
+        // Watching sorts with working: it will act again by itself.
+        if self.watching().is_some() && !self.unread && !self.reminder_due {
+            return 3;
+        }
         let base = self.status().map(|s| s.urgency(self.unread)).unwrap_or(if self.unread { 2 } else { 5 });
         if self.reminder_due { base.min(2) } else { base }
     }
@@ -179,6 +192,9 @@ impl Tab {
                 Status::Error { message } => return message.clone(),
                 _ => {}
             }
+        }
+        if let Some(w) = self.watching() {
+            return w.describe();
         }
         if let Some(a) = &self.agent {
             let line = match &a.status {
@@ -816,6 +832,18 @@ impl Workspace {
                     "needs" => { a.apply_hook(Hook::Notification { message: "Claude needs your permission to use Bash".into() }); }
                     "error" => { a.apply_hook(Hook::Stop); }
                     "done" => { a.apply_hook(Hook::Stop); }
+                    // Watching (canvas v3-ax): `watching` has agents, a monitor and a wake-up;
+                    // `watching-agents` only background agents (no countdown).
+                    "watching" | "watching-agents" => {
+                        let wake = (state == "watching").then(|| (SystemTime::now() + Duration::from_secs(235), Some("Waiting for CI".to_string())));
+                        a.set_watch(t1k_agent::state::Watch {
+                            agents: 2,
+                            commands: Vec::new(),
+                            monitors: if state == "watching" { vec!["CI checks".into()] } else { Vec::new() },
+                            wake,
+                            since: Instant::now() - Duration::from_secs(12 * 60),
+                        });
+                    }
                     // A Codex session with no title or recap that just finished: the helper
                     // fills both (needs [helper] backend set).
                     "helper" => {
@@ -1948,6 +1976,10 @@ impl Workspace {
         for t in &mut self.tabs {
             if let Some(a) = t.agent.as_mut() {
                 changed |= a.poll_transcript();
+                // It woke by itself and went back to watching with nothing new to read.
+                if a.take_quiet_return() {
+                    t.unread = false;
+                }
             }
             let term = &t.view.read(cx).terminal;
             let cwd = term.cwd();
@@ -2453,6 +2485,8 @@ impl Workspace {
             && !t.reminder_due
             && t.reminder_at.is_none()
             && t.program.is_none()
+            // A watching tab is still at work (canvas v3-ax): it never folds away.
+            && t.watching().is_none()
             && matches!(t.status(), None | Some(Status::Done) | Some(Status::Idle) | Some(Status::Ended))
     }
 

@@ -112,6 +112,15 @@ Amber and red are used only for states where a person needs to act.
 - The badge counts NeedsInput and Error tabs only. (Superseded by v2 below: reminders that are due count too.)
 - ⌘J walks the queue from the longest-waiting tab. ⌘⇧J walks it backwards.
 
+## Watching (canvas v3-ax)
+
+- A Claude session whose turn ended but that will carry on by itself (background agents still running, a background command or monitor it started, a scheduled wake-up) is Watching, not Done. It needs nobody, so it has no color.
+- Glyph: a ring of 8 dots, one brighter dot stepping round once a second (static with Reduce Motion), at the row's right end where Working has its spinner, after the time: a countdown ("in 4m") when a wake-up is scheduled, else how long it has watched.
+- The status line says what: "Watching 2 background agents", "Watching npm run dev", "Waiting for CI · checks again in 4m", "Watching 2 agents and 1 command". The card lists each thing and says closing the tab stops them.
+- It counts as working: it sorts with Working, never folds into "+N quiet", and closing it asks first. It isn't in Needs you or the Dock badge.
+- A turn that started by itself and went back to watching with the same recap doesn't turn the tab unread. A wake-up that doesn't come shows "now" for a minute, then stops counting.
+- Known from: the tool calls of the turn (hooks) and the background-agent count the transcript records when a turn ends. A background command from an earlier turn isn't tracked.
+
 ## Broadcast input (canvas v3-aw)
 
 - What you type goes to several terminals: this tab's panes (⌥⌘I), a group's tabs (group menu, palette), or tabs ticked in the sidebar (palette). It needs at least two.

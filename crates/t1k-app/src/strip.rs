@@ -39,8 +39,15 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
             Status::Idle => ("Idle", ui.text_quiet, a.recap.clone()),
             Status::Ended => ("Ended", ui.text_tertiary, None),
         };
+        // Watching (canvas v3-ax): the ring and what it waits on, in no color.
+        let watch = a.watching();
+        let (state, tone, detail) = match watch {
+            Some(w) => ("Watching", ui.text_secondary, Some(w.describe().trim_start_matches("Watching ").to_string())),
+            None => (state, tone, detail),
+        };
         let loud = matches!(a.status, Status::NeedsInput { .. } | Status::Error { .. });
         let marker = match a.status {
+            _ if watch.is_some() => div().size(px(11.)).child(crate::sidebar::watch_ring(ui.text_tertiary, ws.started, 4.25)),
             Status::Working => div().size(px(10.)).child(crate::sidebar::spinner_sized(ui.status_working, ws.started, 3.6)),
             Status::Idle | Status::Ended => div().size(px(8.)).rounded_full().border_1().border_color(tone),
             // Loud states get a soft halo.
@@ -77,7 +84,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
             .children(detail.filter(|d| !d.is_empty()).map(|d| {
                 div().min_w_0().truncate().text_size(px(12.5)).text_color(ui.text_tertiary).child(format!("· {d}"))
             }))
-            .child(mono(ago(a.since), if loud { tone } else { ui.text_tertiary }))
+            .child(mono(watch.map(|w| ago(w.since)).unwrap_or_else(|| ago(a.since)), if loud { tone } else { ui.text_tertiary }))
             .child(div().flex_none().ml(px(5.)).w(px(1.)).h(px(16.)).bg(ui.border))
     });
     // E: loud states tint the whole strip, with a 2 px top edge in their color.

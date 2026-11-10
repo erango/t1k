@@ -29,7 +29,10 @@ pub enum Entry {
     ApiError(String),
     PrLink { url: String, number: u64 },
     Branch(String),
-    TurnDone { duration_ms: u64 },
+    /// A turn ended: how long it took, and how many background agents it left running.
+    TurnDone { duration_ms: u64, background_agents: u64 },
+    /// A turn started by itself (a background task reported, a scheduled wake-up fired).
+    SelfStarted,
     /// A link worth listing as a session output (PR, artifact, doc, ticket, deploy).
     Url(String),
     /// Tokens in the context window as of an assistant reply (input + cache), and the model.
@@ -174,7 +177,7 @@ fn file_edits(msg: &Value, out: &mut Vec<Entry>) {
 }
 
 const INTERESTING: &[&str] =
-    &["\"file_path\"", "\"notebook_path\"", "\"ai-title\"", "\"custom-title\"", "\"agent-color\"", "\"Artifact\"", "away_summary", "api_error", "pr-link", "turn_duration", "\"gitBranch\"", "\"usage\"", "[Request interrupted by user"];
+    &["\"file_path\"", "\"notebook_path\"", "\"ai-title\"", "\"custom-title\"", "\"agent-color\"", "\"Artifact\"", "away_summary", "api_error", "pr-link", "turn_duration", "\"turnOrigin\"", "\"gitBranch\"", "\"usage\"", "[Request interrupted by user"];
 
 /// Text that can mention session outputs: Claude's replies, the user's prompts, and tool
 /// results from tools like artifact publishing, but not file contents or shell output.
@@ -310,7 +313,10 @@ pub fn parse_line(line: &[u8]) -> Option<Vec<Entry>> {
                 out.push(Entry::ApiError(msg.unwrap_or_else(|| "API error".into())));
             }
             Some("turn_duration") => {
-                out.push(Entry::TurnDone { duration_ms: v.get("durationMs").and_then(Value::as_u64).unwrap_or(0) })
+                out.push(Entry::TurnDone {
+                    duration_ms: v.get("durationMs").and_then(Value::as_u64).unwrap_or(0),
+                    background_agents: v.get("pendingBackgroundAgentCount").and_then(Value::as_u64).unwrap_or(0),
+                })
             }
             _ => {}
         },
@@ -318,6 +324,9 @@ pub fn parse_line(line: &[u8]) -> Option<Vec<Entry>> {
     }
     if v.get("type").and_then(Value::as_str) == Some("user") {
         artifact_results(&v["message"], &mut out);
+    }
+    if v.get("type").and_then(Value::as_str) == Some("user") && v.get("turnOrigin").and_then(Value::as_str).is_some_and(|o| o != "user") {
+        out.push(Entry::SelfStarted);
     }
     if v.get("type").and_then(Value::as_str) == Some("user") && s.contains("[Request interrupted by user") {
         out.push(Entry::Interrupted);

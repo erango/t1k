@@ -37,6 +37,92 @@ impl Status {
     }
 }
 
+/// What a session is still waiting on after its turn ended: it will carry on by itself
+/// (canvas v3-ax). Nothing here needs a person.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Watch {
+    /// Background agents still running.
+    pub agents: u64,
+    /// Background commands the turn started ("npm run dev").
+    pub commands: Vec<String>,
+    /// Monitors the turn started (what each watches, when it said).
+    pub monitors: Vec<String>,
+    /// A scheduled wake-up: when, and why if it said.
+    pub wake: Option<(SystemTime, Option<String>)>,
+    pub since: Instant,
+}
+
+/// A wake-up that didn't happen is shown as "now" this long, then forgotten.
+const MISSED_WAKE: std::time::Duration = std::time::Duration::from_secs(60);
+
+fn short_span(secs: u64) -> String {
+    let m = secs.div_ceil(60).max(1);
+    if m >= 60 { format!("{}h {:02}m", m / 60, m % 60) } else { format!("{m}m") }
+}
+
+fn plural(n: usize, one: &str) -> String {
+    if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") }
+}
+
+impl Watch {
+    fn empty(&self) -> bool {
+        self.agents == 0 && self.commands.is_empty() && self.monitors.is_empty() && self.wake.is_none()
+    }
+
+    /// Seconds until the scheduled wake-up (0 once it's due), while it still counts.
+    pub fn wake_in(&self) -> Option<u64> {
+        let (at, _) = self.wake.as_ref()?;
+        match at.duration_since(SystemTime::now()) {
+            Ok(d) => Some(d.as_secs()),
+            Err(e) if e.duration() < MISSED_WAKE => Some(0),
+            Err(_) => None,
+        }
+    }
+
+    /// "in 4m" / "now".
+    pub fn countdown(&self) -> Option<String> {
+        self.wake_in().map(|s| if s == 0 { "now".into() } else { format!("in {}", short_span(s)) })
+    }
+
+    /// The row's second line: "Watching 2 background agents", "Watching npm run dev",
+    /// "Waiting for CI · checks again in 4m", "Watching 2 agents and 1 command".
+    pub fn describe(&self) -> String {
+        let n = self.commands.len() + self.monitors.len();
+        let things = match (self.agents as usize, n) {
+            (0, 0) => None,
+            (a, 0) => Some(format!("Watching {}", plural(a, "background agent"))),
+            (0, 1) => Some(format!("Watching {}", self.commands.first().or(self.monitors.first()).cloned().unwrap_or_default())),
+            (0, n) => Some(format!("Watching {}", plural(n, "command"))),
+            (a, n) => Some(format!("Watching {} and {}", plural(a, "agent"), plural(n, "command"))),
+        };
+        let wake = self.countdown().map(|c| if c == "now" { "checking again now".to_string() } else { format!("checks again {c}") });
+        let why = self.wake.as_ref().and_then(|(_, r)| r.clone()).filter(|_| self.wake_in().is_some());
+        match (things.or(why), wake) {
+            (Some(t), Some(w)) => format!("{t} · {w}"),
+            (Some(t), None) => t,
+            (None, Some(w)) => {
+                let mut c = w.chars();
+                c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
+            }
+            (None, None) => "Watching".into(),
+        }
+    }
+
+    /// One line per thing watched, for the card.
+    pub fn items(&self) -> Vec<String> {
+        let mut v = Vec::new();
+        if self.agents > 0 {
+            v.push(format!("{} · running", plural(self.agents as usize, "background agent")));
+        }
+        v.extend(self.monitors.iter().map(|m| format!("Monitor: {m}")));
+        v.extend(self.commands.iter().map(|c| format!("Command: {c}")));
+        if let Some(c) = self.countdown() {
+            v.push(format!("Wakes to check again · {c}"));
+        }
+        v
+    }
+}
+
 pub struct AgentState {
     pub session_id: String,
     /// Which coding agent this session is (Claude Code, Codex, Antigravity...).
@@ -68,6 +154,14 @@ pub struct AgentState {
     pub context_reported: Option<(f64, Option<u64>)>,
     /// Cost and time totals from the agent's status line.
     pub cost: Option<crate::statusline::Cost>,
+    /// What the session still waits on since its turn ended (read it through `watching()`).
+    watch: Option<Watch>,
+    /// Background work the turn in progress has started.
+    turn_watch: Option<Watch>,
+    /// The turn in progress started by itself, with this recap showing.
+    self_started: Option<Option<String>>,
+    /// A self-started turn went back to watching with nothing new to read.
+    quiet_return: bool,
     custom_title: bool,
     tail: Option<Tail>,
     /// Artifact publish calls waiting for their result, by tool call id.
@@ -99,6 +193,10 @@ impl AgentState {
             color: None,
             context_reported: None,
             cost: None,
+            watch: None,
+            turn_watch: None,
+            self_started: None,
+            quiet_return: false,
             custom_title: false,
             tail: None,
             artifact_calls: Default::default(),
@@ -161,7 +259,78 @@ impl AgentState {
         a
     }
 
+    /// What the session is watching, while its turn is over and something will wake it.
+    pub fn watching(&self) -> Option<&Watch> {
+        let w = self.watch.as_ref().filter(|_| matches!(self.status, Status::Done | Status::Idle))?;
+        // Only a wake-up, and it never came: not watching any more.
+        let only_wake = w.agents == 0 && w.commands.is_empty() && w.monitors.is_empty();
+        (!only_wake || w.wake_in().is_some()).then_some(w)
+    }
+
+    /// True once: a turn that started by itself ended back at watching with the same recap,
+    /// so there's nothing new for the person (the tab shouldn't turn unread).
+    pub fn take_quiet_return(&mut self) -> bool {
+        std::mem::take(&mut self.quiet_return)
+    }
+
+    /// Fake a watching state (debug and demo).
+    pub fn set_watch(&mut self, w: Watch) {
+        self.status = Status::Done;
+        self.watch = Some(w);
+    }
+
+    fn turn_watch(&mut self) -> &mut Watch {
+        self.turn_watch.get_or_insert_with(|| Watch { agents: 0, commands: Vec::new(), monitors: Vec::new(), wake: None, since: Instant::now() })
+    }
+
+    /// Background work a tool call starts, kept for when the turn ends.
+    fn note_background(&mut self, tool: &str, input: &serde_json::Value) {
+        let s = |k: &str| input.get(k).and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty());
+        let short = |t: &str| t.lines().next().unwrap_or("").chars().take(48).collect::<String>();
+        match tool {
+            "Bash" if input.get("run_in_background").and_then(|v| v.as_bool()) == Some(true) => {
+                if let Some(c) = s("command") {
+                    let c = short(c);
+                    self.turn_watch().commands.push(c);
+                }
+            }
+            "Monitor" => {
+                let what = s("description").or(s("command")).map(short).unwrap_or_else(|| "a monitor".into());
+                self.turn_watch().monitors.push(what);
+            }
+            "ScheduleWakeup" => {
+                if input.get("stop").and_then(|v| v.as_bool()) == Some(true) {
+                    self.turn_watch().wake = None;
+                } else if let Some(secs) = input.get("delaySeconds").and_then(|v| v.as_f64()) {
+                    let at = SystemTime::now() + std::time::Duration::from_secs_f64(secs.clamp(60., 3600.));
+                    let why = s("reason").map(|r| {
+                        let r = short(r.trim_end_matches('.'));
+                        let mut c = r.chars();
+                        c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
+                    });
+                    self.turn_watch().wake = Some((at, why));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn settle_watch(&mut self) {
+        if self.watch.as_ref().is_some_and(Watch::empty) {
+            self.watch = None;
+        }
+        if let (Some(before), Some(_)) = (&self.self_started, &self.watch) {
+            if *before == self.recap {
+                self.quiet_return = true;
+            }
+        }
+    }
+
     fn set_status(&mut self, s: Status) {
+        // Anything but resting ends the watch: the session is at it again, or gone.
+        if !matches!(s, Status::Done | Status::Idle) {
+            self.watch = None;
+        }
         if self.status != s {
             self.status = s;
             self.since = Instant::now();
@@ -224,6 +393,9 @@ impl AgentState {
                     }
                 }
                 self.now = None;
+                // A prompt from the person (a self-started turn says so in the transcript,
+                // which is read after this).
+                self.self_started = None;
                 self.set_status(Status::Working);
             }
             Hook::PreToolUse { tool, input } => {
@@ -234,6 +406,7 @@ impl AgentState {
                         self.add_output(Kind::File, p.to_string(), name);
                     }
                 }
+                self.note_background(&tool, &input);
                 self.now = Some(describe_tool(&tool, &input));
                 self.set_status(Status::Working);
             }
@@ -249,6 +422,12 @@ impl AgentState {
                 self.now = None;
                 let was_working = !matches!(self.status, Status::Done | Status::Idle);
                 self.set_status(Status::Done);
+                // What the turn left running is what the session now watches.
+                if let Some(mut w) = self.turn_watch.take() {
+                    w.since = Instant::now();
+                    self.watch = Some(w);
+                }
+                self.settle_watch();
                 return was_working;
             }
             Hook::SessionEnd => {
@@ -364,7 +543,15 @@ impl AgentState {
                     self.model = model;
                 }
             }
-            Entry::TurnDone { .. } => {}
+            // The transcript knows how many background agents the turn left running.
+            Entry::TurnDone { background_agents, .. } => {
+                if matches!(self.status, Status::Done | Status::Idle) && (background_agents > 0 || self.watch.is_some()) {
+                    let w = self.watch.get_or_insert_with(|| Watch { agents: 0, commands: Vec::new(), monitors: Vec::new(), wake: None, since: Instant::now() });
+                    w.agents = background_agents;
+                    self.settle_watch();
+                }
+            }
+            Entry::SelfStarted => self.self_started = Some(self.recap.clone()),
             // Esc on a permission prompt or mid-turn: Claude is back at its prompt.
             Entry::Interrupted => {
                 if matches!(self.status, Status::NeedsInput { .. } | Status::Working | Status::Error { .. }) {
@@ -380,6 +567,37 @@ impl AgentState {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_turn_that_leaves_work_running_is_watching() {
+        let mut a = AgentState::new("s".into());
+        a.apply_hook(Hook::UserPromptSubmit { prompt: "ship it".into() });
+        a.apply_hook(Hook::PreToolUse { tool: "Bash".into(), input: json!({"command": "npm run dev", "run_in_background": true}) });
+        a.apply_hook(Hook::PreToolUse { tool: "Bash".into(), input: json!({"command": "ls"}) });
+        assert!(a.watching().is_none(), "not while working");
+        a.apply_hook(Hook::Stop);
+        assert_eq!(a.watching().unwrap().describe(), "Watching npm run dev");
+        // The transcript adds the background agents the turn left.
+        a.apply_entry(Entry::TurnDone { duration_ms: 1, background_agents: 2 });
+        assert_eq!(a.watching().unwrap().describe(), "Watching 2 agents and 1 command");
+        assert!(!a.take_quiet_return(), "the person started that turn");
+        // It wakes by itself and goes back to watching with nothing new: a quiet return.
+        a.apply_entry(Entry::SelfStarted);
+        a.apply_hook(Hook::PreToolUse { tool: "ScheduleWakeup".into(), input: json!({"delaySeconds": 240, "reason": "waiting for CI."}) });
+        assert!(a.watching().is_none());
+        a.apply_hook(Hook::Stop);
+        let w = a.watching().unwrap();
+        assert_eq!(w.describe(), "Waiting for CI · checks again in 4m");
+        assert_eq!(w.countdown().as_deref(), Some("in 4m"));
+        assert!(a.take_quiet_return());
+        // A plain turn ends the watch.
+        a.apply_hook(Hook::UserPromptSubmit { prompt: "thanks".into() });
+        a.apply_hook(Hook::Stop);
+        assert!(a.watching().is_none());
+        // A wake-up that never came stops counting after a minute.
+        a.set_watch(Watch { agents: 0, commands: vec![], monitors: vec![], wake: Some((SystemTime::now() - std::time::Duration::from_secs(120), None)), since: Instant::now() });
+        assert!(a.watching().is_none());
+    }
 
     #[test]
     fn artifacts_get_a_title_and_an_icon() {

@@ -634,6 +634,18 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         Some(Status::Working) if !picking => tab.agent.as_ref().map(|a| elapsed(a.since)),
         _ => None,
     };
+    // Watching: when it wakes ("in 4m"), else how long it has watched, then the dotted ring,
+    // in the slot where working shows its spinner.
+    let watching = tab.watching().filter(|_| !picking).map(|w| {
+        let time = w.countdown().unwrap_or_else(|| elapsed(w.since));
+        div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(5.))
+            .child(div().text_size(px(10.5 * k)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(time))
+            .child(div().size(px(12.)).flex_none().child(watch_ring(ui.text_tertiary, ws.started, 4.75)))
+    });
     let unseen = tab.unread || tab.reminder_due;
     // A pending reminder shows a quiet clock after the title.
     let pending = (tab.reminder_at.is_some() && !tab.reminder_due).then(|| {
@@ -771,6 +783,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
                                 .child(div().size(px(12.)).flex_none().child(spinner_sized(ui.status_working, ws.started, 4.75)))
                                 .child(div().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(w))
                         }))
+                        .children(watching)
                         // Design v3-r a′: × after the right end, on hover.
                         .child(crate::close::close_button(ws, ix, row_group.clone(), cx))
                         .into_any_element()
@@ -960,8 +973,11 @@ pub(crate) fn card(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> im
     let status = match (asker_no, tab.status()) {
         (Some(n), Some(Status::Error { .. })) => format!("Error in pane {n}"),
         (Some(n), _) => format!("Needs you in pane {n}"),
+        _ if tab.watching().is_some() => "Watching · carries on by itself".to_string(),
         _ => status.to_string(),
     };
+    let color = if tab.watching().is_some() { ui.text_secondary } else { color };
+    let watch_items = tab.watching().map(|w| w.items());
     let since = tab.shown_agent().filter(|a| a.status != Status::Idle).map(|a| elapsed(a.since));
     let why = match tab.status() {
         Some(Status::NeedsInput { .. }) => Some(needs_reason(tab)),
@@ -1058,6 +1074,16 @@ pub(crate) fn card(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> im
                 }))
                 .children(why.filter(|w| !w.is_empty()).map(|w| div().min_w_0().truncate().text_color(ui.text_tertiary).child(format!("· {w}")))),
         )
+        .when_some(watch_items, |d, items| {
+            d.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(3.))
+                    .children(items.into_iter().map(|i| div().text_size(px(12. * k)).text_color(ui.text_secondary).child(i)))
+                    .child(div().pt(px(3.)).text_size(px(11. * k)).text_color(ui.text_tertiary).child("Nothing for you to do. Closing the tab stops these.")),
+            )
+        })
         .when(tab.panes.multi(), |d| {
             // Panes (canvas v3-ap): how many, and each one's icon and title.
             let ids = tab.panes.layout.leaves();
@@ -1344,6 +1370,26 @@ pub fn spinner(color: gpui::Hsla, started: Instant) -> impl IntoElement {
 }
 
 /// The working ring at radius `r` (it fills its parent).
+/// Watching (canvas v3-ax): a ring of 8 dots in no color, one brighter dot going round
+/// slowly (a step a second: it repaints with the poll, not an animation loop).
+pub fn watch_ring(color: gpui::Hsla, started: Instant, r: f32) -> gpui::Canvas<()> {
+    let lit = if crate::platform::reduce_motion() { usize::MAX } else { (started.elapsed().as_secs() % 8) as usize };
+    gpui::canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let c = bounds.center();
+            for i in 0..8 {
+                let a = i as f32 / 8. * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
+                let d = if r < 4. { 1.4 } else { 1.8 };
+                let p = gpui::point(c.x + px(r * a.cos() - d / 2.), c.y + px(r * a.sin() - d / 2.));
+                let q = gpui::Bounds::new(p, gpui::size(px(d), px(d)));
+                window.paint_quad(gpui::fill(q, color.opacity(if i == lit { 1. } else { 0.5 })).corner_radii(px(d / 2.)));
+            }
+        },
+    )
+    .size_full()
+}
+
 pub fn spinner_sized(color: gpui::Hsla, started: Instant, r: f32) -> gpui::Canvas<()> {
     let turn = (started.elapsed().as_millis() % 900) as f32 / 900. * std::f32::consts::TAU;
     gpui::canvas(

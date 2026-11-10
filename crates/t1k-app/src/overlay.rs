@@ -1165,6 +1165,12 @@ fn keycap(ui: t1k_themes::UiColors, label: &'static str) -> Div {
 
 
 fn status_text(t: &crate::workspace::Tab) -> String {
+    if let Some(w) = t.watching() {
+        return match w.countdown() {
+            Some(c) if c != "now" => format!("Watching · checks again {c}"),
+            _ => "Watching".into(),
+        };
+    }
     match t.status() {
         Some(Status::Working) => "Working".into(),
         Some(Status::NeedsInput { .. }) => "Needs you".into(),

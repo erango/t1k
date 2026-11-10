@@ -45,7 +45,8 @@ impl Workspace {
             return;
         }
         let claude = self.claude_tab(ix);
-        let busy = matches!(t.status(), Some(Status::Working) | Some(Status::NeedsInput { .. }));
+        // Watching counts: closing the tab stops what it watches.
+        let busy = matches!(t.status(), Some(Status::Working) | Some(Status::NeedsInput { .. })) || t.watching().is_some();
         if claude && !busy {
             self.close_claude_gently(id, 0, None, window, cx);
         } else {

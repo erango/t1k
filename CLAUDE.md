@@ -46,7 +46,7 @@ Debug environment variables (all read at launch):
 | `T1K_DEBUG_OVERLAY=palette\|switcher\|overview\|settings\|settings-interface\|settings-search\|settings-keys\|themes\|remind\|icons\|icons-search\|icons-apps\|icons-image\|menu\|groupmenu\|termmenu\|sidebarview\|more\|card\|about\|welcome\|settings-advanced\|update\|update-background\|quit` | Opens that surface (`update` also starts a check) |
 | `T1K_DEBUG_UPDATE=install` | Presses Restart now as soon as an update is ready (with `T1K_DEBUG_OVERLAY=update-background`) |
 | `T1K_DEBUG_CRASH=error\|panic` | Sends a test error report / crashes on purpose (needs a DSN) |
-| `T1K_DEBUG_AGENT=working\|needs\|error\|done\|helper` | Fakes an agent session on the active tab (`helper`: an untitled Codex turn that just finished, for the helper) |
+| `T1K_DEBUG_AGENT=working\|needs\|error\|done\|watching\|watching-agents\|helper` | Fakes an agent session on the active tab (`watching`: canvas v3-ax, with background agents, a monitor and a wake-up in 4 minutes; `watching-agents`: only background agents, so no countdown; `helper`: an untitled Codex turn that just finished, for the helper) |
 | `T1K_DEBUG_PRS=1\|open\|done` | Puts PRs in every state on the active tab (open: checks passing / running / failing, each review state, a draft, one gh hasn't answered for; done: merged, closed, merged at an unknown time), with made-up gh answers, and opens the outputs panel. gh is never asked while it's set. Works with `T1K_DEBUG_OVERLAY=switcher` for the PR in ⌘P |
 | `T1K_DEBUG_PROGRAM=<name>` | Shows that program's icon on every tab |
 | `T1K_DEBUG_VIEW=<path>[:line]` | Opens that file in the side panel |
