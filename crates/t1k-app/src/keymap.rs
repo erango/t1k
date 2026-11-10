@@ -31,6 +31,7 @@ macro_rules! b {
 
 pub const ALL: &[Bind] = &[
     b!("new_tab", "New tab", "Tabs", ["cmd-t"], NewTab),
+    b!("new_window", "New window", "Window", ["cmd-n"], NewWindow),
     b!("close_tab", "Close tab", "Tabs", ["cmd-w"], CloseTab),
     b!("reopen_closed_tab", "Reopen closed tab", "Tabs", ["cmd-shift-t"], ReopenClosedTab),
     b!("undo", "Undo (a tab move while its notice shows, else typing)", "Terminal", ["cmd-z"], Undo),

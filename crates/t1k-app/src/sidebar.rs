@@ -1491,6 +1491,37 @@ fn attention(ws: &Workspace, cx: &mut Context<Workspace>) -> Vec<AnyElement> {
     let mut out = Vec::new();
     out.extend(connect_banner(ws, cx));
     out.extend(needs_area(ws, cx));
+    // Tabs waiting in other windows (canvas v3-aq): "+1 in infra-terraform", click to go.
+    let (k, ui) = (ws.config.interface.text_scale(), ws.ui);
+    for o in crate::windows::others(ws.hub_id).into_iter().filter(|o| o.waiting > 0) {
+        let handle = o.handle;
+        out.push(
+            div()
+                .id(SharedString::from(format!("elsewhere-{}", o.id)))
+                .h(px(24.))
+                .flex_none()
+                .mx(px(INSET))
+                .mb(px(6.))
+                .pl(px(27.))
+                .pr(px(10.))
+                .rounded(px(6.))
+                .flex()
+                .items_center()
+                .text_size(px(11.5 * k))
+                .text_color(ui.text_tertiary)
+                .hover(move |d| d.bg(ui.sidebar_hover).text_color(ui.text_secondary))
+                .on_click(cx.listener(move |_, _, _, cx| {
+                    cx.defer(move |cx| {
+                        let _ = handle.update(cx, |ws, window, cx| {
+                            window.activate_window();
+                            ws.jump_next_needs(window, cx);
+                        });
+                    });
+                }))
+                .child(format!("+{} in {}", o.waiting, o.name))
+                .into_any_element(),
+        );
+    }
     out
 }
 

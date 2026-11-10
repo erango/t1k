@@ -25,6 +25,7 @@ pub fn install(cx: &mut App) {
                     MenuItem::action(if crate::secure_input::on() { "Turn Off Secure Keyboard Entry" } else { "Turn On Secure Keyboard Entry" }, ToggleSecureInput),
                     MenuItem::separator(),
                     MenuItem::action("New Tab", NewTab),
+                    MenuItem::action("New Window", NewWindow),
                     MenuItem::action("Quit T1K", Quit),
                 ],
             },

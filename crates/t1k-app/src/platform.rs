@@ -322,6 +322,8 @@ pub static QUIT_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::At
 
 /// Quit for real (the question was asked, or there was nothing to ask about).
 pub fn quit(cx: &mut gpui::App) {
+    // Windows closing from here on aren't being closed by the person: they stay saved.
+    crate::windows::set_quitting();
     ALLOW_QUIT.store(true, std::sync::atomic::Ordering::SeqCst);
     cx.quit();
 }

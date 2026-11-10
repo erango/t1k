@@ -1345,6 +1345,23 @@ fn menu(ws: &Workspace, tab: usize, at: Point<Pixels>, window: &Window, cx: &mut
             this.close_overlay(window, cx);
         })));
     }
+    // Canvas v3-aq: each other window, then a new one.
+    for (n, o) in crate::windows::others(ws.hub_id).into_iter().enumerate() {
+        let handle = o.handle;
+        let s = if o.tabs == 1 { "" } else { "s" };
+        m = m.child(item("move-window", format!("Move to Window: {} · {} tab{s}", o.name, o.tabs)).id(SharedString::from(format!("move-window-{n}"))).on_click(cx.listener(
+            move |this, _, window, cx| {
+                this.close_overlay(window, cx);
+                this.move_tab_to_window(tab, Some(handle), None, window, cx);
+            },
+        )));
+    }
+    if ws.tabs.len() > 1 {
+        m = m.child(item("move-new-window", "Move to New Window".into()).on_click(cx.listener(move |this, _, window, cx| {
+            this.close_overlay(window, cx);
+            this.move_tab_to_window(tab, None, None, window, cx);
+        })));
+    }
     if t.panes.count() < crate::split::MAX_PANES {
         m = m.child(item("split", "Open in split".into()).on_click(cx.listener(move |this, _, window, cx| {
             this.close_overlay(window, cx);

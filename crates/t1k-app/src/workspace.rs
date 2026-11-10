@@ -2,7 +2,6 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::mpsc::{channel, Receiver};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use gpui::{
@@ -418,7 +417,12 @@ pub struct Workspace {
     pub config: Config,
     watcher: config::Watcher,
     socket: Option<PathBuf>,
-    agent_rx: Receiver<Envelope>,
+    /// This window's id in `windows` (the app-wide hub).
+    pub hub_id: gpui::EntityId,
+    /// The shared plan usage this window last copied.
+    usage_rev: u64,
+    /// This window is closing (not T1K quitting): the quit card's wording follows.
+    pub closing_window: bool,
     /// Each agent's plan usage limits (Claude's 5-hour and weekly, Antigravity's buckets), from
     /// the status-line wrapper. Per account, so one per agent, not per tab.
     pub usage: std::collections::HashMap<t1k_agent::agents::AgentKind, t1k_agent::statusline::Usage>,
@@ -442,10 +446,14 @@ pub const CAUGHT_UP_SHOW: Duration = Duration::from_millis(3500);
 pub const CAUGHT_UP_FADE: f32 = 0.25;
 
 impl Workspace {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(saved: Session, window: &mut Window, cx: &mut Context<Self>) -> Self {
         // Demo mode reads nothing of the user's: no session, config or other terminals.
         let demo = crate::demo::on();
-        let saved = if demo { Session::default() } else { session::load() };
+        let hub_id = cx.entity_id();
+        if let Some(handle) = window.window_handle().downcast::<Workspace>() {
+            crate::windows::register(hub_id, handle);
+        }
+        cx.on_release(move |_, _| crate::windows::remove(hub_id)).detach();
         if let Some(d) = config::themes_dir() {
             t1k_themes::load_user_themes(&d);
         }
@@ -481,19 +489,8 @@ impl Workspace {
             }
         });
 
-        // Agent socket: hooks in this window's tabs report here.
-        let (tx, agent_rx) = channel();
-        let socket = session::support_dir().filter(|_| !demo).map(|d| {
-            t1k_agent::server::remove_stale(&d);
-            t1k_agent::server::socket_path(&d)
-        });
-        let socket = socket.filter(|p| match t1k_agent::server::serve(p, tx, || {}) {
-            Ok(()) => true,
-            Err(e) => {
-                log::error!("agent socket {}: {e}", p.display());
-                false
-            }
-        });
+        // Agent socket: one for the app; each window takes the messages for its own tabs.
+        let socket = crate::windows::socket();
         // Fast loop: drain agent messages and animate spinners.
         // Every 33 ms the spinner advances (only while something works and the sidebar shows);
         // every third pass also does the 100 ms housekeeping in `tick`.
@@ -654,7 +651,9 @@ impl Workspace {
             config,
             watcher,
             socket,
-            agent_rx,
+            hub_id,
+            usage_rev: 0,
+            closing_window: false,
             usage_minute: 0,
             usage: saved.usage.iter().filter_map(|(k, u)| Some((t1k_agent::agents::AgentKind::from_id(k)?, u.clone()))).collect(),
             next_created: 0,
@@ -682,13 +681,18 @@ impl Workspace {
         crate::secure_input::apply(this.config.terminal.secure_input, window.is_window_active());
         // Remember where the window is; saved with the session (debounced through `poll`).
         cx.observe_window_bounds(window, |this, window, _| this.window_frame = Some(frame_of(window))).detach();
-        // The window's close button quits T1K (one window), so it asks the same question.
+        // The close button closes this window (with one window, that quits T1K), so it asks
+        // the same question about what's still running in it.
         let handle = cx.entity().downgrade();
         window.on_window_should_close(cx, move |window, cx| {
             handle
                 .update(cx, |ws, cx| {
                     if ws.quitting.is_some() || ws.running_programs(cx).is_empty() {
                         return true;
+                    }
+                    ws.closing_window = crate::windows::count() > 1;
+                    if ws.closing_window {
+                        crate::windows::closing_only(ws.hub_id);
                     }
                     ws.open_overlay(crate::overlay::Overlay::QuitRunning { expanded: false, selected: 0 }, window, cx);
                     false
@@ -714,6 +718,8 @@ impl Workspace {
         let mut failed = Vec::new();
         if demo {
             crate::demo::populate(&mut this, window, cx);
+        } else if saved.adopt {
+            // Its tab arrives right after (moved from another window).
         } else if restore.is_empty() || std::env::var_os("T1K_FRESH").is_some() {
             this.open_tab(None, None, window, cx);
         } else {
@@ -972,6 +978,31 @@ impl Workspace {
                 _ => {}
             }
         }
+        // Debug aid: T1K_DEBUG_WINDOWS=new|move-new|move-back (first window only), about a
+        // second after launch: ⌘N; the active tab to a new window; then that tab back again.
+        if let Some(spec) = std::env::var("T1K_DEBUG_WINDOWS").ok().filter(|_| crate::windows::count() == 1) {
+            cx.spawn_in(window, async move |this, cx| {
+                for step in spec.split(',') {
+                    cx.background_executor().timer(Duration::from_millis(1000)).await;
+                    let step = step.to_string();
+                    let _ = this.update_in(cx, |ws, window, cx| match step.as_str() {
+                        "new" => ws.new_window(cx),
+                        "move-new" => ws.move_tab_to_window(ws.active, None, None, window, cx),
+                        "move-back" => {
+                            // From the other window, its active tab comes back here.
+                            let me = window.window_handle().downcast::<Workspace>();
+                            if let (Some(me), Some(o)) = (me, crate::windows::others(ws.hub_id).into_iter().next()) {
+                                cx.defer(move |cx| {
+                                    let _ = o.handle.update(cx, |other, w, cx| other.move_tab_to_window(other.active, Some(me), None, w, cx));
+                                });
+                            }
+                        }
+                        _ => {}
+                    });
+                }
+            })
+            .detach();
+        }
         // Debug aid: T1K_DEBUG_BROADCAST=panes|group|pick[,text:<line>][,send:<text>][,paste]
         // turns broadcast input on (canvas v3-aw). `send` repeats the text from the main pane
         // into the other receiving terminals 2.5 s after launch, as typing would.
@@ -1165,6 +1196,14 @@ impl Workspace {
                 }
             }
         })
+    }
+
+    /// A tab that arrived from another window: its terminal reports to this one now.
+    pub fn adopt_tab_subscriptions(&mut self, tab: &mut Tab, window: &mut Window, cx: &mut Context<Self>) {
+        tab._sub = self.subscribe_main(&tab.view, window, cx);
+        tab.created = self.next_created;
+        self.next_created += 1;
+        tab.updated = SystemTime::now();
     }
 
     /// A pane becomes its tab's main one (the main pane closed with others open).
@@ -2119,7 +2158,7 @@ impl Workspace {
             None => {}
         }
         // A clicked banner brings its tab forward.
-        for id in crate::platform::take_clicked() {
+        for id in crate::windows::take_clicked(|id| self.owns_tab(id)) {
             if let Some(ix) = self.tabs.iter().position(|t| t.id == id) {
                 window.activate_window();
                 self.activate(ix, window, cx);
@@ -2136,14 +2175,20 @@ impl Workspace {
                 }
             }
         }
-        for (id, mins) in crate::platform::take_snoozed() {
+        for (id, mins) in crate::windows::take_snoozed(|id| self.owns_tab(id)) {
             if let Some(ix) = self.tabs.iter().position(|t| t.id == id) {
                 self.set_reminder(ix, Some(now + Duration::from_secs(mins * 60)), cx);
                 changed = true;
             }
         }
-        while let Ok(env) = self.agent_rx.try_recv() {
+        for env in crate::windows::take_envelopes(|id| self.owns_hook(id)) {
             changed |= self.apply_envelope(env, window);
+        }
+        // Plan usage is the account's: whichever window heard it, all show it.
+        if let Some((rev, usage)) = crate::windows::usage_since(self.usage_rev) {
+            self.usage_rev = rev;
+            self.usage = usage;
+            changed = true;
         }
         changed |= self.stamp_updates();
         for id in std::mem::take(&mut self.turns_done) {
@@ -2154,7 +2199,18 @@ impl Workspace {
         if changed {
             self.debug_dump();
         }
-        let needs = self.needs_queue().len();
+        // Tell the other windows who waits here; the Dock badge counts every window.
+        let waiting: Vec<crate::windows::Wait> = self
+            .needs_queue()
+            .into_iter()
+            .map(|(i, pane)| {
+                let t = &self.tabs[i];
+                let since = if pane == crate::split::MAIN { t.agent.as_ref().map(|a| a.since) } else { t.panes.helper(pane).and_then(|h| h.agent.as_ref()).map(|a| a.since) };
+                crate::windows::Wait { tab: t.id.clone(), pane, secs: since.map(|s| s.elapsed().as_secs()).unwrap_or(0) }
+            })
+            .collect();
+        crate::windows::publish(self.hub_id, self.window_name(), self.tabs.len(), waiting);
+        let needs = crate::windows::total_waiting();
         if self.badge != Some(needs) {
             self.badge = Some(needs);
             crate::platform::set_dock_badge(if self.config.notify.dock_badge { needs } else { 0 });
@@ -2197,6 +2253,7 @@ impl Workspace {
             let Some(usage) = t1k_agent::statusline::parse(&env.payload) else { return ctx_changed };
             let kind = env.payload.get("t1k_agent").and_then(|v| v.as_str()).and_then(t1k_agent::agents::AgentKind::from_id).unwrap_or_default();
             let changed = self.usage.get(&kind).is_none_or(|u| u.windows != usage.windows);
+            crate::windows::set_usage(kind, usage.clone());
             self.usage.insert(kind, usage);
             return changed || ctx_changed;
         }
@@ -2208,6 +2265,7 @@ impl Workspace {
                 if let Some(usage) = read_tail(std::path::Path::new(path), 256 << 10).as_deref().and_then(t1k_agent::statusline::codex_rollout) {
                     let kind = t1k_agent::agents::AgentKind::Codex;
                     usage_changed = self.usage.get(&kind).is_none_or(|u| u.windows != usage.windows);
+                    crate::windows::set_usage(kind, usage.clone());
                     self.usage.insert(kind, usage);
                 }
             }
@@ -2416,22 +2474,14 @@ impl Workspace {
 
     /// Walk the Needs-you queue (longest-waiting first) from the current tab.
     fn walk_needs(&mut self, dir: isize, window: &mut Window, cx: &mut Context<Self>) {
-        let q = self.needs_queue();
-        if q.is_empty() {
-            self.nothing_needs_you(window, cx);
-            return;
+        // Every window's waiting tabs, as of each window's last tick.
+        if !self.needs_queue().is_empty() || crate::windows::total_waiting() > 0 {
+            self.unread_offer = None;
+            if self.jump_needs_everywhere(dir, window, cx) {
+                return;
+            }
         }
-        self.unread_offer = None;
-        let n = q.len() as isize;
-        // From the pane you're in, if it's in the queue; else from this tab's first entry.
-        let here = (self.active, self.focused_pane(window, cx));
-        let at = q.iter().position(|e| *e == here).or_else(|| q.iter().position(|e| e.0 == self.active && q.iter().filter(|x| x.0 == e.0).count() == 1));
-        let (tab, pane) = match at {
-            Some(p) => q[((p as isize + dir).rem_euclid(n)) as usize],
-            None if dir > 0 => q[0],
-            None => q[(n - 1) as usize],
-        };
-        self.jump_to_pane(tab, pane, window, cx);
+        self.nothing_needs_you(window, cx);
     }
 
     /// Open a tab on one of its panes (unzooming another pane first).
@@ -2548,7 +2598,30 @@ impl Workspace {
         if crate::demo::on() {
             return;
         }
-        session::save(&self.session());
+        crate::windows::store(self.hub_id, self.session());
+    }
+
+    /// A tab of this window, by id.
+    pub fn owns_tab(&self, id: &str) -> bool {
+        self.tabs.iter().any(|t| t.id == id)
+    }
+
+    /// A hook id of this window: a tab, one of its helper panes ("<tab>-p<n>"), or a helper
+    /// that became its tab's main pane.
+    pub fn owns_hook(&self, id: &str) -> bool {
+        self.hook_alias.contains_key(id) || self.tabs.iter().any(|t| id == t.id || id.strip_prefix(t.id.as_str()).is_some_and(|r| r.starts_with("-p")))
+    }
+
+    /// The window's name: the project most of its tabs are in ("t1k").
+    pub fn window_name(&self) -> String {
+        let mut counts: Vec<(&PathBuf, usize)> = Vec::new();
+        for t in &self.tabs {
+            match counts.iter_mut().find(|(g, _)| *g == &t.group) {
+                Some((_, n)) => *n += 1,
+                None => counts.push((&t.group, 1)),
+            }
+        }
+        counts.iter().max_by_key(|(_, n)| *n).map(|(g, _)| self.group_label(g)).unwrap_or_else(|| "T1K".into())
     }
 
     // ---- sidebar detail card ----------------------------------------------------------------
@@ -3050,6 +3123,8 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &FocusPaneRight, window, cx| this.focus_dir(crate::split::Dir::Right, window, cx)))
             .on_action(cx.listener(|this, _: &FocusNextPane, window, cx| this.focus_next_pane(window, cx)))
             .on_action(cx.listener(|this, _: &ToggleBroadcast, window, cx| this.toggle_broadcast(window, cx)))
+            .on_action(cx.listener(|this, _: &NewWindow, _, cx| this.new_window(cx)))
+            .on_action(cx.listener(|this, _: &MoveTabToNewWindow, window, cx| this.move_tab_to_window(this.active, None, None, window, cx)))
             .on_action(cx.listener(|this, _: &BroadcastGroup, window, cx| {
                 if let Some(g) = this.tabs.get(this.active).map(|t| t.group.clone()) {
                     this.broadcast_group(g, window, cx);

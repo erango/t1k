@@ -573,16 +573,9 @@ impl Workspace {
     }
 
     /// Start a helper's shell in tab `ix` (not placed in the layout yet).
-    fn add_helper(&mut self, ix: usize, id: Option<PaneId>, cwd: Option<PathBuf>, window: &mut Window, cx: &mut Context<Self>) -> PaneId {
-        let t = &mut self.tabs[ix];
-        let id = id.unwrap_or(t.panes.next);
-        t.panes.next = t.panes.next.max(id + 1);
-        let cwd = cwd.filter(|c| c.is_dir()).or_else(|| t.cwd.clone());
-        // Its own hook id, so an agent in a helper doesn't take over the tab's card; a pane
-        // moved to a tab of its own keeps it as that tab's id.
-        let hook_id = format!("{}-p{id}", t.id);
-        let view = self.spawn_view(cwd.clone(), hook_id, window, cx);
-        let sub = cx.subscribe_in(&view, window, |this: &mut Self, view, ev: &TerminalEvent, window, cx| {
+    /// Events from a helper pane's terminal, found again by its view (a tab can move windows).
+    fn subscribe_helper(&mut self, view: &Entity<TerminalView>, window: &mut Window, cx: &mut Context<Self>) -> Subscription {
+        cx.subscribe_in(view, window, |this: &mut Self, view, ev: &TerminalEvent, window, cx| {
             let Some((ix, id)) = this.tabs.iter().enumerate().find_map(|(i, t)| t.panes.helpers.iter().find(|h| &h.view == view).map(|h| (i, h.id))) else {
                 return;
             };
@@ -605,7 +598,27 @@ impl Workspace {
                 TerminalEvent::PasteHeld(text) => this.broadcast_paste_held(view, text, window, cx),
                 TerminalEvent::Bell => {}
             }
-        });
+        })
+    }
+
+    /// A tab that arrived from another window: its helper panes report to this one now.
+    pub fn resubscribe_helpers(&mut self, tab: &mut Tab, window: &mut Window, cx: &mut Context<Self>) {
+        for h in &mut tab.panes.helpers {
+            let view = h.view.clone();
+            h._sub = self.subscribe_helper(&view, window, cx);
+        }
+    }
+
+    fn add_helper(&mut self, ix: usize, id: Option<PaneId>, cwd: Option<PathBuf>, window: &mut Window, cx: &mut Context<Self>) -> PaneId {
+        let t = &mut self.tabs[ix];
+        let id = id.unwrap_or(t.panes.next);
+        t.panes.next = t.panes.next.max(id + 1);
+        let cwd = cwd.filter(|c| c.is_dir()).or_else(|| t.cwd.clone());
+        // Its own hook id, so an agent in a helper doesn't take over the tab's card; a pane
+        // moved to a tab of its own keeps it as that tab's id.
+        let hook_id = format!("{}-p{id}", t.id);
+        let view = self.spawn_view(cwd.clone(), hook_id, window, cx);
+        let sub = self.subscribe_helper(&view, window, cx);
         self.tabs[ix].panes.helpers.push(Helper { id, view, cwd, program: None, command: None, osc_title: None, agent: None, _sub: sub });
         id
     }

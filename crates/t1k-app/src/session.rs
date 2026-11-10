@@ -117,6 +117,13 @@ pub struct Session {
     pub sidebar_open: Option<bool>,
     #[serde(default)]
     pub outputs_open: bool,
+    /// A window opened to take a tab moved out of another: it starts with no tab of its own.
+    #[serde(skip)]
+    pub adopt: bool,
+    /// The other windows (canvas v3-aq): this session is the first window's, and each of
+    /// these is another window's own tabs, groups and frame.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub windows: Vec<Session>,
     /// The panel is on its Context tab (canvas v3-au).
     #[serde(default)]
     pub panel_context: bool,

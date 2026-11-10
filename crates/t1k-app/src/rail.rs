@@ -80,7 +80,17 @@ impl Workspace {
     }
 
     /// Release: commit what the drag previewed.
-    pub fn sidebar_drag_end(&mut self, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn sidebar_drag_end(&mut self, ev: &MouseUpEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // A tab row dropped outside the window moves to the window there, or a new one
+        // (canvas v3-aq).
+        if let Some(id) = self.dragging_tab.clone().filter(|_| cx.has_active_drag()) {
+            let (p, size) = (ev.position, window.viewport_size());
+            if p.x < gpui::px(0.) || p.y < gpui::px(0.) || p.x > size.width || p.y > size.height {
+                let o = window.bounds().origin;
+                self.dragging_tab = None;
+                self.drop_tab_outside(&id, gpui::point(o.x + p.x, o.y + p.y), window, cx);
+            }
+        }
         let Some(p) = self.sidebar_drag.take() else { return };
         match p {
             DragPreview::Width(w) => {

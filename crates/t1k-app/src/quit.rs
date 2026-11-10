@@ -63,16 +63,22 @@ impl Workspace {
         v
     }
 
-    /// ⌘Q: ask first when something is still running; otherwise quit.
-    pub fn request_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.quitting.is_some() {
-            return;
-        }
+    /// This window's turn at quit: with something running it asks; otherwise it's done and
+    /// the next window is asked (T1K quits after the last).
+    pub fn ask_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.running_programs(cx).is_empty() {
-            crate::platform::quit(cx);
+            self.quit_done(cx);
         } else {
+            window.activate_window();
             self.open_overlay(Overlay::QuitRunning { expanded: false, selected: 0 }, window, cx);
         }
+    }
+
+    /// Nothing left running here (or "quit anyway"): on to the next window.
+    pub fn quit_done(&mut self, cx: &mut Context<Self>) {
+        let id = self.hub_id;
+        // Deferred: this window is mid-update, and the next step may close it.
+        cx.defer(move |cx| crate::windows::quit_next(Some(id), cx));
     }
 
     /// Ask one tab's program to stop: Claude gets Ctrl-C twice (it exits cleanly and
@@ -179,7 +185,7 @@ impl Workspace {
                 if done {
                     // A moment for the last output to be drawn into the grid.
                     cx.background_executor().timer(Duration::from_millis(150)).await;
-                    let _ = this.update(cx, |_, cx| crate::platform::quit(cx));
+                    let _ = this.update(cx, |ws, cx| ws.quit_done(cx));
                     break;
                 }
             }
@@ -206,7 +212,7 @@ impl Workspace {
         if list.is_empty() {
             return match k {
                 "enter" => {
-                    crate::platform::quit(cx);
+                    self.quit_done(cx);
                     None
                 }
                 "escape" => None,
@@ -247,6 +253,8 @@ impl Workspace {
     /// Claude sessions the quit already stopped stay marked to resume, so the next launch
     /// brings back every session the quit closed, not just the ones still running then.
     pub fn cancel_quit(&mut self, cx: &mut Context<Self>) {
+        crate::windows::quit_cancelled();
+        self.closing_window = false;
         self.quitting = None;
         self.save();
         self.overlay = Overlay::None;
@@ -351,7 +359,7 @@ pub fn render(ws: &Workspace, expanded: bool, selected: usize, cx: &mut Context<
                 row()
                     .justify_end()
                     .child(button(ws, "quit-cancel", "Cancel", false).on_click(cx.listener(|this, _, window, cx| this.close_overlay(window, cx))))
-                    .child(button(ws, "quit-anyway", "Quit now  ↵", true).on_click(|_, _, cx| crate::platform::quit(cx))),
+                    .child(button(ws, "quit-anyway", "Quit now  ↵", true).on_click(cx.listener(|this, _, _, cx| this.quit_done(cx)))),
             )
             .into_any_element();
     }
@@ -374,7 +382,7 @@ pub fn render(ws: &Workspace, expanded: bool, selected: usize, cx: &mut Context<
 
     let mut c = card(ws)
         .w(px(if expanded { 540. } else { 440. }))
-        .child(heading(ws, "Quit T1K?".to_string(), None))
+        .child(heading(ws, if ws.closing_window { "Close this window?".to_string() } else { "Quit T1K?".to_string() }, None))
         .child(div().text_size(px(13.)).line_height(px(18.)).text_color(ui.text_secondary).child(SharedString::from(body)));
 
     if expanded {

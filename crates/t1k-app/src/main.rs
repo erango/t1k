@@ -58,38 +58,13 @@ mod tooltip;
 mod update_ui;
 mod updater;
 mod viewer;
+mod windows;
 mod workspace;
 
-use gpui::{prelude::*, px, size, App, Application, Bounds, WindowBounds, WindowOptions};
+use gpui::{App, Application};
 
 use actions::*;
 use workspace::Workspace;
-
-/// The window frame from last time, if it still lands on a connected display (a monitor may
-/// have been unplugged since).
-fn restored_bounds(cx: &App) -> Option<WindowBounds> {
-    use session::WindowState;
-    let w = session::load().window?;
-    if w.w < 200. || w.h < 150. {
-        return None;
-    }
-    let b = Bounds::new(gpui::point(px(w.x), px(w.y)), size(px(w.w), px(w.h)));
-    // At least a 120×60 corner of it must be on some display.
-    let visible = cx.displays().iter().any(|d| {
-        let s = d.bounds();
-        let ix = f32::from(b.right().min(s.right())) - f32::from(b.left().max(s.left()));
-        let iy = f32::from(b.bottom().min(s.bottom())) - f32::from(b.top().max(s.top()));
-        ix >= 120. && iy >= 60.
-    });
-    if !visible {
-        return None;
-    }
-    Some(match w.state {
-        WindowState::Windowed => WindowBounds::Windowed(b),
-        WindowState::Maximized => WindowBounds::Maximized(b),
-        WindowState::Fullscreen => WindowBounds::Fullscreen(b),
-    })
-}
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -110,21 +85,18 @@ fn main() {
         // the key event, so updating it here fails and the app used to quit without asking.
         cx.on_action(|_: &Quit, cx| cx.defer(quit_or_ask));
         fn quit_or_ask(cx: &mut App) {
+            let front = cx.active_window().or_else(|| cx.windows().first().copied()).and_then(|w| w.downcast::<Workspace>());
             // With an update waiting, ⌘Q asks once (it installs as T1K quits).
             if Workspace::should_confirm_quit() {
-                if let Some(w) = cx.windows().first().and_then(|w| w.downcast::<Workspace>()) {
+                if let Some(w) = front {
                     if w.update(cx, |ws, window, cx| ws.open_overlay(overlay::Overlay::QuitUpdate, window, cx)).is_ok() {
                         return;
                     }
                 }
             }
-            // Programs still running: ask first, then close them gently.
-            if let Some(w) = cx.windows().first().and_then(|w| w.downcast::<Workspace>()) {
-                if w.update(cx, |ws, window, cx| ws.request_quit(window, cx)).is_ok() {
-                    return;
-                }
-            }
-            crate::platform::quit(cx)
+            // Programs still running: each window asks first, then closes them gently.
+            windows::quit_cancelled();
+            windows::quit_next(None, cx);
         }
         cx.on_action(|_: &OpenRepo, cx| cx.open_url(brand::REPO));
         // Remove this process's hook socket on the way out.
@@ -149,25 +121,15 @@ fn main() {
 
         // Screenshots while you keep working: open behind other windows, without taking focus.
         let background = std::env::var_os("T1K_DEBUG_BACKGROUND").is_some();
-        let window_bounds = if demo::on() {
-            WindowBounds::Windowed(Bounds::centered(None, size(px(demo::WINDOW.0), px(demo::WINDOW.1)), cx))
-        } else {
-            restored_bounds(cx).unwrap_or_else(|| WindowBounds::Windowed(Bounds::centered(None, size(px(1100.), px(720.)), cx)))
-        };
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(window_bounds),
-                titlebar: Some(gpui::TitlebarOptions {
-                    title: Some("T1K".into()),
-                    appears_transparent: true,
-                    traffic_light_position: Some(gpui::point(px(12.), px(15.))),
-                }),
-                focus: !background,
-                ..Default::default()
-            },
-            |window, cx| cx.new(|cx| Workspace::new(window, cx)),
-        )
-        .expect("open window");
+        // One window per saved window (canvas v3-aq); the first holds the rest.
+        let mut first = if demo::on() { session::Session::default() } else { session::load() };
+        let rest = std::mem::take(&mut first.windows);
+        for saved in std::iter::once(first).chain(rest) {
+            windows::open(saved, None, !background, cx);
+        }
+        if cx.windows().is_empty() {
+            panic!("open window");
+        }
         if !background {
             cx.activate(true);
         }
