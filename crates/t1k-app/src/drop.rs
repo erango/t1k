@@ -5,8 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use gpui::{div, prelude::*, px, AnyElement, Context, Entity, ExternalPaths, FontWeight, MouseButton, Pixels, Point, SharedString, Window};
-use t1k_terminal::view::TerminalView;
+use gpui::{div, prelude::*, px, AnyElement, Context, ExternalPaths, FontWeight, MouseButton, Pixels, Point, SharedString, Window};
 use t1k_themes::UiColors;
 
 use crate::overlay::Overlay;
@@ -14,8 +13,8 @@ use crate::workspace::Workspace;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum DropTarget {
-    /// The active tab's main pane, or its split.
-    Pane { split: bool },
+    /// A pane of the active tab.
+    Pane { pane: crate::split::PaneId },
     /// A sidebar row, by tab id.
     Row(String),
     /// A group header: an image dropped there becomes the group's icon.
@@ -101,30 +100,21 @@ impl Workspace {
         }
     }
 
-    fn pane_view(&self, split: bool) -> Option<Entity<TerminalView>> {
-        let t = self.tabs.get(self.active)?;
-        if split {
-            t.split.as_ref().map(|s| s.view.clone())
-        } else {
-            Some(t.view.clone())
-        }
-    }
-
     /// Files dropped on a pane: theme files ask first, everything else is typed as paths.
-    pub fn drop_on_pane(&mut self, split: bool, paths: &ExternalPaths, at: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn drop_on_pane(&mut self, pane: crate::split::PaneId, paths: &ExternalPaths, at: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
         self.drop_hover = None;
         let paths = paths.paths().to_vec();
         if let [p] = paths.as_slice() {
             if is_theme(p) {
-                self.open_overlay(Overlay::DropTheme { path: p.clone(), split, at }, window, cx);
+                self.open_overlay(Overlay::DropTheme { path: p.clone(), pane, at }, window, cx);
                 return;
             }
         }
-        self.insert_paths(split, &paths, cx);
+        self.insert_paths(pane, &paths, cx);
     }
 
-    pub fn insert_paths(&mut self, split: bool, paths: &[PathBuf], cx: &mut Context<Self>) {
-        if let Some(v) = self.pane_view(split) {
+    pub fn insert_paths(&mut self, pane: crate::split::PaneId, paths: &[PathBuf], cx: &mut Context<Self>) {
+        if let Some(v) = self.pane_view(self.active, pane) {
             v.read(cx).terminal.paste(&insert_text(paths));
         }
         cx.notify();
@@ -135,30 +125,30 @@ impl Workspace {
         self.drop_hover = None;
         let Some(ix) = self.tabs.iter().position(|t| t.id == id) else { return };
         self.activate(ix, window, cx);
-        self.insert_paths(false, paths.paths(), cx);
+        self.insert_paths(crate::split::MAIN, paths.paths(), cx);
     }
 }
 
 /// Wrap a pane so it takes file drops and shows the outline and label while hovered.
-pub fn pane(ws: &Workspace, split: bool, content: impl IntoElement, cx: &mut Context<Workspace>) -> AnyElement {
+pub fn pane(ws: &Workspace, pane: crate::split::PaneId, content: impl IntoElement, cx: &mut Context<Workspace>) -> AnyElement {
     let ui = ws.ui;
-    let hover = ws.drop_hover.as_ref().filter(|h| h.target == DropTarget::Pane { split });
+    let hover = ws.drop_hover.as_ref().filter(|h| h.target == DropTarget::Pane { pane });
     div()
-        .id(if split { "pane-split" } else { "pane-main" })
+        .id(SharedString::from(format!("pane-{pane}")))
         .relative()
         .size_full()
         .child(content)
         .on_drag_move::<ExternalPaths>(cx.listener(move |this, e: &gpui::DragMoveEvent<ExternalPaths>, _, cx| {
             let inside = e.bounds.contains(&e.event.position);
             let paths = e.drag(cx).clone();
-            this.drop_hover(DropTarget::Pane { split }, inside, &paths, cx);
+            this.drop_hover(DropTarget::Pane { pane }, inside, &paths, cx);
         }))
         .on_drop(cx.listener(move |this, paths: &ExternalPaths, window, cx| {
             let at = window.mouse_position();
-            this.drop_on_pane(split, paths, at, window, cx);
+            this.drop_on_pane(pane, paths, at, window, cx);
         }))
         // A Claude session resuming after a quit, or a tab that couldn't come back (v3-ab).
-        .when(!split, |d| d.children(ws.tabs.get(ws.active).and_then(|t| crate::restore::pane_overlay(ws, &t.id))))
+        .when(pane == crate::split::MAIN, |d| d.children(ws.tabs.get(ws.active).and_then(|t| crate::restore::pane_overlay(ws, &t.id))))
         .when_some(hover, |d, h| d.child(outline(ui)).child(drop_label(ui, &h.paths)))
         .into_any_element()
 }
@@ -216,7 +206,7 @@ pub fn row_label(ui: UiColors, paths: &[PathBuf]) -> gpui::Div {
 }
 
 /// The choice for a dropped theme file, at the drop point. Esc or a click away inserts nothing.
-pub fn theme_choice(ws: &Workspace, path: &Path, split: bool, at: Point<Pixels>, cx: &mut Context<Workspace>) -> AnyElement {
+pub fn theme_choice(ws: &Workspace, path: &Path, pane: crate::split::PaneId, at: Point<Pixels>, cx: &mut Context<Workspace>) -> AnyElement {
     let ui = ws.ui;
     let name: SharedString = short_name(path, 32).into();
     let (p1, p2) = (path.to_path_buf(), path.to_path_buf());
@@ -260,7 +250,7 @@ pub fn theme_choice(ws: &Workspace, path: &Path, split: bool, at: Point<Pixels>,
                 .child(div().flex_1())
                 .child(button("drop-insert", "Insert path", false).on_click(cx.listener(move |this, _, window, cx| {
                     this.close_overlay(window, cx);
-                    this.insert_paths(split, std::slice::from_ref(&p1), cx);
+                    this.insert_paths(pane, std::slice::from_ref(&p1), cx);
                 })))
                 .child(button("drop-import", "Import theme", true).on_click(cx.listener(move |this, _, window, cx| {
                     this.close_overlay(window, cx);

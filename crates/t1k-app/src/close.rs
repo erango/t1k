@@ -9,7 +9,7 @@ use t1k_agent::Status;
 
 use crate::workspace::Workspace;
 
-const SHELLS: &[&str] = &["zsh", "bash", "fish", "sh", "login", "nu", "xonsh"];
+pub(crate) const SHELLS: &[&str] = &["zsh", "bash", "fish", "sh", "login", "nu", "xonsh"];
 const TOAST: Duration = Duration::from_secs(6);
 const KEEP: usize = 20;
 

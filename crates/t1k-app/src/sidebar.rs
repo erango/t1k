@@ -1019,6 +1019,26 @@ pub(crate) fn card(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> im
                 }))
                 .children(why.filter(|w| !w.is_empty()).map(|w| div().min_w_0().truncate().text_color(ui.text_tertiary).child(format!("· {w}")))),
         )
+        .when(tab.panes.multi(), |d| {
+            // Panes (canvas v3-ap): how many, and each one's icon and title.
+            let ids = tab.panes.layout.leaves();
+            d.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .child(div().text_size(px(11. * k)).text_color(ui.text_tertiary).child(format!("{} panes", ids.len())))
+                    .children(ids.into_iter().map(|id| {
+                        let (title, _) = crate::split::pane_label(tab, id);
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(7.))
+                            .child(crate::split::pane_icon(ws, tab, id, 14.))
+                            .child(div().min_w_0().truncate().text_size(px(12. * k)).text_color(ui.text_secondary).child(title))
+                    })),
+            )
+        })
         .children(screen.filter(|l| !l.is_empty()).map(|lines| {
             let n = lines.len();
             div()
@@ -1172,7 +1192,7 @@ fn title_color(tab: &Tab, selected: bool, alt: bool, ui: UiColors) -> gpui::Hsla
 /// Program icon (18 px) with a status badge on its corner: turning ring while working,
 /// amber when it needs you, red on error, mercury when unread or a reminder is due. Ended and
 /// idle sessions fade the icon instead.
-fn status_icon(tab: &Tab, ui: UiColors, sidebar_bg: gpui::Hsla, selected: bool, size: f32) -> Div {
+pub(crate) fn status_icon(tab: &Tab, ui: UiColors, sidebar_bg: gpui::Hsla, selected: bool, size: f32) -> Div {
     let ring = if selected { ui.bg_terminal } else { sidebar_bg };
     // The status dot scales with the icon (never below 9 px, so small icons still show it).
     let d = (size * 0.42).round().max(9.);

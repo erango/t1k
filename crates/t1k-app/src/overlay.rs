@@ -29,7 +29,7 @@ pub enum Overlay {
     /// "Match your terminal" (canvas v3-z).
     Match,
     /// A theme file dropped on a pane: import it, or insert its path (canvas v3-aa).
-    DropTheme { path: std::path::PathBuf, split: bool, at: gpui::Point<gpui::Pixels> },
+    DropTheme { path: std::path::PathBuf, pane: crate::split::PaneId, at: gpui::Point<gpui::Pixels> },
     /// The update dialog (any phase).
     Update,
     /// ⌘Q while an update waits.
@@ -48,10 +48,12 @@ pub enum Overlay {
     GroupMenu { key: std::path::PathBuf, at: Point<Pixels> },
     /// Group icon picker: suggestions, search and the emoji palette (`cat` is the category).
     IconPicker { key: crate::group_icons::IconFor, at: Point<Pixels>, query: String, selected: usize, cat: usize },
-    /// Right-click in a terminal pane (`split`: the tab's split pane rather than its main one).
+    /// Right-click on a pane's header (canvas v3-ap).
+    PaneMenu { tab: usize, pane: crate::split::PaneId, at: Point<Pixels> },
+    /// Right-click in a terminal pane.
     TerminalMenu {
         tab: usize,
-        split: bool,
+        pane: crate::split::PaneId,
         at: Point<Pixels>,
         link: Option<t1k_terminal::links::Link>,
         has_selection: bool,
@@ -382,6 +384,7 @@ impl Workspace {
             Overlay::GroupMenu { key, at } => (ev.keystroke.key != "escape").then_some(Overlay::GroupMenu { key, at }),
             Overlay::IconPicker { key, at, query, selected, cat } => self.icon_picker_key(key, at, query, selected, cat, ev, window, cx),
             o @ Overlay::TerminalMenu { .. } => (ev.keystroke.key != "escape").then_some(o),
+            o @ Overlay::PaneMenu { .. } => (ev.keystroke.key != "escape").then_some(o),
             o @ Overlay::SidebarView { .. } => (ev.keystroke.key != "escape").then_some(o),
             o @ Overlay::Usage { .. } => (ev.keystroke.key != "escape").then_some(o),
             o @ Overlay::MoreMenu { .. } => (ev.keystroke.key != "escape").then_some(o),
@@ -906,8 +909,8 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
             let c = crate::import_ui::sheet(ws, *selected, window, cx);
             Some(scrim(ws, false, cx).bg(gpui::black().opacity(0.35)).flex().justify_center().items_start().child(c).into_any_element())
         }
-        Overlay::DropTheme { path, split, at } => {
-            let c = crate::drop::theme_choice(ws, path, *split, *at, cx);
+        Overlay::DropTheme { path, pane, at } => {
+            let c = crate::drop::theme_choice(ws, path, *pane, *at, cx);
             Some(scrim(ws, true, cx).child(c).into_any_element())
         }
         Overlay::Match => {
@@ -1087,8 +1090,12 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
             let m = group_menu(ws, key.clone(), *at, window, cx);
             Some(scrim(ws, true, cx).child(m).into_any_element())
         }
-        Overlay::TerminalMenu { tab, split, at, link, has_selection, apps } => {
-            let m = terminal_menu(ws, *tab, *split, *at, link.clone(), *has_selection, apps.clone(), window, cx);
+        Overlay::TerminalMenu { tab, pane, at, link, has_selection, apps } => {
+            let m = terminal_menu(ws, *tab, *pane, *at, link.clone(), *has_selection, apps.clone(), window, cx);
+            Some(scrim(ws, true, cx).child(m).into_any_element())
+        }
+        Overlay::PaneMenu { tab, pane, at } => {
+            let m = pane_menu(ws, *tab, *pane, *at, window, cx);
             Some(scrim(ws, true, cx).child(m).into_any_element())
         }
     }
@@ -1310,12 +1317,7 @@ fn menu(ws: &Workspace, tab: usize, at: Point<Pixels>, window: &Window, cx: &mut
             this.close_overlay(window, cx);
         })));
     }
-    if t.split.is_some() {
-        m = m.child(item("close-split", "Close split".into()).on_click(cx.listener(move |this, _, window, cx| {
-            this.close_overlay(window, cx);
-            this.close_split(tab, window, cx);
-        })));
-    } else {
+    if t.panes.count() < crate::split::MAX_PANES {
         m = m.child(item("split", "Open in split".into()).on_click(cx.listener(move |this, _, window, cx| {
             this.close_overlay(window, cx);
             this.activate(tab, window, cx);
@@ -1732,7 +1734,7 @@ mod tests {
 fn terminal_menu(
     ws: &Workspace,
     tab: usize,
-    split: bool,
+    pane: crate::split::PaneId,
     at: Point<Pixels>,
     link: Option<t1k_terminal::links::Link>,
     has_selection: bool,
@@ -1741,8 +1743,8 @@ fn terminal_menu(
     cx: &mut Context<Workspace>,
 ) -> AnyElement {
     let ui = ws.ui;
-    let Some(t) = ws.tabs.get(tab) else { return div().into_any_element() };
-    let Some(view) = (if split { t.split.as_ref().map(|s| s.view.clone()) } else { Some(t.view.clone()) }) else {
+    let Some(_) = ws.tabs.get(tab) else { return div().into_any_element() };
+    let Some(view) = ws.pane_view(tab, pane) else {
         return div().into_any_element();
     };
     let item = |id: &str, label: &str, keys: &str, enabled: bool| {
@@ -1855,32 +1857,105 @@ fn terminal_menu(
     m = m.child(item("find", "Find…", "⌘F", true).on_click(act(|v, cx| v.open_find(cx))));
     m = m.child(item("clear", "Clear", "⌘K", true).on_click(act(|v, cx| v.clear(cx))));
     m = m.child(sep());
-    if split {
-        m = m.child(item("close-split", "Close split", "⌘W", true).on_click(cx.listener(move |this, _, window, cx| {
-            this.close_overlay(window, cx);
-            this.close_split(tab, window, cx);
-        })));
-    } else if t.split.is_none() {
-        m = m.child(item("split-right", "Split right", "⌘D", true).on_click(cx.listener(move |this, _, window, cx| {
-            this.close_overlay(window, cx);
-            this.open_split(tab, false, window, cx);
-        })));
-        m = m.child(item("split-down", "Split down", "⌘⇧D", true).on_click(cx.listener(move |this, _, window, cx| {
-            this.close_overlay(window, cx);
-            this.open_split(tab, true, window, cx);
-        })));
-    } else {
-        m = m.child(item("other-pane", "Switch pane", "⌘⌥→", true).on_click(cx.listener(move |this, _, window, cx| {
-            this.close_overlay(window, cx);
-            this.focus_other_pane(window, cx);
-        })));
-    }
+    m = m.children(pane_items(ws, tab, pane, false, cx));
 
     let vh = f32::from(window.viewport_size().height);
     let vw = f32::from(window.viewport_size().width);
     let top = f32::from(at.y).min(vh - 330.).max(8.);
     let left = f32::from(at.x).min(vw - 240.).max(8.);
     m.top(px(top)).left(px(left)).into_any_element()
+}
+
+/// Split, zoom, close and move items for a pane, in the terminal menu and the pane header's menu.
+/// `full`: the header's menu (zoom and move even before a choice is needed).
+fn pane_items(ws: &Workspace, tab: usize, pane: crate::split::PaneId, full: bool, cx: &mut Context<Workspace>) -> Vec<AnyElement> {
+    let ui = ws.ui;
+    let Some(t) = ws.tabs.get(tab) else { return Vec::new() };
+    let keys = &ws.config.keys;
+    let key = |a: &dyn gpui::Action| crate::keymap::display_for(a, keys);
+    let room = t.panes.count() < crate::split::MAX_PANES;
+    let item = |id: &str, label: String, keys: String, enabled: bool| {
+        div()
+            .id(SharedString::from(format!("pmenu-{id}")))
+            .h(px(26.))
+            .px(px(10.))
+            .rounded(px(5.))
+            .flex()
+            .items_center()
+            .text_size(px(13.))
+            .text_color(if enabled { ui.text_primary } else { ui.text_disabled })
+            .when(enabled, |d| d.hover(move |d| d.bg(ui.bg_selected)))
+            .child(div().flex_1().truncate().child(label))
+            .child(shortcut(ui, &keys))
+    };
+    let max = if room { "" } else { " (4 panes max)" };
+    let mut v: Vec<AnyElement> = Vec::new();
+    for (id, label, down, k) in [("split-right", "Split Right", false, key(&crate::actions::SplitRight)), ("split-down", "Split Down", true, key(&crate::actions::SplitDown))] {
+        let it = item(id, format!("{label}{max}"), k, room);
+        v.push(if room {
+            it.on_click(cx.listener(move |this, _, window, cx| {
+                this.close_overlay(window, cx);
+                this.activate(tab, window, cx);
+                this.focus_pane(tab, pane, window, cx);
+                this.open_split(tab, down, window, cx);
+            }))
+            .into_any_element()
+        } else {
+            it.into_any_element()
+        });
+    }
+    if t.panes.multi() || full {
+        let multi = t.panes.multi();
+        let zoomed = t.panes.zoomed.is_some();
+        let z = item("zoom", if zoomed { "Unzoom Pane".into() } else { "Zoom Pane".into() }, key(&crate::actions::ZoomPane), multi);
+        v.push(if multi {
+            z.on_click(cx.listener(move |this, _, window, cx| {
+                this.close_overlay(window, cx);
+                this.focus_pane(tab, pane, window, cx);
+                this.toggle_zoom(window, cx);
+            }))
+            .into_any_element()
+        } else {
+            z.into_any_element()
+        });
+        v.push(item("close", "Close Pane".into(), "⌘W".into(), multi).when(multi, |d| {
+            d.on_click(cx.listener(move |this, _, window, cx| {
+                this.close_overlay(window, cx);
+                this.close_pane(tab, pane, window, cx);
+            }))
+        }).into_any_element());
+        let movable = pane != crate::split::MAIN;
+        v.push(item("move", "Move Pane to New Tab".into(), String::new(), movable).when(movable, |d| {
+            d.on_click(cx.listener(move |this, _, window, cx| {
+                this.close_overlay(window, cx);
+                this.pane_to_new_tab(tab, pane, window, cx);
+            }))
+        }).into_any_element());
+    }
+    v
+}
+
+/// Right-click on a pane header.
+fn pane_menu(ws: &Workspace, tab: usize, pane: crate::split::PaneId, at: Point<Pixels>, window: &Window, cx: &mut Context<Workspace>) -> AnyElement {
+    let ui = ws.ui;
+    let vw = f32::from(window.viewport_size().width);
+    let vh = f32::from(window.viewport_size().height);
+    div()
+        .absolute()
+        .top(px(f32::from(at.y).min(vh - 160.).max(8.)))
+        .left(px(f32::from(at.x).min(vw - 260.).max(8.)))
+        .w(px(250.))
+        .p(px(5.))
+        .rounded(px(8.))
+        .bg(ui.bg_raised)
+        .border_1()
+        .border_color(ui.border)
+        .shadow_lg()
+        .flex()
+        .flex_col()
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .children(pane_items(ws, tab, pane, true, cx))
+        .into_any_element()
 }
 
 /// Sidebar view options: what titles show, an optional second line, density, icons, hover card.

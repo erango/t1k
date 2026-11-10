@@ -21,6 +21,9 @@ pub struct SavedTab {
     /// Split pane: its folder and whether it sits below the main pane.
     #[serde(default)]
     pub split: Option<(Option<PathBuf>, bool)>,
+    /// Helper panes and their layout (canvas v3-ap); replaces `split`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub panes: Option<crate::split::SavedPanes>,
     /// Name of this tab's saved scrollback in `scrollback/`, written at quit.
     #[serde(default)]
     pub scrollback: Option<String>,

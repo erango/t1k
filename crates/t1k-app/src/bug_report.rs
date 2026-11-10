@@ -386,7 +386,7 @@ impl Workspace {
             size: format!("{}", c.terminal.font.size),
             tabs: self.tabs.len(),
             groups: self.grouped().len(),
-            splits: self.tabs.iter().filter(|t| t.split.is_some()).count(),
+            splits: self.tabs.iter().filter(|t| t.panes.multi()).count(),
             crash: telemetry::last_event_id(),
         }
     }

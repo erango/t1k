@@ -179,6 +179,22 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
                 }),
         )
         .child(div().flex_1())
+        .children(tab.and_then(|t| t.panes.zoomed.map(|z| (z, t))).map(|(z, t)| {
+            // Zoomed (canvas v3-ap): which pane, of how many, and the key back.
+            let n = t.panes.layout.leaves();
+            let pos = n.iter().position(|p| *p == z).unwrap_or(0) + 1;
+            let key = crate::keymap::display_for(&crate::actions::ZoomPane, &ws.config.keys);
+            div()
+                .id("zoomed")
+                .flex_none()
+                .text_size(px(12.))
+                .text_color(ui.text_tertiary)
+                .cursor_pointer()
+                .hover(move |d| d.text_color(ui.text_secondary))
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_click(cx.listener(|this, _, window, cx| this.toggle_zoom(window, cx)))
+                .child(format!("Zoomed · {pos} of {} panes · {key}", n.len()))
+        }))
         .children(ctx)
         .when(needs, |d| {
             d.child(

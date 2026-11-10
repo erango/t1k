@@ -57,8 +57,8 @@ pub struct Tab {
     pub waiting: Option<crate::import_ui::Waiting>,
     /// What the tab ran in the other terminal (not restarted; "Run again" types it).
     pub was_running: Option<String>,
-    /// A second terminal beside or below the main one.
-    pub split: Option<crate::split::Split>,
+    /// Helper panes beside or below the main one, and how they're laid out.
+    pub panes: crate::split::Panes,
     _sub: Subscription,
 }
 
@@ -284,6 +284,8 @@ pub struct Workspace {
     /// The window background last asked of macOS, so it's set only when it changes.
     window_look: Option<gpui::WindowBackgroundAppearance>,
     pub selected_row: std::rc::Rc<std::cell::Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
+    /// Where the active tab's panes were drawn (⌘⌥ arrows).
+    pub pane_bounds: crate::split::PaneBounds,
     pub outputs_scroll: gpui::ScrollHandle,
     pub outputs_bar: crate::scroll_bar::Drag,
     /// While dragging a tab or group near the list's top or bottom edge: px per frame
@@ -509,6 +511,7 @@ impl Workspace {
             turns_done: Vec::new(),
             sidebar_scroll: gpui::ScrollHandle::new(),
             selected_row: Default::default(),
+            pane_bounds: Default::default(),
             window_look: None,
             outputs_scroll: gpui::ScrollHandle::new(),
             outputs_bar: Default::default(),
@@ -664,9 +667,13 @@ impl Workspace {
                     tab.group = g.clone();
                     tab.pinned_group = Some(g);
                 }
-                if let Some((cwd, vertical)) = t.split {
-                    let ix = this.tabs.len() - 1;
-                    this.open_split_in(ix, cwd, vertical, window, cx);
+                let ix = this.tabs.len() - 1;
+                if let Some(p) = t.panes {
+                    this.restore_panes(ix, p, window, cx);
+                } else if let Some((cwd, down)) = t.split {
+                    // Sessions from before panes: one helper beside or below.
+                    let layout = crate::split::Layout::Split { down, ratio: 0.5, a: Box::new(crate::split::Layout::Leaf(0)), b: Box::new(crate::split::Layout::Leaf(1)) };
+                    this.restore_panes(ix, crate::split::SavedPanes { layout, cwds: vec![(1, cwd)] }, window, cx);
                 }
             }
             // Read once: the next quit writes fresh files.
@@ -808,6 +815,18 @@ impl Workspace {
                 }
             }
         }
+        // Debug aid: T1K_DEBUG_PANES=right,down,zoom,menu splits the active tab at launch (screenshots).
+        if let Ok(spec) = std::env::var("T1K_DEBUG_PANES") {
+            for step in spec.split(',') {
+                match step {
+                    "right" => this.open_split(this.active, false, window, cx),
+                    "down" => this.open_split(this.active, true, window, cx),
+                    "zoom" => this.toggle_zoom(window, cx),
+                    "menu" => this.overlay = Overlay::PaneMenu { tab: this.active, pane: 1, at: gpui::point(px(700.), px(130.)) },
+                    _ => {}
+                }
+            }
+        }
         // Debug aid: T1K_DEBUG_VIEW=<path>[:line] opens a file in the side panel.
         if let Ok(spec) = std::env::var("T1K_DEBUG_VIEW") {
             let (p, line) = match spec.rsplit_once(':') {
@@ -821,7 +840,7 @@ impl Workspace {
         if let Some((kind, path)) = std::env::var("T1K_DEBUG_DROP").ok().as_deref().and_then(|v| v.split_once(':')) {
             let paths = vec![std::path::PathBuf::from(path)];
             match kind {
-                "pane" => self_drop_hover(&mut this, crate::drop::DropTarget::Pane { split: false }, paths),
+                "pane" => self_drop_hover(&mut this, crate::drop::DropTarget::Pane { pane: 0 }, paths),
                 "row" => {
                     let id = this.tabs.get(this.active).map(|t| t.id.clone()).unwrap_or_default();
                     self_drop_hover(&mut this, crate::drop::DropTarget::Row(id), paths)
@@ -830,7 +849,7 @@ impl Workspace {
                     let g = this.tabs.get(this.active).map(|t| t.group.clone()).unwrap_or_default();
                     self_drop_hover(&mut this, crate::drop::DropTarget::Group(g), paths)
                 }
-                "theme" => this.overlay = Overlay::DropTheme { path: paths[0].clone(), split: false, at: gpui::point(px(700.), px(400.)) },
+                "theme" => this.overlay = Overlay::DropTheme { path: paths[0].clone(), pane: 0, at: gpui::point(px(700.), px(400.)) },
                 _ => {}
             }
         }
@@ -889,7 +908,7 @@ impl Workspace {
                 }
                 "menu" => Some(Overlay::Menu { tab: this.active, at }),
                 "groupmenu" => this.tabs.get(this.active).map(|t| Overlay::GroupMenu { key: t.group.clone(), at }),
-                "termmenu" => Some(Overlay::TerminalMenu { tab: this.active, split: false, at: gpui::point(px(600.), px(200.)), link: None, has_selection: false, apps: Vec::new() }),
+                "termmenu" => Some(Overlay::TerminalMenu { tab: this.active, pane: 0, at: gpui::point(px(600.), px(200.)), link: None, has_selection: false, apps: Vec::new() }),
                 "card" => {
                     this.card = this.tabs.get(this.active).map(|t| t.id.clone());
                     None
@@ -939,7 +958,12 @@ impl Workspace {
         let id = uuid::Uuid::new_v4().to_string();
         let cwd = cwd.or_else(|| std::env::var_os("HOME").map(Into::into));
         let view = self.spawn_view(cwd.clone(), id.clone(), window, cx);
-        let sub = cx.subscribe_in(&view, window, |this: &mut Self, view, ev: &TerminalEvent, window, cx| {
+        self.push_tab(id, view, cwd, manual_title, window, cx);
+    }
+
+    /// The main pane's events, wherever its tab is.
+    fn subscribe_main(&mut self, view: &Entity<TerminalView>, window: &mut Window, cx: &mut Context<Self>) -> Subscription {
+        cx.subscribe_in(view, window, |this: &mut Self, view, ev: &TerminalEvent, window, cx| {
             let Some(ix) = this.tabs.iter().position(|t| &t.view == view) else { return };
             match ev {
                 TerminalEvent::TitleChanged(t) => {
@@ -963,11 +987,33 @@ impl Workspace {
                 TerminalEvent::Notify(n) => this.program_notice(ix, n, true, window, cx),
                 TerminalEvent::OpenLink(link) => this.open_link(ix, link, cx),
                 TerminalEvent::ContextMenu { at, link, has_selection } => {
-                    let o = Overlay::TerminalMenu { tab: ix, split: false, at: *at, link: link.clone(), has_selection: *has_selection, apps: crate::overlay::file_apps(link) };
+                    let o = Overlay::TerminalMenu { tab: ix, pane: 0, at: *at, link: link.clone(), has_selection: *has_selection, apps: crate::overlay::file_apps(link) };
                     this.open_overlay(o, window, cx);
                 }
             }
-        });
+        })
+    }
+
+    /// A pane becomes its tab's main one (the main pane closed with others open).
+    pub fn promote_view(&mut self, ix: usize, view: Entity<TerminalView>, window: &mut Window, cx: &mut Context<Self>) {
+        let sub = self.subscribe_main(&view, window, cx);
+        let t = &mut self.tabs[ix];
+        t.view = view;
+        t._sub = sub;
+        t.agent = None;
+        t.program = None;
+        t.title_state = None;
+    }
+
+    /// A running terminal (a pane moved out of its tab) becomes a tab of its own after the active one.
+    pub fn adopt_view(&mut self, id: String, view: Entity<TerminalView>, cwd: Option<PathBuf>, window: &mut Window, cx: &mut Context<Self>) {
+        let anchor = self.active;
+        self.push_tab(id, view, cwd, None, window, cx);
+        self.place_new_tab(self.active, Some(anchor));
+    }
+
+    fn push_tab(&mut self, id: String, view: Entity<TerminalView>, cwd: Option<PathBuf>, manual_title: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        let sub = self.subscribe_main(&view, window, cx);
         let group = cwd.as_deref().map(groups::project_root).unwrap_or_default();
         let created = self.next_created;
         self.next_created += 1;
@@ -993,7 +1039,7 @@ impl Workspace {
             origin: None,
             waiting: None,
             was_running: None,
-            split: None,
+            panes: Default::default(),
             _sub: sub,
         });
         self.activate(self.tabs.len() - 1, window, cx);
@@ -1095,8 +1141,8 @@ impl Workspace {
         }
         if let Some(t) = self.tabs.get(self.active) {
             let h = t.view.read(cx).focus_handle(cx);
-            let split_focused = t.split.as_ref().is_some_and(|s| s.view.read(cx).focus_handle(cx).is_focused(window));
-            if !h.is_focused(window) && !split_focused {
+            let helper_focused = t.panes.helpers.iter().any(|p| p.view.read(cx).focus_handle(cx).is_focused(window));
+            if !h.is_focused(window) && !helper_focused {
                 window.focus(&h);
             }
         }
@@ -1729,9 +1775,17 @@ impl Workspace {
                 t.branch = branch;
                 changed = true;
             }
-            if let Some(sp) = t.split.as_mut() {
-                if let Some(c) = sp.view.read(cx).terminal.cwd() {
-                    sp.cwd = Some(c);
+            for p in t.panes.helpers.iter_mut() {
+                let term = &p.view.read(cx).terminal;
+                if let Some(c) = term.cwd() {
+                    p.cwd = Some(c);
+                }
+                let program = term.foreground_name().filter(|n| !crate::close::SHELLS.contains(&n.trim_start_matches('-')));
+                let command = program.as_ref().and_then(|_| term.foreground_command()).map(|(c, _)| c);
+                if program != p.program || command != p.command {
+                    p.program = program;
+                    p.command = command;
+                    changed = true;
                 }
             }
             if cwd.is_some() && cwd != t.cwd {
@@ -2136,7 +2190,8 @@ impl Workspace {
                     pinned_group: t.pinned_group.clone(),
                     icon: t.icon.clone(),
                     origin: t.origin.clone(),
-                    split: t.split.as_ref().map(|s| (s.cwd.clone(), s.vertical)),
+                    split: None,
+                    panes: t.panes.saved(),
                     scrollback: self.scrollback_saved.then(|| format!("{}.ansi", t.id)),
                     agent_live: self.resume_after_quit.contains(&t.id)
                         || t.agent.as_ref().is_some_and(|a| {
@@ -2319,16 +2374,15 @@ impl Workspace {
             return self.undo_move(cx);
         }
         let Some(t) = self.tabs.get(self.active) else { return };
-        let split = t.split.as_ref().map(|s| s.view.clone()).filter(|v| v.read(cx).focus_handle(cx).is_focused(window));
-        let view = split.unwrap_or_else(|| t.view.clone());
+        let view = self.focused_view(window, cx).unwrap_or_else(|| t.view.clone());
         view.read(cx).terminal.write(&b"\x1f"[..]);
     }
 
     fn close_tab(&mut self, _: &CloseTab, window: &mut Window, cx: &mut Context<Self>) {
-        // ⌘W in a split closes just that pane.
-        let split_focused = self.tabs.get(self.active).and_then(|t| t.split.as_ref()).is_some_and(|s| s.view.read(cx).focus_handle(cx).is_focused(window));
-        if split_focused {
-            self.close_split(self.active, window, cx);
+        // ⌘W in a tab with panes closes just the focused pane.
+        if self.tabs.get(self.active).is_some_and(|t| t.panes.multi()) {
+            let id = self.focused_pane(window, cx);
+            self.close_pane(self.active, id, window, cx);
             return;
         }
         self.close_with_undo(self.active, window, cx);
@@ -2661,7 +2715,11 @@ impl Render for Workspace {
             }))
             .on_action(cx.listener(|this, _: &RunSetup, window, cx| this.open_setup(0, window, cx)))
             .on_action(cx.listener(|this, _: &SplitDown, window, cx| this.open_split(this.active, true, window, cx)))
-            .on_action(cx.listener(|this, _: &FocusOtherPane, window, cx| this.focus_other_pane(window, cx)))
+            .on_action(cx.listener(|this, _: &FocusPaneLeft, window, cx| this.focus_dir(crate::split::Dir::Left, window, cx)))
+            .on_action(cx.listener(|this, _: &FocusPaneRight, window, cx| this.focus_dir(crate::split::Dir::Right, window, cx)))
+            .on_action(cx.listener(|this, _: &FocusPaneUp, window, cx| this.focus_dir(crate::split::Dir::Up, window, cx)))
+            .on_action(cx.listener(|this, _: &FocusPaneDown, window, cx| this.focus_dir(crate::split::Dir::Down, window, cx)))
+            .on_action(cx.listener(|this, _: &ZoomPane, window, cx| this.toggle_zoom(window, cx)))
             .on_action(cx.listener(|this, _: &GoBack, window, cx| this.navigate(true, window, cx)))
             .on_action(cx.listener(|this, _: &ShowAbout, window, cx| this.open_overlay(Overlay::About, window, cx)))
             .on_action(cx.listener(|this, _: &CheckForUpdates, window, cx| this.check_for_updates(window, cx)))
