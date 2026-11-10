@@ -1348,8 +1348,8 @@ fn menu(ws: &Workspace, tab: usize, at: Point<Pixels>, window: &Window, cx: &mut
     // Canvas v3-aq: each other window, then a new one.
     for (n, o) in crate::windows::others(ws.hub_id).into_iter().enumerate() {
         let handle = o.handle;
-        let s = if o.tabs == 1 { "" } else { "s" };
-        m = m.child(item("move-window", format!("Move to Window: {} · {} tab{s}", o.name, o.tabs)).id(SharedString::from(format!("move-window-{n}"))).on_click(cx.listener(
+        // The name alone: with the tab count the line ran past the menu's edge.
+        m = m.child(item("move-window", format!("Move to Window: {}", o.name)).id(SharedString::from(format!("move-window-{n}"))).on_click(cx.listener(
             move |this, _, window, cx| {
                 this.close_overlay(window, cx);
                 this.move_tab_to_window(tab, Some(handle), None, window, cx);

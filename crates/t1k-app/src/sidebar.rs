@@ -978,7 +978,10 @@ pub(crate) fn card(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> im
     };
     let color = if tab.watching().is_some() { ui.text_secondary } else { color };
     let watch_items = tab.watching().map(|w| w.items());
-    let since = tab.shown_agent().filter(|a| a.status != Status::Idle).map(|a| elapsed(a.since));
+    let since = match tab.watching() {
+        Some(w) => Some(elapsed(w.since)),
+        None => tab.shown_agent().filter(|a| a.status != Status::Idle).map(|a| elapsed(a.since)),
+    };
     let why = match tab.status() {
         Some(Status::NeedsInput { .. }) => Some(needs_reason(tab)),
         Some(Status::Working) => agent.and_then(|a| a.now.clone()),
