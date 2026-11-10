@@ -117,6 +117,9 @@ pub struct Session {
     pub sidebar_open: Option<bool>,
     #[serde(default)]
     pub outputs_open: bool,
+    /// The quick terminal's first-run hint was answered (canvas v3-ay).
+    #[serde(default)]
+    pub quick_hint_done: bool,
     /// A window opened to take a tab moved out of another: it starts with no tab of its own.
     #[serde(skip)]
     pub adopt: bool,

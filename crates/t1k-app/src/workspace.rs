@@ -267,6 +267,8 @@ pub struct Workspace {
     pub match_undo: Option<crate::match_ui::MatchUndo>,
     /// The welcome card's match section was used or dismissed.
     pub match_hidden: bool,
+    /// The quick terminal's hint card was answered, or isn't due.
+    pub quick_hint_done: bool,
     /// "Set up T1K": progress (saved), snapshots for Undo, tried keys.
     pub setup: crate::setup::SetupState,
     /// The font picker and "Get more fonts" installs.
@@ -543,6 +545,7 @@ impl Workspace {
             matcher: None,
             match_undo: None,
             match_hidden: saved.match_offered,
+            quick_hint_done: saved.quick_hint_done,
             setup: crate::setup::SetupState::new(saved.setup_step),
             fonts: Default::default(),
             drop_hover: None,
@@ -1103,6 +1106,7 @@ impl Workspace {
                 }
                 "remind" => Some(Overlay::RemindCustom { tab: this.active, text: "tomorrow 9:15".into() }),
                 "icons" | "icons-search" | "tabicons" | "icons-apps" | "icons-image" => this.debug_icon_picker(&which, cx),
+                "settings-quick" => Some(Overlay::Settings { section: crate::settings::Section::Quick }),
                 "settings-keys" => Some(Overlay::Settings { section: crate::settings::Section::Keybindings }),
                 "settings-search" => {
                     this.settings_query = "font".into();
@@ -2589,6 +2593,7 @@ impl Workspace {
             import_seen: self.import_seen.clone(),
             import_last: self.import_last,
             match_offered: self.match_hidden,
+            quick_hint_done: self.quick_hint_done,
             setup_step: self.setup.progress,
             ..Default::default()
         }
@@ -2885,6 +2890,7 @@ impl Workspace {
         (self.mode, self.dark, self.light) = Self::slots(&self.config);
         crate::updater::apply(&self.config.updates);
         crate::secure_input::apply(self.config.terminal.secure_input, window.is_window_active());
+        crate::quick::configure(&self.config.quick, cx);
         self.apply_theme(window, cx);
         let style = self.terminal_style();
         for tab in &self.tabs {

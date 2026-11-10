@@ -130,6 +130,23 @@ dock_badge = true
 # Banners programs ask for (OSC 9 / 777), e.g. a long build saying it's done.
 programs = true
 
+[quick]
+# Quick terminal: a panel over whatever app you're in, on a shortcut that works everywhere.
+enabled = false
+# The shortcut, e.g. "ctrl-alt-t" (modifiers: ctrl, alt, shift, cmd; then one key).
+shortcut = "ctrl-alt-t"
+# What it shows: "needs" (the tab that has waited longest for you; a quick shell when none
+# does) or "shell" (always the quick shell).
+shows = "needs"
+# Where: "panel" (centered under the menu bar), or an edge: "top", "bottom", "left", "right".
+position = "panel"
+# "s", "m" or "l".
+size = "m"
+# Which screen: "pointer" (the one the pointer is on) or "main".
+screen = "pointer"
+# Hide it when you click another app.
+hide_on_blur = true
+
 [updates]
 # Look for a new version once a day, in the background. Nothing interrupts you.
 check = true
@@ -177,6 +194,7 @@ pub struct Config {
     pub links: LinksCfg,
     pub notify: NotifyCfg,
     pub updates: UpdatesCfg,
+    pub quick: QuickCfg,
     pub privacy: PrivacyCfg,
     pub helper: HelperCfg,
     pub window: WindowCfg,
@@ -230,6 +248,24 @@ pub struct UpdatesCfg {
 impl Default for UpdatesCfg {
     fn default() -> Self {
         Self { check: true, download: true, channel: "stable".into(), feed: String::new() }
+    }
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[serde(default)]
+pub struct QuickCfg {
+    pub enabled: bool,
+    pub shortcut: String,
+    pub shows: String,
+    pub position: String,
+    pub size: String,
+    pub screen: String,
+    pub hide_on_blur: bool,
+}
+
+impl Default for QuickCfg {
+    fn default() -> Self {
+        Self { enabled: false, shortcut: "ctrl-alt-t".into(), shows: "needs".into(), position: "panel".into(), size: "m".into(), screen: "pointer".into(), hide_on_blur: true }
     }
 }
 
@@ -378,6 +414,7 @@ impl Default for Config {
             links: LinksCfg::default(),
             notify: NotifyCfg::default(),
             updates: UpdatesCfg::default(),
+            quick: QuickCfg::default(),
             privacy: PrivacyCfg::default(),
             keys: Default::default(),
             helper: HelperCfg::default(),

@@ -361,3 +361,148 @@ pub fn guard_terminate() {
 
 #[cfg(not(target_os = "macos"))]
 pub fn guard_terminate() {}
+
+// ---- global hotkey (quick terminal, canvas v3-ay) -------------------------------------------
+// A Carbon hot key: it works in every app and needs no Accessibility permission.
+
+static HOTKEY_FIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(target_os = "macos")]
+mod hotkey {
+    use std::ffi::c_void;
+    use std::sync::atomic::{AtomicPtr, AtomicBool, Ordering};
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct EventHotKeyID {
+        signature: u32,
+        id: u32,
+    }
+    #[repr(C)]
+    struct EventTypeSpec {
+        class: u32,
+        kind: u32,
+    }
+    #[link(name = "Carbon", kind = "framework")]
+    unsafe extern "C" {
+        fn RegisterEventHotKey(code: u32, mods: u32, id: EventHotKeyID, target: *mut c_void, options: u32, out: *mut *mut c_void) -> i32;
+        fn UnregisterEventHotKey(hotkey: *mut c_void) -> i32;
+        fn GetApplicationEventTarget() -> *mut c_void;
+        fn InstallEventHandler(
+            target: *mut c_void,
+            handler: extern "C" fn(*mut c_void, *mut c_void, *mut c_void) -> i32,
+            count: u32,
+            types: *const EventTypeSpec,
+            user: *mut c_void,
+            out: *mut *mut c_void,
+        ) -> i32;
+    }
+    static CURRENT: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
+    static HANDLER: AtomicBool = AtomicBool::new(false);
+
+    extern "C" fn pressed(_: *mut c_void, _: *mut c_void, _: *mut c_void) -> i32 {
+        super::HOTKEY_FIRED.store(true, Ordering::SeqCst);
+        0
+    }
+
+    pub fn unregister() {
+        let old = CURRENT.swap(std::ptr::null_mut(), Ordering::SeqCst);
+        if !old.is_null() {
+            unsafe { UnregisterEventHotKey(old) };
+        }
+    }
+
+    /// False when macOS refuses (another app registered the same hot key).
+    pub fn register(code: u32, mods: u32) -> bool {
+        unregister();
+        unsafe {
+            if !HANDLER.swap(true, Ordering::SeqCst) {
+                // 'keyb', kEventHotKeyPressed.
+                let spec = EventTypeSpec { class: u32::from_be_bytes(*b"keyb"), kind: 5 };
+                InstallEventHandler(GetApplicationEventTarget(), pressed, 1, &spec, std::ptr::null_mut(), std::ptr::null_mut());
+            }
+            let mut out: *mut c_void = std::ptr::null_mut();
+            let id = EventHotKeyID { signature: u32::from_be_bytes(*b"t1kq"), id: 1 };
+            let status = RegisterEventHotKey(code, mods, id, GetApplicationEventTarget(), 0, &mut out);
+            if status != 0 || out.is_null() {
+                return false;
+            }
+            CURRENT.store(out, Ordering::SeqCst);
+            true
+        }
+    }
+}
+
+/// A shortcut like "ctrl-alt-t" as a macOS key code and Carbon modifiers. None if it has no
+/// modifier (a bare key would be taken from every app) or names a key we can't place.
+pub fn hotkey_parse(shortcut: &str) -> Option<(u32, u32)> {
+    let mut mods = 0u32;
+    let mut key = None;
+    for part in shortcut.split('-').map(str::trim).filter(|p| !p.is_empty()) {
+        match part.to_ascii_lowercase().as_str() {
+            "cmd" | "command" | "super" => mods |= 0x100,
+            "shift" => mods |= 0x200,
+            "alt" | "option" | "opt" => mods |= 0x800,
+            "ctrl" | "control" => mods |= 0x1000,
+            k => key = Some(k.to_string()),
+        }
+    }
+    let code = match key?.as_str() {
+        "a" => 0, "s" => 1, "d" => 2, "f" => 3, "h" => 4, "g" => 5, "z" => 6, "x" => 7, "c" => 8, "v" => 9, "b" => 11, "q" => 12,
+        "w" => 13, "e" => 14, "r" => 15, "y" => 16, "t" => 17, "1" => 18, "2" => 19, "3" => 20, "4" => 21, "6" => 22, "5" => 23,
+        "=" => 24, "9" => 25, "7" => 26, "minus" => 27, "8" => 28, "0" => 29, "]" => 30, "o" => 31, "u" => 32, "[" => 33, "i" => 34,
+        "p" => 35, "enter" => 36, "l" => 37, "j" => 38, "'" => 39, "k" => 40, ";" => 41, "\\" => 42, "," => 43, "/" => 44, "n" => 45,
+        "m" => 46, "." => 47, "tab" => 48, "space" => 49, "`" => 50, "escape" => 53,
+        "f1" => 122, "f2" => 120, "f3" => 99, "f4" => 118, "f5" => 96, "f6" => 97, "f7" => 98, "f8" => 100, "f9" => 101, "f10" => 109,
+        "f11" => 103, "f12" => 111,
+        _ => return None,
+    };
+    (mods != 0).then_some((code, mods))
+}
+
+/// Register the global hot key (replacing any earlier one). False if macOS refuses it.
+pub fn hotkey_register(shortcut: &str) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        hotkey_parse(shortcut).is_some_and(|(code, mods)| hotkey::register(code, mods))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = shortcut;
+        false
+    }
+}
+
+pub fn hotkey_unregister() {
+    #[cfg(target_os = "macos")]
+    hotkey::unregister();
+}
+
+/// True once per press of the global hot key.
+pub fn take_hotkey() -> bool {
+    HOTKEY_FIRED.swap(false, std::sync::atomic::Ordering::SeqCst)
+}
+
+/// Where the pointer is, in GPUI's global coordinates (top-left origin), and the menu bar's
+/// height.
+#[cfg(target_os = "macos")]
+pub fn pointer_and_menu_bar() -> (gpui::Point<gpui::Pixels>, f32) {
+    use cocoa::base::id;
+    use cocoa::foundation::{NSPoint, NSRect};
+    use objc::{class, msg_send, sel, sel_impl};
+    unsafe {
+        let p: NSPoint = msg_send![class!(NSEvent), mouseLocation];
+        let screens: id = msg_send![class!(NSScreen), screens];
+        let primary: id = msg_send![screens, firstObject];
+        let frame: NSRect = if primary.is_null() { NSRect::new(NSPoint::new(0., 0.), cocoa::foundation::NSSize::new(0., 0.)) } else { msg_send![primary, frame] };
+        let app: id = msg_send![class!(NSApplication), sharedApplication];
+        let menu: id = msg_send![app, mainMenu];
+        let bar: f64 = if menu.is_null() { 24. } else { msg_send![menu, menuBarHeight] };
+        (gpui::point(gpui::px(p.x as f32), gpui::px((frame.size.height - p.y) as f32)), bar as f32)
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn pointer_and_menu_bar() -> (gpui::Point<gpui::Pixels>, f32) {
+    (gpui::point(gpui::px(0.), gpui::px(0.)), 0.)
+}

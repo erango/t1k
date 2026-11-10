@@ -27,6 +27,7 @@ mod outputs_panel;
 mod overlay;
 mod palette;
 mod platform;
+mod quick;
 mod groups;
 mod helper;
 mod helper_cli;
@@ -119,6 +120,23 @@ fn main() {
         })
         .detach();
 
+        // Quick terminal: its shortcut works in every app. A Carbon hot key only sets a flag,
+        // so a light loop turns presses into toggles.
+        quick::configure(&config::load().quick, cx);
+        cx.spawn(async move |cx| loop {
+            cx.background_executor().timer(std::time::Duration::from_millis(40)).await;
+            if platform::take_hotkey() && cx.update(quick::toggle).is_err() {
+                break;
+            }
+        })
+        .detach();
+        if let Ok(spec) = std::env::var("T1K_DEBUG_QUICK") {
+            cx.spawn(async move |cx| {
+                cx.background_executor().timer(std::time::Duration::from_millis(2500)).await;
+                let _ = cx.update(|cx| quick::debug_show(&spec, cx));
+            })
+            .detach();
+        }
         // Screenshots while you keep working: open behind other windows, without taking focus.
         let background = std::env::var_os("T1K_DEBUG_BACKGROUND").is_some();
         // One window per saved window (canvas v3-aq); the first holds the rest.

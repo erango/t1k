@@ -16,17 +16,19 @@ pub enum Section {
     Terminal,
     Agents,
     Keybindings,
+    Quick,
     Advanced,
 }
 
 impl Section {
-    pub const ALL: [Section; 7] = [
+    pub const ALL: [Section; 8] = [
         Section::Appearance,
         Section::Interface,
         Section::Tabs,
         Section::Terminal,
         Section::Agents,
         Section::Keybindings,
+        Section::Quick,
         Section::Advanced,
     ];
     pub fn label(self) -> &'static str {
@@ -37,6 +39,7 @@ impl Section {
             Section::Terminal => "Terminal",
             Section::Agents => "Agents",
             Section::Keybindings => "Keybindings",
+            Section::Quick => "Quick terminal",
             Section::Advanced => "Advanced",
         }
     }
@@ -512,6 +515,21 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
                     this.tabs[ix].view.read(cx).terminal.write(format!("'{bin}' helper bench\r").into_bytes());
                 })))
                 .into_any_element()),
+        // Quick terminal (canvas v3-ay).
+        e(Quick, "Quick terminal", "Quick terminal", "A panel over whatever app you're in, on a shortcut that works everywhere", "quick.enabled", "quick terminal hotkey global drop down panel visor",
+            toggle(ui, "quick-on", c.quick.enabled, &["quick", "enabled"], cx).into_any_element()),
+        e(Quick, "Quick terminal", "Shortcut", crate::quick::shortcut_note(ws, cx), "quick.shortcut", "quick terminal hotkey shortcut global key",
+            crate::quick::recorder(ws, cx)),
+        e(Quick, "Quick terminal", "Shows", "The tab that has waited longest for you (a quick shell when none does), or always the quick shell", "quick.shows", "quick terminal needs you shell",
+            seg(ui, "quick-shows", &c.quick.shows, &[("needs", "The tab that needs you"), ("shell", "Quick shell only")], &["quick", "shows"], cx)),
+        e(Quick, "Where", "Position", "A panel under the menu bar, or along an edge of the screen", "quick.position", "quick terminal position edge top bottom left right drop down",
+            seg(ui, "quick-pos", &c.quick.position, &[("panel", "Panel"), ("top", "Top"), ("bottom", "Bottom"), ("left", "Left"), ("right", "Right")], &["quick", "position"], cx)),
+        e(Quick, "Where", "Size", "", "quick.size", "quick terminal size small medium large",
+            seg(ui, "quick-size", &c.quick.size, &[("s", "S"), ("m", "M"), ("l", "L")], &["quick", "size"], cx)),
+        e(Quick, "Where", "Screen", "", "quick.screen", "quick terminal screen display monitor pointer",
+            seg(ui, "quick-screen", &c.quick.screen, &[("pointer", "With the pointer"), ("main", "Main")], &["quick", "screen"], cx)),
+        e(Quick, "Where", "Hide when it loses focus", "Clicking another app puts it away; Keep open in the panel overrides this", "quick.hide_on_blur", "quick terminal hide focus click outside pin",
+            toggle(ui, "quick-blur", c.quick.hide_on_blur, &["quick", "hide_on_blur"], cx).into_any_element()),
         e(Advanced, "Security", "Secure Keyboard Entry", "While T1K is in front, other apps can't read what you type", "terminal.secure_input", "secure keyboard input password keylogger privacy",
             toggle(ui, "secure", c.terminal.secure_input, &["terminal", "secure_input"], cx).into_any_element()),
         e(Advanced, "Security", "Secure entry at password prompts", "Turns Secure Keyboard Entry on by itself while a terminal asks for a password", "terminal.secure_input_passwords", "secure keyboard input password sudo ssh automatic",

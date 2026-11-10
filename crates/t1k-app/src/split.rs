@@ -177,6 +177,16 @@ fn cached(view: &Entity<TerminalView>) -> gpui::AnyView {
     gpui::AnyView::from(view.clone()).cached(gpui::StyleRefinement::default().size_full())
 }
 
+/// A pane's terminal; while the quick terminal has it (canvas v3-ay), a note saying so: one
+/// view can't be drawn in two windows.
+fn terminal(ws: &Workspace, view: &Entity<TerminalView>, cx: &gpui::App) -> AnyElement {
+    if crate::quick::shows(view, cx) {
+        crate::quick::placeholder(ws).into_any_element()
+    } else {
+        cached(view).into_any_element()
+    }
+}
+
 /// What a pane's header and the hover card call it, and the program for its icon.
 pub fn pane_label(t: &Tab, id: PaneId) -> (String, Option<String>) {
     if id == MAIN {
@@ -255,7 +265,7 @@ pub fn pane_mark(layout: &Layout, pane: PaneId, color: gpui::Hsla) -> impl IntoE
 /// Each pane takes file drops (`drop::pane`).
 pub fn render_panes(ws: &Workspace, t: &Tab, window: &mut Window, cx: &mut Context<Workspace>) -> AnyElement {
     if !t.panes.multi() {
-        let pane = crate::drop::pane(ws, MAIN, cached(&t.view), cx);
+        let pane = crate::drop::pane(ws, MAIN, terminal(ws, &t.view, cx), cx);
         if ws.broadcast_receives(&t.id, MAIN) {
             // No header to carry the glyph: a frame and a "Receiving" chip.
             return div().relative().size_full().child(pane).child(crate::broadcast::frame(ws)).child(crate::broadcast::receiving_chip(ws)).into_any_element();
@@ -360,7 +370,7 @@ fn leaf(ws: &Workspace, t: &Tab, id: PaneId, focused: PaneId, header: bool, cx: 
                 .min_h_0()
                 .relative()
                 .bg(ws.term_bg())
-                .child(div().size_full().when(header && !is_focused, |d| d.opacity(0.72)).child(crate::drop::pane(ws, id, cached(&view), cx)))
+                .child(div().size_full().when(header && !is_focused, |d| d.opacity(0.72)).child(crate::drop::pane(ws, id, terminal(ws, &view, cx), cx)))
                 // Receiving broadcast input (canvas v3-aw): an accent frame.
                 .when(ws.broadcast_receives(&t.id, id), |d| d.child(crate::broadcast::frame(ws))),
         )

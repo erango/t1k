@@ -251,7 +251,7 @@ impl crate::workspace::Workspace {
             cx.notify();
             return;
         }
-        if plain && matches!(ks.key.as_str(), "backspace" | "delete") {
+        if plain && matches!(ks.key.as_str(), "backspace" | "delete") && id != crate::quick::RECORD {
             crate::config::set(&["keys", id], "");
             self.config.keys.insert(id.to_string(), String::new());
             self.key_recording = None;
@@ -260,6 +260,18 @@ impl crate::workspace::Workspace {
             return;
         }
         let Some(k) = from_keystroke(ks) else { return };
+        // The quick terminal's global shortcut lives in [quick], not [keys], and needs a
+        // modifier (a bare key would be taken from every app).
+        if id == crate::quick::RECORD {
+            if crate::platform::hotkey_parse(&k).is_some() {
+                crate::config::set(&["quick", "shortcut"], &k);
+                self.config.quick.shortcut = k;
+                self.key_recording = None;
+                crate::quick::configure(&self.config.quick.clone(), cx);
+            }
+            cx.notify();
+            return;
+        }
         // A shortcut does one thing: take it from whatever had it.
         let mut note = None;
         for other in conflicts(id, &k, &self.config.keys) {

@@ -112,6 +112,17 @@ Amber and red are used only for states where a person needs to act.
 - The badge counts NeedsInput and Error tabs only. (Superseded by v2 below: reminders that are due count too.)
 - ⌘J walks the queue from the longest-waiting tab. ⌘⇧J walks it backwards.
 
+## Quick terminal (canvas v3-ay)
+
+- A panel over whatever app you're in, on a global shortcut (⌃⌥T by default, a Carbon hot key: no Accessibility permission). Off until switched on in Settings › Quick terminal or the hint card's "Try it".
+- It opens on the tab that has waited longest for you (needs-you or error), showing that tab's real terminal, so the prompt is answered in place. ⌘J goes to the next one. With nothing waiting, or when set to "Quick shell only", it is a shell of its own, started in the frontmost tab's folder and listed in no sidebar.
+- Strip (34 pt): the tab's icon with its badge, title and "Needs you · 4m"; "2 more waiting ⌘J"; Keep open; Open in window (the tab in its window, or the quick shell as a new tab of the frontmost window).
+- While the panel has a tab's terminal, its pane in the window says "Shown in the quick terminal".
+- It goes away on the shortcut, or when another app is clicked (unless kept open, or "Hide when it loses focus" is off). Esc does not dismiss it: Esc belongs to the programs. Hiding never closes anything.
+- Position: a panel centered under the menu bar (S 720 × 340, M 900 × 420, L 1100 × 520), or an edge at 40% of the screen (S 30%, L 55%); on the screen with the pointer, or the main one.
+- A shortcut macOS refuses shows "In use by another app" in Settings; one that registers but doesn't open has a "Not opening?" line.
+- Not built from the board: the slide-and-fade animation, opacity and blur following the window setting, and asking before ⌘W ends the quick shell.
+
 ## Windows (canvas v3-aq)
 
 - ⌘N opens another window with one shell tab in the current tab's folder. Each window has its own sidebar (tabs, groups, order, selection). session.json holds a list of windows; all come back at launch.
