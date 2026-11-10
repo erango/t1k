@@ -2209,7 +2209,7 @@ impl Workspace {
                 crate::windows::Wait { tab: t.id.clone(), pane, secs: since.map(|s| s.elapsed().as_secs()).unwrap_or(0) }
             })
             .collect();
-        crate::windows::publish(self.hub_id, self.window_name(), self.tabs.len(), waiting);
+        crate::windows::publish(self.hub_id, self.window_name(), waiting);
         let needs = crate::windows::total_waiting();
         if self.badge != Some(needs) {
             self.badge = Some(needs);

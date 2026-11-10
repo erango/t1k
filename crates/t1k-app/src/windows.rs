@@ -36,7 +36,6 @@ struct Win {
     handle: WindowHandle<Workspace>,
     session: Option<Session>,
     name: String,
-    tabs: usize,
     waiting: Vec<Wait>,
 }
 
@@ -46,7 +45,6 @@ pub struct Other {
     pub id: EntityId,
     pub handle: WindowHandle<Workspace>,
     pub name: String,
-    pub tabs: usize,
     pub waiting: usize,
 }
 
@@ -101,7 +99,7 @@ pub fn socket() -> Option<PathBuf> {
 }
 
 pub fn register(id: EntityId, handle: WindowHandle<Workspace>) {
-    hub().wins.push(Win { id, handle, session: None, name: String::new(), tabs: 0, waiting: Vec::new() });
+    hub().wins.push(Win { id, handle, session: None, name: String::new(), waiting: Vec::new() });
 }
 
 /// A window went away. While others stay open it leaves the saved session too; the last
@@ -141,19 +139,18 @@ fn write(h: &Hub) {
     session::save(&first);
 }
 
-/// What this window shows of itself to the others: its name, tab count and who waits.
-pub fn publish(id: EntityId, name: String, tabs: usize, waiting: Vec<Wait>) {
+/// What this window shows of itself to the others: its name and who waits.
+pub fn publish(id: EntityId, name: String, waiting: Vec<Wait>) {
     let mut h = hub();
     if let Some(w) = h.wins.iter_mut().find(|w| w.id == id) {
         w.name = name;
-        w.tabs = tabs;
         w.waiting = waiting;
     }
 }
 
 /// Every other window, in the order they opened.
 pub fn others(id: EntityId) -> Vec<Other> {
-    hub().wins.iter().filter(|w| w.id != id).map(|w| Other { id: w.id, handle: w.handle, name: w.name.clone(), tabs: w.tabs, waiting: w.waiting.len() }).collect()
+    hub().wins.iter().filter(|w| w.id != id).map(|w| Other { id: w.id, handle: w.handle, name: w.name.clone(), waiting: w.waiting.len() }).collect()
 }
 
 /// Tabs waiting on a person in every window (the Dock badge).
