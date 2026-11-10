@@ -682,11 +682,9 @@ impl TerminalView {
     }
 
     fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
-        if let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) {
-            self.paste_text(text, cx);
-            self.sync_offset(true);
-            cx.notify();
-        }
+        self.paste_clipboard(cx);
+        self.sync_offset(true);
+        cx.notify();
     }
 
     fn clear_scrollback(&mut self, _: &ClearScrollback, _: &mut Window, cx: &mut Context<Self>) {
@@ -760,8 +758,18 @@ impl TerminalView {
     }
 
     pub fn paste_clipboard(&mut self, cx: &mut Context<Self>) {
-        if let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) {
-            self.paste_text(text, cx);
+        let Some(item) = cx.read_from_clipboard() else { return };
+        match item.text().filter(|t| !t.is_empty()) {
+            Some(text) => self.paste_text(text, cx),
+            // An image and no text (a screenshot, "Copy Image"): programs that asked for
+            // bracketed paste get an empty paste, which tells them to look at the clipboard
+            // themselves. Claude Code attaches the image on it, as it does in iTerm2 and Warp.
+            None => {
+                let image = item.entries().iter().any(|e| matches!(e, gpui::ClipboardEntry::Image(_)));
+                if image && self.terminal.mode().contains(TermMode::BRACKETED_PASTE) {
+                    self.terminal.write(&b"\x1b[200~\x1b[201~"[..]);
+                }
+            }
         }
     }
 
