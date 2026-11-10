@@ -323,6 +323,12 @@ pub struct Workspace {
     pub toast_task: Option<gpui::Task<()>>,
     /// A tab whose × asked "Stop <program>?" in its row.
     pub confirm_close: Option<String>,
+    /// A helper pane asked to close while something runs in it: (tab id, pane), confirming
+    /// in its header.
+    pub confirm_pane: Option<(String, crate::split::PaneId)>,
+    /// Hook ids of helper panes that became their tab's main pane: their processes still
+    /// report as "<tab>-p<n>", so they map to the tab.
+    pub hook_alias: HashMap<String, String>,
     /// The group menu's Close group is asking to stop running programs first.
     pub confirm_close_group: Option<PathBuf>,
     pub close_batch: u64,
@@ -541,6 +547,8 @@ impl Workspace {
             close_toast: None,
             toast_task: None,
             confirm_close: None,
+            confirm_pane: None,
+            hook_alias: HashMap::new(),
             land_after_close: None,
             confirm_close_group: None,
             close_batch: 0,
@@ -840,6 +848,7 @@ impl Workspace {
                     "down" => this.open_split(this.active, true, window, cx),
                     "zoom" => this.toggle_zoom(window, cx),
                     "menu" => this.overlay = Overlay::PaneMenu { tab: this.active, pane: 1, at: gpui::point(px(700.), px(130.)) },
+                    "confirm" => this.confirm_pane = this.tabs.get(this.active).map(|t| (t.id.clone(), 1)),
                     _ => {}
                 }
             }
@@ -1988,7 +1997,10 @@ impl Workspace {
         }
     }
 
-    fn apply_envelope(&mut self, env: Envelope, window: &Window) -> bool {
+    fn apply_envelope(&mut self, mut env: Envelope, window: &Window) -> bool {
+        if let Some(tab) = self.hook_alias.get(&env.tab_id) {
+            env.tab_id = tab.clone();
+        }
         // Plan usage limits are per account, not per tab: keep the latest from any tab.
         if env.payload.get("hook_event_name").and_then(|v| v.as_str()) == Some(t1k_agent::statusline::EVENT) {
             // How full this tab's context is, as the agent itself reports it.
@@ -2772,6 +2784,7 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &SplitDown, window, cx| this.open_split(this.active, true, window, cx)))
             .on_action(cx.listener(|this, _: &FocusPaneLeft, window, cx| this.focus_dir(crate::split::Dir::Left, window, cx)))
             .on_action(cx.listener(|this, _: &FocusPaneRight, window, cx| this.focus_dir(crate::split::Dir::Right, window, cx)))
+            .on_action(cx.listener(|this, _: &FocusNextPane, window, cx| this.focus_next_pane(window, cx)))
             .on_action(cx.listener(|this, _: &FocusPaneUp, window, cx| this.focus_dir(crate::split::Dir::Up, window, cx)))
             .on_action(cx.listener(|this, _: &FocusPaneDown, window, cx| this.focus_dir(crate::split::Dir::Down, window, cx)))
             .on_action(cx.listener(|this, _: &ZoomPane, window, cx| this.toggle_zoom(window, cx)))

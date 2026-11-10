@@ -69,6 +69,7 @@ pub const ALL: &[Bind] = &[
     b!("pane_right", "Pane to the right", "Window", ["cmd-alt-right"], FocusPaneRight),
     b!("pane_up", "Pane above", "Window", ["cmd-alt-up"], FocusPaneUp),
     b!("pane_down", "Pane below", "Window", ["cmd-alt-down"], FocusPaneDown),
+    b!("next_pane", "Next pane", "Window", [], FocusNextPane),
     b!("zoom_pane", "Zoom pane", "Window", ["cmd-shift-enter"], ZoomPane),
     b!("bigger_text", "Bigger text", "Window", ["cmd-=", "cmd-+"], IncreaseFontSize),
     b!("smaller_text", "Smaller text", "Window", ["cmd--"], DecreaseFontSize),
@@ -98,7 +99,10 @@ pub fn parse_list(v: &str) -> Vec<String> {
 
 /// The keys in effect for `b`.
 pub fn keys_for(b: &Bind, overrides: &BTreeMap<String, String>) -> Vec<String> {
-    match overrides.get(b.id) {
+    // "switch_pane" was one key for the other pane before there were four; a custom key set
+    // for it keeps working as Next pane.
+    let old = (b.id == "next_pane").then(|| overrides.get("switch_pane")).flatten();
+    match overrides.get(b.id).or(old) {
         Some(v) => parse_list(v),
         None => b.defaults.iter().map(|s| s.to_string()).collect(),
     }

@@ -322,6 +322,9 @@ fn pane_header(ws: &Workspace, t: &Tab, id: PaneId, focused: bool, cx: &mut Cont
             .child(glyph)
     };
     let keys = &ws.config.keys;
+    if ws.confirm_pane.as_ref().is_some_and(|(tid, p)| *tid == t.id && *p == id) {
+        return confirm_header(ws, t, id, cx);
+    }
     div()
         .id(SharedString::from(format!("pane-head-{id}")))
         .group(group.clone())
@@ -355,6 +358,52 @@ fn pane_header(ws: &Workspace, t: &Tab, id: PaneId, focused: bool, cx: &mut Cont
             this.focus_pane(tab, id, window, cx);
             this.open_overlay(crate::overlay::Overlay::PaneMenu { tab, pane: id, at: ev.position }, window, cx);
         }))
+        .into_any_element()
+}
+
+/// "Stop npm run dev?  Cancel  Stop" in place of the header, like a tab's close confirm.
+fn confirm_header(ws: &Workspace, t: &Tab, id: PaneId, cx: &mut Context<Workspace>) -> AnyElement {
+    let ui = ws.ui;
+    let tab = ws.active;
+    let what = t
+        .panes
+        .helper(id)
+        .and_then(|h| h.view.read(cx).terminal.foreground_command().map(|(c, _)| c))
+        .map(|c| c.split_whitespace().take(3).collect::<Vec<_>>().join(" "))
+        .unwrap_or_else(|| "this program".into());
+    let small = |key: &'static str, label: &'static str, primary: bool| {
+        div()
+            .id(SharedString::from(format!("pane-confirm-{key}-{id}")))
+            .h(px(18.))
+            .px(px(7.))
+            .flex()
+            .items_center()
+            .rounded(px(4.))
+            .text_size(px(11.))
+            .when(primary, |d| d.bg(ui.status_error).text_color(t1k_themes::on_hsla(ui.status_error)).font_weight(gpui::FontWeight::MEDIUM))
+            .when(!primary, |d| d.bg(ui.bg_control).text_color(ui.text_primary))
+            .hover(|d| d.opacity(0.85))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(label)
+    };
+    div()
+        .id(SharedString::from(format!("pane-head-{id}")))
+        .h(px(HEADER_H))
+        .flex_none()
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .px(px(8.))
+        .bg(ws.term_bg())
+        .border_b_1()
+        .border_color(ui.border)
+        .child(pane_icon(ws, t, id, 14.))
+        .child(div().flex_1().min_w_0().truncate().text_size(px(11.5)).text_color(ui.text_primary).child(format!("Stop {what}?")))
+        .child(small("cancel", "Cancel", false).on_click(cx.listener(|this, _, _, cx| {
+            this.confirm_pane = None;
+            cx.notify();
+        })))
+        .child(small("stop", "Stop", true).on_click(cx.listener(move |this, _, window, cx| this.close_pane(tab, id, window, cx))))
         .into_any_element()
 }
 
@@ -512,7 +561,23 @@ impl Workspace {
 
     /// ⌘W in a tab with panes, a header's ×, or a helper's shell exiting: close that pane.
     /// The main pane hands the tab to the next pane, unless a program is running in it.
+    /// A helper pane's running program, by name ("npm"), None at its shell prompt.
+    pub fn helper_running(&self, ix: usize, id: PaneId, cx: &gpui::App) -> Option<String> {
+        let h = self.tabs.get(ix)?.panes.helper(id)?;
+        let n = h.view.read(cx).terminal.foreground_name()?;
+        (!crate::close::SHELLS.contains(&n.trim_start_matches('-'))).then_some(n)
+    }
+
+    /// Close a pane; a helper running something asks first, in its header.
     pub fn close_pane(&mut self, ix: usize, id: PaneId, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(t) = self.tabs.get(ix) else { return };
+        let key = (t.id.clone(), id);
+        if id != MAIN && t.panes.multi() && self.confirm_pane.as_ref() != Some(&key) && self.helper_running(ix, id, cx).is_some() {
+            self.confirm_pane = Some(key);
+            cx.notify();
+            return;
+        }
+        self.confirm_pane = None;
         let Some(t) = self.tabs.get(ix) else { return };
         if !t.panes.multi() {
             if id == MAIN {
@@ -552,6 +617,10 @@ impl Workspace {
             }
             t.osc_title = h.osc_title.clone();
             t.cwd = h.cwd.clone().or(t.cwd.take());
+            // Its processes still report under the helper's hook id: map that to the tab, so
+            // a Claude session in it now drives the tab's status.
+            let tab_id = t.id.clone();
+            self.hook_alias.insert(format!("{tab_id}-p{heir}"), tab_id);
             self.promote_view(ix, h.view, window, cx);
         } else {
             t.panes.helpers.retain(|h| h.id != id);
@@ -588,6 +657,20 @@ impl Workspace {
         t.panes.zoomed = if t.panes.zoomed.is_some() { None } else { Some(focused) };
         let id = t.panes.zoomed.unwrap_or(focused);
         self.focus_pane(self.active, id, window, cx);
+    }
+
+    /// Next pane, in reading order, wrapping around (unzooming first).
+    pub fn focus_next_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let from = self.focused_pane(window, cx);
+        let Some(t) = self.tabs.get_mut(self.active) else { return };
+        if !t.panes.multi() {
+            return;
+        }
+        t.panes.zoomed = None;
+        let order = t.panes.layout.leaves();
+        let at = order.iter().position(|p| *p == from).unwrap_or(0);
+        let to = order[(at + 1) % order.len()];
+        self.focus_pane(self.active, to, window, cx);
     }
 
     /// ⌘⌥ arrows: focus the pane on that side (unzooming first).
