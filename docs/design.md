@@ -106,7 +106,7 @@ Amber and red are used only for states where a person needs to act.
 
 ## Ordering and the attention queue
 
-- Tabs within a group are ordered: NeedsInput, Error, Done-unseen, Working, Done-seen, Idle.
+- Tabs within a group are ordered by when their state last changed, newest first (a turn started or ended, the tab asked for you, a program started or quit). Ordering by attention made rows jump on every status change. The group menu still offers "Needs attention" (NeedsInput, Error, Done-unseen, Working, Done-seen, Idle), "Recently used" and "Order opened".
 - Groups are sorted by their most urgent tab.
 - Ended tabs move into a collapsed "Recent" section after 10 minutes. Pressing Enter on one resumes it.
 - The badge counts NeedsInput and Error tabs only. (Superseded by v2 below: reminders that are due count too.)

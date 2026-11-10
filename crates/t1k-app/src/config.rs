@@ -97,7 +97,8 @@ session_color = "swatch"
 
 [tabs]
 # Where ⌘T and + put a new tab in its group: "after" the current tab, "before" it, or at the
-# "end" of the group. (A group sorted by attention still lifts tabs that need you to the top.)
+# "end" of the group. (Only for groups sorted by order opened: the default, last updated, puts
+# a new tab at the top, and needs attention lifts tabs that need you.)
 new_tab = "end"
 # Which tab you land on after closing one: the one "below" it, or "above" it in the sidebar.
 after_close = "below"

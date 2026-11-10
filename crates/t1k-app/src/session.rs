@@ -39,6 +39,9 @@ pub struct SavedTab {
     /// Where an imported tab came from ("Warp ttys004").
     #[serde(default)]
     pub origin: Option<String>,
+    /// When the tab's state last changed, unix seconds (for "Last updated" sorting).
+    #[serde(default)]
+    pub updated: Option<u64>,
 }
 
 /// A Claude session that no tab holds any more (tab closed, or replaced by a newer session).
@@ -150,8 +153,10 @@ pub struct Session {
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum GroupSort {
-    /// Needs-you first, then unread, working, the rest.
+    /// Most recently changed state first (a turn started or ended, it asked for you).
     #[default]
+    Updated,
+    /// Needs-you first, then unread, working, the rest.
     Attention,
     /// Most recently used first.
     Activity,

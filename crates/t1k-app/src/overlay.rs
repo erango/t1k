@@ -1672,6 +1672,7 @@ fn group_menu(ws: &Workspace, key: std::path::PathBuf, at: Point<Pixels>, window
     m = m.child(sep()).child(heading("Sort tabs by"));
     let sort = ws.group_sort.get(&key).copied().unwrap_or_default();
     for (id, label, mode) in [
+        ("updated", "Last updated", GroupSort::Updated),
         ("attention", "Needs attention", GroupSort::Attention),
         ("activity", "Recently used", GroupSort::Activity),
         ("opened", "Order opened", GroupSort::Opened),
@@ -1679,7 +1680,7 @@ fn group_menu(ws: &Workspace, key: std::path::PathBuf, at: Point<Pixels>, window
         let k = key.clone();
         let mark = if sort == mode { "✓ " } else { "   " };
         m = m.child(item(id, format!("{mark}{label}")).on_click(cx.listener(move |this, _, window, cx| {
-            if mode == GroupSort::Attention {
+            if mode == GroupSort::default() {
                 this.group_sort.remove(&k);
             } else {
                 this.group_sort.insert(k.clone(), mode);

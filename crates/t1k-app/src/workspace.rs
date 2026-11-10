@@ -42,6 +42,11 @@ pub struct Tab {
     pub unread: bool,
     pub created: usize,
     pub last_active: Instant,
+    /// When the tab's state last changed (a turn started or ended, it asked for you, a program
+    /// started or quit). "Last updated" sorts by this; saved, so the order survives a restart.
+    pub updated: SystemTime,
+    /// The state `updated` last saw, to notice the next change.
+    pub seen_state: Option<std::mem::Discriminant<Status>>,
     pub reminder_at: Option<SystemTime>,
     /// Reminder fired and not yet seen: loud, counts as needs-you.
     pub reminder_due: bool,
@@ -643,6 +648,9 @@ impl Workspace {
                 }
                 tab.reminder_at = t.reminder_at.map(|s| UNIX_EPOCH + Duration::from_secs(s));
                 tab.unread = t.unread;
+                if let Some(u) = t.updated {
+                    tab.updated = UNIX_EPOCH + Duration::from_secs(u);
+                }
                 // Re-attach the last Claude session's transcript: title, recap and outputs return.
                 if let Some(sid) = &t.last_session {
                     if let Some(path) = session::find_transcript(sid) {
@@ -1031,6 +1039,8 @@ impl Workspace {
             unread: false,
             created,
             last_active: Instant::now(),
+            updated: SystemTime::now(),
+            seen_state: None,
             reminder_at: None,
             reminder_due: false,
             last_session: None,
@@ -1319,11 +1329,32 @@ impl Workspace {
             match self.group_sort.get(g).copied().unwrap_or_default() {
                 session::GroupSort::Attention if settling => v.sort_by_key(|&i| self.tabs[i].created),
                 session::GroupSort::Attention => v.sort_by_key(|&i| (self.tabs[i].urgency(), self.tabs[i].created)),
+                session::GroupSort::Updated => v.sort_by_key(|&i| (std::cmp::Reverse(self.tabs[i].updated), self.tabs[i].created)),
                 session::GroupSort::Activity => v.sort_by_key(|&i| std::cmp::Reverse(self.tabs[i].last_active)),
                 session::GroupSort::Opened => v.sort_by_key(|&i| self.tabs[i].created),
             }
         }
         out
+    }
+
+    /// Stamps `updated` on tabs whose state changed since the last look. While restored tabs
+    /// settle (resuming passes through working and idle) it only records the state, so the
+    /// saved times keep the order they had.
+    fn stamp_updates(&mut self) -> bool {
+        let settling = self.restore_settling();
+        let mut changed = false;
+        for t in &mut self.tabs {
+            let now = t.status().map(std::mem::discriminant);
+            if now == t.seen_state {
+                continue;
+            }
+            if t.seen_state.is_some() && !settling {
+                t.updated = SystemTime::now();
+                changed = true;
+            }
+            t.seen_state = now;
+        }
+        changed
     }
 
     /// Tab indices in the order the sidebar shows them (collapsed groups included).
@@ -1912,6 +1943,7 @@ impl Workspace {
         while let Ok(env) = self.agent_rx.try_recv() {
             changed |= self.apply_envelope(env, window);
         }
+        changed |= self.stamp_updates();
         for id in std::mem::take(&mut self.turns_done) {
             if let Some(ix) = self.tabs.iter().position(|t| t.id == id) {
                 self.helper_after_turn(ix, cx);
@@ -2198,6 +2230,7 @@ impl Workspace {
                             a.kind == t1k_agent::agents::AgentKind::Claude && !a.session_id.is_empty() && !matches!(a.status, Status::Ended)
                         }) && t.program.is_some(),
                     unread: t.unread,
+                    updated: t.updated.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs()),
                 }
             }).collect(),
             active: self.visual_order().iter().position(|&i| i == self.active).unwrap_or(0),
