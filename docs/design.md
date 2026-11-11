@@ -112,6 +112,11 @@ Amber and red are used only for states where a person needs to act.
 - The badge counts NeedsInput and Error tabs only. (Superseded by v2 below: reminders that are due count too.)
 - ⌘J walks the queue from the longest-waiting tab. ⌘⇧J walks it backwards.
 
+## Outputs panel rows and width
+
+- Everything but PRs is one 28 pt line: the kind's icon (16 pt, in the section's rainbow color), the title, and how long ago in mono. The description, where it came from, and a file's path are in the row's tooltip. PRs keep their cards.
+- The panel is 380 pt wide at least, which is also its default. Dragging its left edge widens it (leaving the terminal at least 360 pt); double-clicking the edge goes back. The width is saved with the session.
+
 ## Rainbow
 
 - Group colors are a pastel rainbow in rainbow order: rose, peach, butter, mint, aqua, sky, lavender (`groups::rainbow`). Pastel, so none reads as a status: needs-you amber, error red and done green are saturated, these are not. Softer and lighter on dark themes, a step deeper on light ones.

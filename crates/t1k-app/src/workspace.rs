@@ -642,6 +642,8 @@ impl Workspace {
             navigating: false,
             panel: crate::outputs_panel::PanelState {
                 open: saved.outputs_open,
+                // T1K_DEBUG_PANEL_WIDTH: as if dragged that wide (screenshots).
+                width: std::env::var("T1K_DEBUG_PANEL_WIDTH").ok().and_then(|w| w.parse().ok()).or(saved.panel_width).unwrap_or(crate::outputs_panel::MIN_W),
                 tab: if saved.panel_context { crate::context_ui::PanelTab::Context } else { Default::default() },
                 ..Default::default()
             },
@@ -2558,6 +2560,7 @@ impl Workspace {
             group_names: self.group_names.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             sidebar_open: Some(self.sidebar_open),
             outputs_open: self.panel.open,
+            panel_width: (self.panel.width > crate::outputs_panel::MIN_W).then_some(self.panel.width),
             panel_context: self.panel.tab == crate::context_ui::PanelTab::Context,
             // Tool groups come and go with MCP servers; the ten sections are what's kept.
             context_toggled: {
@@ -3201,6 +3204,9 @@ impl Render for Workspace {
             None => self.panel.open.then(|| crate::outputs_panel::render(self, cx)),
         };
         let root = root
+            .on_drag_move::<crate::outputs_panel::PanelEdgeDrag>(cx.listener(|this, ev: &gpui::DragMoveEvent<crate::outputs_panel::PanelEdgeDrag>, window, cx| {
+                this.panel_drag_move(ev.event.position.x, window, cx)
+            }))
             .on_drag_move::<crate::rail::EdgeDrag>(cx.listener(|this, ev: &gpui::DragMoveEvent<crate::rail::EdgeDrag>, _, cx| {
                 this.sidebar_drag_move(ev.event.position.x, cx)
             }))

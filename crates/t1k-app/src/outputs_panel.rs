@@ -94,6 +94,10 @@ impl PrInfo {
 #[derive(Default)]
 pub struct PanelState {
     pub open: bool,
+    /// Width in points: at least `MIN_W`, wider if dragged (its left edge).
+    pub width: f32,
+    /// Its left edge is being dragged.
+    pub(crate) resizing: bool,
     /// Outputs, or Context for a Claude tab (canvas v3-au).
     pub tab: crate::context_ui::PanelTab,
     pub scope: Scope,
@@ -510,7 +514,8 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
     if on_context {
         return div()
             .id("outputs-panel")
-            .w(px(380.))
+            .relative()
+            .w(px(ws.panel.width()))
             .flex_none()
             .h_full()
             .flex()
@@ -518,6 +523,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             .bg(ui.bg_sidebar.opacity(ws.config.window.alpha()))
             .child(header)
             .child(div().flex_1().min_h_0().relative().child(crate::context_ui::pane(ws, cx)))
+            .child(edge(ws, cx))
             .into_any_element();
     }
 
@@ -830,84 +836,52 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 );
                 continue;
             }
+            // One line (everything but PRs): icon, title, how long ago. What the second line
+            // used to say (the description, where it came from) is in the tooltip.
+            let glyph = match o.kind {
+                Kind::File => Some(t1k_agent::outputs::file_icon(&o.target)),
+                Kind::Doc => Some(t1k_agent::outputs::doc_kind(&o.target).0),
+                Kind::Artifact => Some(o.icon.as_deref().unwrap_or("link")),
+                Kind::Ticket => Some(t1k_agent::outputs::ticket_icon(&o.target)),
+                _ => None,
+            };
+            let tip = match (&o.kind, &o.detail, &o.icon) {
+                (Kind::Artifact, Some(d), _) => format!("{} · {d}", o.label),
+                // The link itself is all there is to tell these apart.
+                (Kind::Artifact, None, None) => o.target.trim_start_matches("https://").to_string(),
+                (Kind::Doc, ..) => format!("{} · {} · {tab_title}", o.label, t1k_agent::outputs::doc_kind(&o.target).1),
+                _ if gone => format!("Deleted · was in {}", crate::groups::tilde(std::path::Path::new(&o.target).parent().unwrap_or(std::path::Path::new("/")))),
+                (Kind::File, ..) => format!("{} · {tab_title}", crate::groups::tilde(std::path::Path::new(&o.target))),
+                _ => format!("{} · {tab_title}", o.label),
+            };
+            let when = if gone { "deleted".to_string() } else { age(o.at) };
             list = list.child(
                 div()
                     .id(row_id.clone())
                     .group(row_id.clone())
-                    .min_h(px(34.))
+                    .h(px(28.))
                     .flex_none()
                     .relative()
                     .px(px(10.))
-                    .py(px(4.))
                     .rounded(px(6.))
                     .flex()
                     .items_center()
-                    .gap(px(10.))
+                    .gap(px(8.))
                     .hover(move |d| d.bg(ui.bg_hover))
+                    .tooltip(crate::tooltip::text(ui, tip))
                     // A deleted file: nothing to open, only its path to copy.
                     .when(!gone, |d| d.on_click(open))
                     .when(gone, |d| d.opacity(0.6))
-                    // Artifacts (v3-ae): their type's icon in a tile, the title, the description.
-                    // Docs and files (v3-am) get the same tile, with an icon for their type.
-                    .map(|d| match o.kind {
-                        // Files: the type icon alone, bigger, in the same 28 pt slot (no tile).
-                        Kind::File => d.child(
-                            div()
-                                .size(px(28.))
-                                .flex_none()
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .child(crate::icons::artifact(t1k_agent::outputs::file_icon(&o.target), if gone { ui.text_disabled } else { tone }, 24.)),
-                        ),
-                        // Docs and artifacts too: the icon alone, bigger (no tile).
-                        Kind::Artifact | Kind::Doc => d.child(
-                            div()
-                                .size(px(28.))
-                                .flex_none()
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .child(crate::icons::artifact(
-                                    match o.kind {
-                                        Kind::Doc => t1k_agent::outputs::doc_kind(&o.target).0,
-                                        _ => o.icon.as_deref().unwrap_or("link"),
-                                    },
-                                    tone,
-                                    24.,
-                                )),
-                        ),
-                        // Tickets: their tracker's mark (Linear, Jira, GitHub issues).
-                        Kind::Ticket => d.child(
-                            div()
-                                .size(px(28.))
-                                .flex_none()
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .child(crate::icons::artifact(t1k_agent::outputs::ticket_icon(&o.target), tone, 20.)),
-                        ),
-                        // In the same 28 pt slot as the rest, so every title lines up.
-                        _ => d.child(div().size(px(28.)).flex_none().flex().items_center().justify_center().text_size(px(13. * k)).text_color(tone).child(icon(o.kind))),
-                    })
+                    // The kind's icon in the section's rainbow color, in a 20 pt slot so every
+                    // title lines up.
                     .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .gap(px(1.))
-                            .child(div().truncate().text_size(px(12.5 * k)).text_color(ui.text_primary).child(o.label.clone()))
-                            // Descriptions get two lines, so the sentence isn't cut mid-word.
-                            .child(div().when(o.detail.is_some(), |d| d.line_clamp(2)).when(o.detail.is_none(), |d| d.truncate()).text_size(px(11. * k)).text_color(ui.text_tertiary).child(match (&o.kind, &o.detail, &o.icon) {
-                                (Kind::Artifact, Some(d), _) => d.clone(),
-                                // The link itself is all there is to tell these apart.
-                                (Kind::Artifact, None, None) => o.target.trim_start_matches("https://").to_string(),
-                                (Kind::Doc, ..) => format!("{} · {tab_title} · {}", t1k_agent::outputs::doc_kind(&o.target).1, age(o.at)),
-                                _ if gone => format!("Deleted · was in {}", crate::groups::tilde(std::path::Path::new(&o.target).parent().unwrap_or(std::path::Path::new("/")))),
-                                _ => format!("{tab_title} · {}", age(o.at)),
-                            })),
+                        div().size(px(20.)).flex_none().flex().items_center().justify_center().map(|d| match glyph {
+                            Some(g) => d.child(crate::icons::artifact(g, if gone { ui.text_disabled } else { tone }, if o.kind == Kind::Ticket { 14. } else { 16. })),
+                            None => d.text_size(px(12. * k)).text_color(tone).child(icon(o.kind)),
+                        }),
                     )
+                    .child(div().flex_1().min_w_0().truncate().text_size(px(12.5 * k)).text_color(ui.text_primary).child(o.label.clone()))
+                    .child(div().flex_none().font_family("JetBrains Mono").text_size(px(10.5 * k)).text_color(ui.text_tertiary).child(when))
                     // Over the text on hover instead of beside it, so names and descriptions get the
                     // full width the rest of the time.
                     .child(hover_buttons.absolute().right(px(6.)).top_0().bottom_0().items_center().pl(px(8.)).bg(ui.bg_hover)),
@@ -917,20 +891,19 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             list = list.child(
                 div()
                     .id(SharedString::from(format!("links-{label}")))
-                    .min_h(px(34.))
+                    .h(px(28.))
                     .px(px(10.))
-                    .py(px(4.))
                     .rounded(px(6.))
                     .flex()
                     .items_center()
-                    .gap(px(10.))
+                    .gap(px(8.))
                     .cursor_pointer()
                     .hover(move |d| d.bg(ui.bg_hover))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.panel.links_open = !this.panel.links_open;
                         cx.notify();
                     }))
-                    .child(div().size(px(28.)).flex_none().flex().items_center().justify_center().child(crate::icons::artifact("link", ui.text_tertiary, 24.)))
+                    .child(div().size(px(20.)).flex_none().flex().items_center().justify_center().child(crate::icons::artifact("link", ui.text_tertiary, 16.)))
                     .child(div().flex_1().text_size(px(12.5 * k)).text_color(ui.text_secondary).child(if links_open { "Hide artifact links".to_string() } else { format!("{links} more artifact links") }))
                     .child(crate::icons::caret(ui.text_tertiary, links_open)),
             );
@@ -947,7 +920,8 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
 
     div()
         .id("outputs-panel")
-        .w(px(380.))
+        .relative()
+        .w(px(ws.panel.width()))
         .flex_none()
         .h_full()
         .flex()
@@ -963,7 +937,73 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 .child(list)
                 .child(crate::scroll_bar::overlay(&ws.outputs_scroll, &ws.outputs_bar, ui.text_tertiary)),
         )
+        .child(edge(ws, cx))
         .into_any_element()
+}
+
+/// The panel's narrowest (and default) width; dragging its left edge makes it wider.
+pub const MIN_W: f32 = 380.;
+
+impl PanelState {
+    pub fn width(&self) -> f32 {
+        self.width.max(MIN_W)
+    }
+}
+
+/// Dragging the panel's left edge.
+pub struct PanelEdgeDrag;
+
+/// The left edge: drag to widen (never narrower than it starts), double-click to go back.
+fn edge(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
+    let ui = ws.ui;
+    let on = ws.panel.resizing;
+    div()
+        .id("outputs-edge")
+        .absolute()
+        .top_0()
+        .bottom_0()
+        .left(px(-4.))
+        .w(px(8.))
+        .cursor(gpui::CursorStyle::ResizeLeftRight)
+        .group("outputs-edge")
+        .on_drag(PanelEdgeDrag, |_, _, _, cx| cx.new(|_| crate::rail::NoGhost))
+        .on_click(cx.listener(|this, ev: &gpui::ClickEvent, _, cx| {
+            if ev.click_count() == 2 {
+                this.panel.width = MIN_W;
+                this.save();
+                cx.notify();
+            }
+        }))
+        // A hairline that lights up on hover and while dragging.
+        .child(div().absolute().top_0().bottom_0().left(px(3.5)).w(px(1.)).when(on, |d| d.bg(ui.accent)).group_hover("outputs-edge", |d| d.bg(ui.accent.opacity(0.6))))
+}
+
+impl Workspace {
+    /// The pointer at `x` (window coordinates) while the panel's edge is dragged. It stays
+    /// at least `MIN_W` wide and leaves the terminal at least 360 pt.
+    pub fn panel_drag_move(&mut self, x: gpui::Pixels, window: &gpui::Window, cx: &mut Context<Self>) {
+        let total = f32::from(window.viewport_size().width);
+        let left = match self.sidebar_shown() {
+            crate::rail::Shown::Full(w) => w,
+            crate::rail::Shown::Rail => crate::rail::RAIL_W,
+            crate::rail::Shown::Hidden => 0.,
+        };
+        let max = (total - left - 360.).max(MIN_W);
+        let w = (total - f32::from(x)).clamp(MIN_W, max).round();
+        if !self.panel.resizing || (w - self.panel.width).abs() >= 1. {
+            self.panel.resizing = true;
+            self.panel.width = w;
+            cx.notify();
+        }
+    }
+
+    pub fn panel_drag_end(&mut self, cx: &mut Context<Self>) {
+        if self.panel.resizing {
+            self.panel.resizing = false;
+            self.save();
+            cx.notify();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1064,10 +1104,10 @@ fn fold_row(ui: UiColors, k: f32, id: SharedString, text: String, open: bool) ->
         .rounded(px(6.))
         .flex()
         .items_center()
-        .gap(px(10.))
+        .gap(px(8.))
         .cursor_pointer()
         .hover(move |d| d.bg(ui.bg_hover))
-        .child(div().w(px(28.)).flex_none())
+        .child(div().w(px(20.)).flex_none())
         .child(div().flex_1().text_size(px(12. * k)).text_color(ui.text_tertiary).child(text))
         .child(crate::icons::caret(ui.text_tertiary, open))
 }

@@ -584,7 +584,8 @@ pub fn pane(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
     let Some(n) = now_numbers(agent, &r) else {
         return list.child(div().p(px(14.)).text_size(px(12.5)).text_color(ui.text_tertiary).child("Context appears after the first reply.")).into_any_element();
     };
-    let w = 348.;
+    // The panel's inner width (its padding: 6 + 10 on each side).
+    let w = ws.panel.width() - 32.;
 
     // NOW
     let (mcp_def, sys_def): (Vec<&String>, Vec<&String>) = r.deferred.iter().partition(|n| n.starts_with("mcp__"));

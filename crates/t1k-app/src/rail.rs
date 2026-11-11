@@ -81,6 +81,7 @@ impl Workspace {
 
     /// Release: commit what the drag previewed.
     pub fn sidebar_drag_end(&mut self, ev: &MouseUpEvent, window: &mut Window, cx: &mut Context<Self>) {
+        self.panel_drag_end(cx);
         // A tab row dropped outside the window moves to the window there, or a new one
         // (canvas v3-aq).
         if let Some(id) = self.dragging_tab.clone().filter(|_| cx.has_active_drag()) {

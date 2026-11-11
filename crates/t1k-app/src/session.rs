@@ -117,6 +117,9 @@ pub struct Session {
     pub sidebar_open: Option<bool>,
     #[serde(default)]
     pub outputs_open: bool,
+    /// The right-hand panel's width, when widened.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub panel_width: Option<f32>,
     /// The quick terminal's first-run hint was answered (canvas v3-ay).
     #[serde(default)]
     pub quick_hint_done: bool,
