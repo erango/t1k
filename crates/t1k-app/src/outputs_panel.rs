@@ -110,11 +110,18 @@ pub struct PanelState {
     pub show_deleted: bool,
     pub prs: HashMap<String, Option<PrInfo>>,
     pub(crate) inflight: HashSet<String>,
+    /// The PR section's refresh: when it last ran (debounce), and whether it's running.
+    pub(crate) refreshed_at: Option<Instant>,
+    pub(crate) refreshing: bool,
     /// PR info faked by `T1K_DEBUG_PRS`: gh is never asked, so it isn't overwritten.
     pub(crate) fake: bool,
 }
 
 const PR_TTL: Duration = Duration::from_secs(300);
+/// The refresh button does nothing again this soon after (GitHub's API is shared with gh).
+const REFRESH_EVERY: Duration = Duration::from_secs(5);
+/// gh calls a refresh runs at once.
+const REFRESH_PARALLEL: usize = 6;
 
 /// `gh pr view` → state, title, CI and review. None if gh is missing or the PR isn't
 /// reachable. Still one request per PR.
@@ -277,6 +284,48 @@ impl Workspace {
             })
             .detach();
         }
+    }
+}
+
+impl Workspace {
+    /// The PR section's refresh button: every PR in view, fetched together (several gh calls
+    /// at once on one background job) and shown when all are back.
+    pub fn refresh_prs_now(&mut self, cx: &mut Context<Self>) {
+        if self.panel.fake || self.panel.refreshing || self.panel.refreshed_at.is_some_and(|t| t.elapsed() < REFRESH_EVERY) {
+            return;
+        }
+        let mut urls: Vec<String> = self.outputs_in_scope().into_iter().filter(|(_, o)| o.kind == Kind::Pr).map(|(_, o)| o.target).collect();
+        urls.sort();
+        urls.dedup();
+        if urls.is_empty() {
+            return;
+        }
+        self.panel.refreshing = true;
+        self.panel.refreshed_at = Some(Instant::now());
+        cx.notify();
+        let task = cx.background_spawn(async move {
+            let mut out = Vec::new();
+            for chunk in urls.chunks(REFRESH_PARALLEL) {
+                let handles: Vec<_> = chunk.iter().cloned().map(|u| std::thread::spawn(move || (u.clone(), fetch_pr(&u)))).collect();
+                out.extend(handles.into_iter().filter_map(|h| h.join().ok()));
+            }
+            out
+        });
+        cx.spawn(async move |this, cx| {
+            let results = task.await;
+            let _ = this.update(cx, |ws, cx| {
+                for (url, info) in results {
+                    // A failed lookup keeps what was known.
+                    if info.is_some() || !ws.panel.prs.contains_key(&url) {
+                        ws.panel.prs.insert(url, info);
+                    }
+                }
+                ws.panel.refreshing = false;
+                ws.panel.refreshed_at = Some(Instant::now());
+                cx.notify();
+            });
+        })
+        .detach();
     }
 }
 
@@ -596,6 +645,8 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         let limit = ws.config.interface.outputs_section_limit.max(1);
         let expanded = ws.panel.expanded.contains(label);
         let is_finished = |o: &Output| o.kind == Kind::Pr && ws.panel.prs.get(&o.target).is_some_and(|p| p.as_ref().is_some_and(|p| p.finished()));
+        // For the PR heading: the oldest status fetch among them.
+        let oldest_fetch = in_section.iter().filter_map(|x| ws.panel.prs.get(&x.1.target).and_then(|i| i.as_ref()).map(|i| i.fetched)).min();
         let (pinned, rest): (Vec<_>, Vec<_>) = in_section.into_iter().partition(|x| x.1.kind == Kind::Pr && !is_finished(&x.1));
         let room = limit.saturating_sub(pinned.len());
         let folds = rest.len() > room + 1;
@@ -614,6 +665,41 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         }
         hue_n += 1;
         let tone = crate::groups::rainbow(hue_n, dark);
+        // PRs: when their status was fetched, and a refresh for all of them.
+        let pr_head = (label == "PULL REQUESTS").then(|| {
+            let oldest = oldest_fetch;
+            let refreshing = ws.panel.refreshing;
+            let waiting = ws.panel.refreshed_at.is_some_and(|t| t.elapsed() < REFRESH_EVERY);
+            let when = match (refreshing, oldest) {
+                (true, _) => "refreshing…".to_string(),
+                (_, Some(t)) if t.elapsed().as_secs() < 60 => "updated just now".to_string(),
+                (_, Some(t)) => format!("updated {} ago", crate::usage::span(t.elapsed().as_secs() as i64)),
+                (_, None) => "not fetched yet".to_string(),
+            };
+            div()
+                .flex_1()
+                .flex()
+                .items_center()
+                .justify_end()
+                .gap(px(6.))
+                .child(div().text_size(px(10.5 * k)).font_weight(FontWeight::NORMAL).text_color(ui.text_tertiary).child(when))
+                .child(
+                    div()
+                        .id("pr-refresh")
+                        .size(px(20.))
+                        .rounded(px(4.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_size(px(12.))
+                        .text_color(ui.text_tertiary)
+                        .when(refreshing || waiting, |d| d.opacity(0.4))
+                        .when(!(refreshing || waiting), |d| d.cursor_pointer().hover(move |d| d.bg(ui.bg_hover).text_color(ui.text_primary)))
+                        .tooltip(crate::tooltip::text(ui, "Refresh every PR's status"))
+                        .on_click(cx.listener(|this, _, _, cx| this.refresh_prs_now(cx)))
+                        .child("↻"),
+                )
+        });
         list = list.child(
             div()
                 .h(px(24.))
@@ -626,7 +712,9 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(tone)
                 .child(label)
-                .child(div().font_family("JetBrains Mono").text_color(ui.text_disabled).child(total.to_string())),
+                // Same font as the label, so the count sits on its line.
+                .child(div().text_color(ui.text_disabled).child(total.to_string()))
+                .children(pr_head),
         );
         for row in rows {
             let (x, gone) = match row {
@@ -915,7 +1003,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         hue_n += 1;
         let tone = crate::groups::rainbow(hue_n, dark);
         list = list.child(
-            div().h(px(24.)).mt(px(6.)).px(px(10.)).flex().items_center().gap(px(6.)).text_size(px(10.5 * k)).font_weight(FontWeight::SEMIBOLD).text_color(tone).child("TRIGGERS").child(div().font_family("JetBrains Mono").text_color(ui.text_disabled).child(fired.len().to_string())),
+            div().h(px(24.)).mt(px(6.)).px(px(10.)).flex().items_center().gap(px(6.)).text_size(px(10.5 * k)).font_weight(FontWeight::SEMIBOLD).text_color(tone).child("TRIGGERS").child(div().text_color(ui.text_disabled).child(fired.len().to_string())),
         );
         for f in fired {
             let tip = format!("{} {} ({})", f.name, f.what, f.why);
