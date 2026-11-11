@@ -78,6 +78,8 @@ pub struct TerminalStyle {
     pub option_as_meta: bool,
     /// Copy the selection to the clipboard as soon as the mouse is released.
     pub copy_on_select: bool,
+    /// A plain click opens links (off: ⌘-click opens them, a plain click selects text).
+    pub click_links: bool,
     /// Background alpha (1.0 solid); the window behind shows through the rest.
     pub bg_alpha: f32,
     /// Whether colors programs paint behind text take `bg_alpha` too, or stay solid.
@@ -110,6 +112,7 @@ impl Default for TerminalStyle {
             padding_x: px(20.),
             option_as_meta: false,
             copy_on_select: false,
+            click_links: false,
             bg_alpha: 1.,
             cell_alpha: false,
         }
@@ -829,7 +832,7 @@ impl TerminalView {
     /// without ⌘ says how to open it.
     fn update_link_tip(&mut self, cell: Option<(usize, usize)>, cmd: bool, at: Point<Pixels>, cx: &mut Context<Self>) {
         const DELAY: std::time::Duration = std::time::Duration::from_millis(600);
-        let link = (!cmd).then(|| cell.and_then(|c| self.link_map.get(&c).copied())).flatten().filter(|&i| matches!(self.links.get(i), Some(Link::Url(_))));
+        let link = (!cmd && !self.style.click_links).then(|| cell.and_then(|c| self.link_map.get(&c).copied())).flatten().filter(|&i| matches!(self.links.get(i), Some(Link::Url(_))));
         match (link, self.link_tip) {
             (Some(i), Some((j, _, _))) if i == j => {}
             (Some(i), _) => {
@@ -864,6 +867,8 @@ impl TerminalView {
     }
 
     fn set_hover(&mut self, cell: Option<(usize, usize)>, cmd: bool, cx: &mut Context<Self>) {
+        // Links open on a plain click: resting on one arms it as ⌘ would.
+        let cmd = cmd || (self.style.click_links && cell.is_some_and(|c| self.link_map.contains_key(&c)));
         let was_cmd = self.cmd_down;
         let armed_before = self.cmd_down && self.hover_cell.is_some_and(|c| self.link_map.contains_key(&c));
         let url_before = self.on_url();
@@ -927,8 +932,15 @@ impl TerminalView {
             self.report_mouse(0, col, row, false);
             return;
         }
-        // A plain click (no drag) on the line being typed moves the cursor there.
+        // A plain click (no drag): on a link, opens it when links open on a click; on the
+        // line being typed, moves the cursor there.
         if self.press_cell.take() == Some((col, row)) && self.terminal.selection_text().is_none_or(|t| t.is_empty()) {
+            if let Some(link) = self.link_at(col, row).filter(|_| self.style.click_links) {
+                self.terminal.clear_selection();
+                cx.emit(TerminalEvent::OpenLink(link));
+                cx.notify();
+                return;
+            }
             self.click_to_cursor(col, row, cx);
         }
         match self.terminal.selection_text() {
@@ -1358,6 +1370,8 @@ struct Frame {
     link_map: HashMap<(usize, usize), usize>,
     /// URLs are always marked; other links only while ⌘ is held.
     cmd_down: bool,
+    /// Links open on a plain click: every kind is underlined, not only web links.
+    click_links: bool,
     /// Link under the mouse while cmd is held.
     hovered: Option<usize>,
     /// Hint mode: typed prefix and (label, link id, first cell) per link.
@@ -1605,7 +1619,7 @@ fn build_frame_locked(view: &TerminalView, term: &alacritty_terminal::Term<crate
         }
         let is_cursor = show_cursor && focused && cursor.shape == CursorShape::Block && (row_i, col) == cursor_vp;
         // URLs always show; files, PRs and tickets light up while ⌘ is held.
-        let reveal = view.cmd_down || view.hints.is_some();
+        let reveal = view.cmd_down || view.hints.is_some() || view.style.click_links;
         let link = link_map.get(&(col, row)).copied().filter(|&i| reveal || matches!(links[i], Link::Url(_)));
         // Hint mode: everything that isn't a link steps back.
         if view.hints.is_some() && link.is_none() {
@@ -1676,7 +1690,7 @@ fn build_frame_locked(view: &TerminalView, term: &alacritty_terminal::Term<crate
     let cursor = (show_cursor && cursor_vp.0 >= 0)
         .then_some((cursor_vp.1, cursor_vp.0 as usize, cursor.shape, focused));
     let hints = view.hints.as_ref().map(|typed| (typed.clone(), hint_labels(&link_map)));
-    Frame { bg_rects, highlights, batches, drawn, cursor, links, link_map, cmd_down: view.cmd_down || view.hints.is_some(), hovered, hints }
+    Frame { bg_rects, highlights, batches, drawn, cursor, links, link_map, cmd_down: view.cmd_down || view.hints.is_some(), click_links: view.style.click_links, hovered, hints }
 }
 
 /// With T1K_PROFILE=1, log average and worst build/paint times every 120 frames.
@@ -2199,7 +2213,7 @@ fn paint_frame(
     let mut spans: Vec<(usize, usize, usize)> = frame
         .link_map
         .iter()
-        .filter(|(_, &id)| frame.cmd_down || matches!(frame.links[id], Link::Url(_)))
+        .filter(|(_, &id)| frame.cmd_down || frame.click_links || matches!(frame.links[id], Link::Url(_)))
         .map(|(&(c, r), &id)| (r, c, id))
         .collect();
     spans.sort_unstable();

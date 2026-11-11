@@ -109,6 +109,9 @@ after_close = "below"
 close_stays_in_group = false
 
 [links]
+# How links in the terminal open: false: ⌘-click (a plain click selects text, as in most
+# terminals); true: a plain click (⌘-click still works, and dragging still selects).
+click = false
 # ⌘-click a file path to open it. Empty picks the first of Zed, Cursor, VS Code, else the
 # default app. Otherwise a command, with {path}, {line} and {col}: "code -g {path}:{line}:{col}".
 editor = ""
@@ -287,7 +290,7 @@ impl Default for InterfaceCfg {
 
 impl Default for LinksCfg {
     fn default() -> Self {
-        Self { editor: String::new(), tickets: String::new(), text_files: "panel".into() }
+        Self { click: false, editor: String::new(), tickets: String::new(), text_files: "panel".into() }
     }
 }
 
@@ -331,6 +334,8 @@ impl InterfaceCfg {
 #[derive(Deserialize, Debug, Clone, PartialEq)]
 #[serde(default)]
 pub struct LinksCfg {
+    /// A plain click opens links; false: ⌘-click (a plain click selects text).
+    pub click: bool,
     pub editor: String,
     pub tickets: String,
     pub text_files: String,

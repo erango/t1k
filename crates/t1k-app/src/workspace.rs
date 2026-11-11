@@ -2866,6 +2866,7 @@ impl Workspace {
             padding_x: px((t.padding.clamp(0., 64.) * 10. / 7.).round()),
             option_as_meta: t.option_as_meta,
             copy_on_select: t.copy_on_select,
+            click_links: self.config.links.click,
             bg_alpha: self.config.window.alpha(),
             cell_alpha: self.config.window.background_opacity_cells,
         }
