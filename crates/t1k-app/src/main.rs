@@ -28,6 +28,8 @@ mod overlay;
 mod palette;
 mod platform;
 mod quick;
+mod triggers;
+mod trigger_ui;
 mod groups;
 mod helper;
 mod helper_cli;

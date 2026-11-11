@@ -66,6 +66,7 @@ pub fn commands(ws: &Workspace) -> Vec<Command> {
         act("Broadcast Input to Picked Tabs…", "", BroadcastPick),
         act("New Window", "⌘N", NewWindow),
         act("Move Tab to New Window", "", MoveTabToNewWindow),
+        act(if c.triggers_paused { "Resume Triggers" } else { "Pause All Triggers" }, "", ToggleTriggersPaused),
         act("Toggle Sidebar", "⌘\\", ToggleSidebar),
         act("Toggle Outputs Panel", "⌘⇧O", ToggleOutputs),
         act(if c.terminal.secure_input { "Turn Off Secure Keyboard Entry" } else { "Turn On Secure Keyboard Entry" }, "", ToggleSecureInput),

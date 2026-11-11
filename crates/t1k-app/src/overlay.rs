@@ -34,6 +34,8 @@ pub enum Overlay {
     DropTheme { path: std::path::PathBuf, pane: crate::split::PaneId, at: gpui::Point<gpui::Pixels> },
     /// A paste of several lines while input is broadcast (canvas v3-aw): where should it go?
     BroadcastPaste { text: String, from: gpui::Entity<t1k_terminal::TerminalView> },
+    /// Settings › Triggers › a trigger being edited (canvas v3-az).
+    TriggerEdit(Box<crate::trigger_ui::Editor>),
     /// The update dialog (any phase).
     Update,
     /// ⌘Q while an update waits.
@@ -406,6 +408,7 @@ impl Workspace {
                 Some(Overlay::Update)
             }
             Overlay::QuitUpdate => (ev.keystroke.key != "escape").then_some(Overlay::QuitUpdate),
+            Overlay::TriggerEdit(ed) => self.trigger_edit_key(ed, ev, window, cx),
             Overlay::BroadcastPaste { text, from } => match ev.keystroke.key.as_str() {
                 "escape" => None,
                 "enter" => {
@@ -920,6 +923,10 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
         Overlay::Import { selected } => {
             let c = crate::import_ui::sheet(ws, *selected, window, cx);
             Some(scrim(ws, false, cx).bg(gpui::black().opacity(0.35)).flex().justify_center().items_start().child(c).into_any_element())
+        }
+        Overlay::TriggerEdit(ed) => {
+            let c = crate::trigger_ui::editor(ws, ed, cx);
+            Some(scrim(ws, true, cx).bg(gpui::black().opacity(0.3)).flex().justify_center().items_start().child(c).into_any_element())
         }
         Overlay::BroadcastPaste { text, from } => {
             let c = crate::broadcast::paste_confirm(ws, text, from, cx);

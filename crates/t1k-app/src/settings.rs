@@ -17,11 +17,12 @@ pub enum Section {
     Agents,
     Keybindings,
     Quick,
+    Triggers,
     Advanced,
 }
 
 impl Section {
-    pub const ALL: [Section; 8] = [
+    pub const ALL: [Section; 9] = [
         Section::Appearance,
         Section::Interface,
         Section::Tabs,
@@ -29,6 +30,7 @@ impl Section {
         Section::Agents,
         Section::Keybindings,
         Section::Quick,
+        Section::Triggers,
         Section::Advanced,
     ];
     pub fn label(self) -> &'static str {
@@ -40,6 +42,7 @@ impl Section {
             Section::Agents => "Agents",
             Section::Keybindings => "Keybindings",
             Section::Quick => "Quick terminal",
+            Section::Triggers => "Triggers",
             Section::Advanced => "Advanced",
         }
     }
@@ -627,6 +630,7 @@ fn page(ws: &Workspace, section: Section, query: &str, window: &mut Window, cx: 
     let mine: Vec<Entry> = all.into_iter().filter(|e| e.section == section).collect();
     body = body.children(cards(ui, mine, 0));
     match section {
+        Section::Triggers => body = body.child(crate::trigger_ui::section(ws, cx)),
         Section::Appearance => {
             body = body
                 .child(

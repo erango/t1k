@@ -1282,6 +1282,7 @@ pub(crate) fn status_icon_for(tab: &Tab, status: Option<&Status>, ui: UiColors, 
     let corner = match status {
         Some(Status::NeedsInput { .. }) => dot(ui.status_needs),
         Some(Status::Error { .. }) => dot(ui.status_error),
+        _ if tab.trigger_ask => dot(ui.status_needs),
         _ if tab.reminder_due || tab.unread => dot(ui.accent),
         // Working shows at the row's right end instead (design v3-q d): a corner spinner
         // this small couldn't be seen.
@@ -1630,9 +1631,11 @@ fn needs_area(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement>
             Some(a) => (Some(&a.status), Some(a.since)),
             None => (t.main_status(), t.agent.as_ref().map(|a| a.since)),
         };
-        let age = match status {
+        // A trigger asking here (canvas v3-az): its name, and the seconds left.
+        let ask = ws.trig.asks.iter().find(|a| a.tab == t.id && helper.is_none()).filter(|_| !matches!(status, Some(Status::NeedsInput { .. }) | Some(Status::Error { .. })));
+let age = match status {
             Some(Status::NeedsInput { .. }) | Some(Status::Error { .. }) => since.map(elapsed).unwrap_or_default(),
-            _ => "due".into(),
+            _ => ask.map(|_| crate::triggers::ask_left(ws, &t.id).unwrap_or_default()).unwrap_or_else(|| "due".into()),
         };
         let error = matches!(status, Some(Status::Error { .. }));
         let tone = if error { ui.status_error } else { ui.status_needs };
@@ -1660,7 +1663,10 @@ fn needs_area(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement>
                 .hover(move |d| d.bg(ui.sidebar_hover))
                 .on_click(cx.listener(move |this, _, window, cx| this.jump_to_pane(i, pane, window, cx)))
                 .child(div().flex_1().min_w_0().truncate().text_size(px(12.5 * k)).text_color(ui.text_primary).child(t.title()))
-                .child(div().flex_none().text_size(px(11. * k)).text_color(tone).child(reason_for(status, t.reminder_due && helper.is_none())))
+                .child(div().flex_none().text_size(px(11. * k)).text_color(tone).child(match ask {
+                    Some(a) => a.name.clone(),
+                    None => reason_for(status, t.reminder_due && helper.is_none()),
+                }))
                 .children(mark)
                 .child(div().w(px(28.)).flex_none().flex().justify_end().text_size(px(11. * k)).font_family("JetBrains Mono").text_color(tone).child(age)),
         );

@@ -22,6 +22,8 @@ pub enum JobKind {
     Search { query: String, ids: Vec<String> },
     /// Emoji suggestions for a group's or a tab's icon.
     Icon { key: crate::group_icons::IconFor },
+    /// A trigger's pattern from a description (the trigger editor).
+    Regex,
 }
 
 #[derive(Clone, Debug)]
@@ -131,6 +133,13 @@ impl Workspace {
         self.pump_helper(cx);
     }
 
+    /// A trigger's pattern from a description, first in line (someone is waiting for it).
+    pub fn helper_job_regex(&mut self, prompt: String, cx: &mut Context<Self>) {
+        self.helper.queue.retain(|j| !matches!(j.kind, JobKind::Regex));
+        self.helper.queue.push_front(Job { tab_id: String::new(), session_id: String::new(), kind: JobKind::Regex, prompt });
+        self.pump_helper(cx);
+    }
+
     pub fn pump_helper(&mut self, cx: &mut Context<Self>) {
         let Some(backend) = self.helper_backend() else {
             self.helper.queue.clear();
@@ -154,6 +163,7 @@ impl Workspace {
                 JobKind::Recap => "recap",
                 JobKind::Search { .. } => "search",
                 JobKind::Icon { .. } => "icon",
+                JobKind::Regex => "regex",
             };
             let prompt = job.prompt.clone();
             let task = cx.background_executor().spawn(async move { helper::ask(backend, &model, name, &prompt, Duration::from_secs(60)) });
@@ -178,6 +188,7 @@ impl Workspace {
         }
         let text = reply.text;
         match job.kind {
+            JobKind::Regex => self.helper_regex_done(&text, cx),
             JobKind::Search { query, ids } => {
                 if self.helper.search.as_ref().is_some_and(|(q, _)| *q == query) {
                     let offered: Vec<usize> = (1..=ids.len()).collect();

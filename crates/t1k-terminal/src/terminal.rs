@@ -77,6 +77,10 @@ pub struct Terminal {
     pub shift: std::sync::atomic::AtomicUsize,
     /// Notifications programs asked for (OSC 9 / 777), waiting for the view to pass them on.
     notices: Arc<std::sync::Mutex<Vec<crate::notify_scan::Notice>>>,
+    /// Exit statuses of commands that finished (shell integration's OSC 133;D).
+    exits: Arc<std::sync::Mutex<Vec<i32>>>,
+    /// New output lines, while triggers watch this terminal.
+    tap: Arc<crate::notify_scan::LineTap>,
 }
 
 /// With prompt gravity at the bottom, blank rows under the cursor are hidden by showing that
@@ -189,20 +193,42 @@ impl Terminal {
         // Programs' own notifications (OSC 9 / 777) arrive through the event channel, then a
         // Wakeup so the view looks at them now.
         let notices = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let sink: Arc<dyn Fn(crate::notify_scan::Notice) + Send + Sync> = {
-            let (notices, listener) = (notices.clone(), listener.clone());
-            Arc::new(move |n| {
-                notices.lock().unwrap().push(n);
+        let exits = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink: Arc<dyn Fn(crate::notify_scan::Seen) + Send + Sync> = {
+            let (notices, exits, listener) = (notices.clone(), exits.clone(), listener.clone());
+            Arc::new(move |s| {
+                match s {
+                    crate::notify_scan::Seen::Notice(n) => notices.lock().unwrap().push(n),
+                    crate::notify_scan::Seen::Exit(c) => exits.lock().unwrap().push(c),
+                }
                 listener.send_event(AlacEvent::Wakeup);
             })
         };
-        let pty = crate::notify_scan::ScanPty::new(pty, sink)?;
+        let tap = Arc::new(crate::notify_scan::LineTap::default());
+        let pty = crate::notify_scan::ScanPty::new(pty, sink, tap.clone())?;
         let event_loop = EventLoop::new(term.clone(), listener, pty, true, false)?;
         let notifier = Notifier(event_loop.channel());
         event_loop.spawn();
 
         let bottom_gravity = opts.start_at_bottom;
-        Ok((Self { term, notifier, size, title: None, exited: false, pty_fd, shell_pid, bottom_gravity, shift: Default::default(), notices }, rx))
+        Ok((Self { term, notifier, size, title: None, exited: false, pty_fd, shell_pid, bottom_gravity, shift: Default::default(), notices, exits, tap }, rx))
+    }
+
+    /// Exit statuses of commands that finished since the last call.
+    pub fn take_exits(&self) -> Vec<i32> {
+        std::mem::take(&mut *self.exits.lock().unwrap())
+    }
+
+    /// Start or stop collecting new output lines (triggers).
+    pub fn watch_lines(&self, on: bool) {
+        if self.tap.wanted.swap(on, std::sync::atomic::Ordering::Relaxed) && !on {
+            self.tap.lines.lock().unwrap().clear();
+        }
+    }
+
+    /// Output lines that arrived since the last call (plain text, oldest first).
+    pub fn take_lines(&self) -> Vec<String> {
+        self.tap.lines.lock().unwrap().drain(..).collect()
     }
 
     /// Notifications that arrived since the last call.

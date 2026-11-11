@@ -49,6 +49,8 @@ pub struct Tab {
     pub reminder_at: Option<SystemTime>,
     /// Reminder fired and not yet seen: loud, counts as needs-you.
     pub reminder_due: bool,
+    /// A trigger is asking here (canvas v3-az): counts as needs-you.
+    pub trigger_ask: bool,
     /// Claude session id restored from the last run (for resume).
     pub last_session: Option<String>,
     /// Set when the user moved the tab to a group by hand; folder changes don't regroup it.
@@ -129,7 +131,7 @@ impl Tab {
 
     /// Counted by the Needs-you queue: NeedsInput, Error, or a reminder that went off.
     pub fn needs_you(&self) -> bool {
-        self.reminder_due || self.status().is_some_and(Status::needs_you)
+        self.reminder_due || self.trigger_ask || self.status().is_some_and(Status::needs_you)
     }
 
     /// Display title. Precedence: manual rename, then the program's OSC title while a program
@@ -380,6 +382,8 @@ pub struct Workspace {
     pub broadcast_resume: Option<crate::broadcast::Broadcast>,
     /// The terminal that has the keyboard, as of the last tick.
     pub typing_view: Option<Entity<TerminalView>>,
+    /// Triggers (canvas v3-az): asks waiting, what fired, loop guards.
+    pub trig: crate::triggers::TrigState,
     pub confirm_close: Option<String>,
     /// A helper pane asked to close while something runs in it: (tab id, pane), confirming
     /// in its header.
@@ -607,6 +611,7 @@ impl Workspace {
             broadcast_picking: None,
             broadcast_resume: None,
             typing_view: None,
+            trig: Default::default(),
             confirm_close: None,
             confirm_pane: None,
             hook_alias: HashMap::new(),
@@ -1108,6 +1113,8 @@ impl Workspace {
                 }
                 "remind" => Some(Overlay::RemindCustom { tab: this.active, text: "tomorrow 9:15".into() }),
                 "icons" | "icons-search" | "tabicons" | "icons-apps" | "icons-image" => this.debug_icon_picker(&which, cx),
+                "settings-triggers" => Some(Overlay::Settings { section: crate::settings::Section::Triggers }),
+                "trigger-new" => Some(Overlay::TriggerEdit(Box::new(crate::trigger_ui::Editor::new(None, Default::default())))),
                 "settings-quick" => Some(Overlay::Settings { section: crate::settings::Section::Quick }),
                 "settings-keys" => Some(Overlay::Settings { section: crate::settings::Section::Keybindings }),
                 "settings-search" => {
@@ -1253,6 +1260,7 @@ impl Workspace {
             seen_state: None,
             reminder_at: None,
             reminder_due: false,
+            trigger_ask: false,
             last_session: None,
             pinned_group: None,
             icon: None,
@@ -2082,6 +2090,11 @@ impl Workspace {
 
     /// Every 100 ms: apply agent messages; keep spinners moving while anything works.
     fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.triggers_tick(window, cx);
+        // The ask bar's countdown moves.
+        if !self.trig.asks.is_empty() {
+            cx.notify();
+        }
         // The terminal with the keyboard, for the password check (every 100 ms: a password is
         // typed right after its prompt appears).
         self.typing_view = matches!(self.overlay, Overlay::None).then(|| self.focused_view(window, cx)).flatten();
@@ -2441,7 +2454,7 @@ impl Workspace {
         for (i, t) in self.tabs.iter().enumerate() {
             let main = t.agent.as_ref().filter(|a| a.status.needs_you());
             // Without hooks the title glyph can say it too.
-            if main.is_some() || t.reminder_due || t.main_status().is_some_and(Status::needs_you) {
+            if main.is_some() || t.reminder_due || t.trigger_ask || t.main_status().is_some_and(Status::needs_you) {
                 // Reminders wait from when they fired; agents from when their state began.
                 v.push((i, crate::split::MAIN, main.map(|a| a.since), t.reminder_at));
             }
@@ -3122,6 +3135,7 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &FocusNextPane, window, cx| this.focus_next_pane(window, cx)))
             .on_action(cx.listener(|this, _: &ToggleBroadcast, window, cx| this.toggle_broadcast(window, cx)))
             .on_action(cx.listener(|this, _: &NewWindow, _, cx| this.new_window(cx)))
+            .on_action(cx.listener(|this, _: &ToggleTriggersPaused, _, cx| this.toggle_triggers_paused(cx)))
             .on_action(cx.listener(|this, _: &MoveTabToNewWindow, window, cx| this.move_tab_to_window(this.active, None, None, window, cx)))
             .on_action(cx.listener(|this, _: &BroadcastGroup, window, cx| {
                 if let Some(g) = this.tabs.get(this.active).map(|t| t.group.clone()) {
@@ -3130,6 +3144,7 @@ impl Render for Workspace {
             }))
             .on_action(cx.listener(|this, _: &BroadcastPick, _, cx| this.broadcast_pick(cx)))
             .capture_key_down(cx.listener(Self::broadcast_key))
+            .capture_key_down(cx.listener(Self::ask_key))
             .on_action(cx.listener(|this, _: &FocusPaneUp, window, cx| this.focus_dir(crate::split::Dir::Up, window, cx)))
             .on_action(cx.listener(|this, _: &FocusPaneDown, window, cx| this.focus_dir(crate::split::Dir::Down, window, cx)))
             .on_action(cx.listener(|this, _: &ZoomPane, window, cx| this.toggle_zoom(window, cx)))
@@ -3223,6 +3238,7 @@ impl Render for Workspace {
                 .flex_col()
                 .child(self.render_titlebar(cx))
                 .child(div().flex_1().min_h_0().children(active_view))
+                .children(crate::triggers::ask_bar(self, cx))
                 .children(crate::broadcast::compose_bar(self, cx)),
         )
         .children(panel)

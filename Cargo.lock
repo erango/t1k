@@ -6135,6 +6135,7 @@ dependencies = [
  "objc",
  "plist",
  "pulldown-cmark",
+ "regex",
  "sentry",
  "serde",
  "serde_json",

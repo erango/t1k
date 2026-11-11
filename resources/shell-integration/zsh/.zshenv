@@ -18,6 +18,12 @@ if [[ -o interactive ]]; then
   _t1k_prompt_start() { builtin print -n '\e]8;;t1k://prompt\e\\' }
   _t1k_command_start() { builtin print -n '\e]8;;\e\\' }
   builtin autoload -Uz add-zsh-hook
+  # How the last command ended (OSC 133;D;<status>), for triggers on failing commands. First
+  # in precmd, while $? is still the command's; only after a command ran.
+  _t1k_status() { local s=$?; [[ -n "$_t1k_ran" ]] && builtin print -n "\e]133;D;$s\a"; _t1k_ran= }
+  _t1k_ran_mark() { _t1k_ran=1 }
+  precmd_functions=(_t1k_status $precmd_functions)
+  add-zsh-hook preexec _t1k_ran_mark
   add-zsh-hook precmd _t1k_prompt_start
   add-zsh-hook preexec _t1k_command_start
   # What you type gets its own mark, so T1K can copy the command apart from the prompt.

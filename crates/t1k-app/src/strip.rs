@@ -235,6 +235,28 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
                     .child("Open prompt"),
             )
         })
+        // Triggers paused (canvas v3-az): a quiet reminder, click to resume.
+        .when(ws.config.triggers_paused && !ws.config.triggers.is_empty(), |d| {
+            d.child(
+                div()
+                    .id("triggers-paused")
+                    .flex_none()
+                    .h(px(22.))
+                    .px(px(7.))
+                    .rounded(px(5.))
+                    .flex()
+                    .items_center()
+                    .text_size(px(11.5))
+                    .text_color(ui.text_tertiary)
+                    .border_1()
+                    .border_color(ui.border)
+                    .cursor_pointer()
+                    .hover(move |d| d.text_color(ui.text_primary))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_triggers_paused(cx)))
+                    .child("Triggers paused"),
+            )
+        })
         // With more than one window, which one this is (canvas v3-aq).
         .when(crate::windows::count() > 1, |d| {
             d.child(div().flex_none().text_size(px(11.5)).text_color(ui.text_tertiary).child(ws.window_name()))

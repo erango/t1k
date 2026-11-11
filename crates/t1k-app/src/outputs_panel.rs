@@ -909,6 +909,33 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             );
         }
     }
+    // What triggers did in this tab (canvas v3-az), newest first.
+    let fired: Vec<crate::triggers::Fired> = ws.tabs.get(ws.active).and_then(|t| ws.trig.log.get(&t.id)).map(|l| l.iter().rev().take(8).cloned().collect()).unwrap_or_default();
+    if !fired.is_empty() && scope == Scope::Tab {
+        hue_n += 1;
+        let tone = crate::groups::rainbow(hue_n, dark);
+        list = list.child(
+            div().h(px(24.)).mt(px(6.)).px(px(10.)).flex().items_center().gap(px(6.)).text_size(px(10.5 * k)).font_weight(FontWeight::SEMIBOLD).text_color(tone).child("TRIGGERS").child(div().font_family("JetBrains Mono").text_color(ui.text_disabled).child(fired.len().to_string())),
+        );
+        for f in fired {
+            let tip = format!("{} {} ({})", f.name, f.what, f.why);
+            list = list.child(
+                div()
+                    .id(SharedString::from(format!("fired-{}-{}", f.name, f.at.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0))))
+                    .h(px(28.))
+                    .px(px(10.))
+                    .rounded(px(6.))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .hover(move |d| d.bg(ui.bg_hover))
+                    .tooltip(crate::tooltip::text(ui, tip))
+                    .child(div().size(px(20.)).flex_none().flex().items_center().justify_center().text_size(px(12. * k)).text_color(tone).child("⚡"))
+                    .child(div().flex_1().min_w_0().truncate().text_size(px(12.5 * k)).text_color(ui.text_primary).child(format!("{}: {}", f.name, f.what)))
+                    .child(div().flex_none().font_family("JetBrains Mono").text_size(px(10.5 * k)).text_color(ui.text_tertiary).child(age(f.at))),
+            );
+        }
+    }
     if items.is_empty() {
         let hint = match scope {
             Scope::Tab => "Nothing from this tab yet. PRs, artifacts, docs, tickets and edited files from its Claude session show up here.",

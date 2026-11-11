@@ -112,6 +112,16 @@ Amber and red are used only for states where a person needs to act.
 - The badge counts NeedsInput and Error tabs only. (Superseded by v2 below: reminders that are due count too.)
 - ⌘J walks the queue from the longest-waiting tab. ⌘⇧J walks it backwards.
 
+## Triggers (canvas v3-az)
+
+- A trigger watches tabs and acts: when a new output line matches its pattern (regex, ANSI removed, never scrollback), when an agent needs you / finishes / errs / stops watching (matched against what it wants, e.g. "Claude needs your permission to use Bash · Running cargo test"), or when a command exits non-zero (shell integration sends OSC 133;D with the status). Scope: all tabs, some groups, or while a program runs.
+- Actions: notify, mark unread, mark needs you, send text, send a prompt, run a command (with T1K_MATCH_0…), open a URL, copy, highlight, remind, bring T1K forward. Arguments take $0 (the match) and $1… (its groups).
+- "Run automatically" runs them in order. "Ask me" shows a bar under the terminal with the line, a button per action (⌃1–⌃9, "Do nothing" ⌃0), and an amber bar draining to the default (or nothing) after the timeout. An ask counts as needs-you: amber badge, Needs you queue with seconds left, Dock badge, ⌘J. Esc stays with the program.
+- After firing: a short notice ("Trigger "Tests fail" sent "retry ⏎" (you chose)") and a TRIGGERS section in the tab's Outputs.
+- Safety: saving an automatic trigger that types or runs commands warns, offering "Make it ask instead"; automatic rows carry ⚡. Pause all (Settings, palette) shows "Triggers paused" in the strip. Loop guards: 2 s of ignoring a tab after typing into it, a per-tab cooldown (10 s default), and five firings in a minute switch the trigger off for that tab.
+- Settings › Triggers: the list (on/off, when → then, how often it fired, order, duplicate, delete), and four ready-made ones added switched off. The editor has a live test line showing the match and groups, and "Write the pattern": the cheap-model helper turns a description into the regex.
+- Triggers are `[[triggers]]` in config.toml.
+
 ## Outputs panel rows and width
 
 - Everything but PRs is one 28 pt line: the kind's icon (16 pt, in the section's rainbow color), the title, and how long ago in mono. The description, where it came from, and a file's path are in the row's tooltip. PRs keep their cards.

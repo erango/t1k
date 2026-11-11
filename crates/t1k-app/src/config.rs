@@ -4,12 +4,14 @@
 use std::path::PathBuf;
 use std::time::SystemTime;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 const TEMPLATE: &str = r#"# T1K settings. Changes apply as soon as you save.
 
 # "system" follows macOS; "dark" or "light" pins one.
 appearance = "system"
+# Stop every trigger at once (Settings › Triggers, or "Pause All Triggers" in ⌘⇧P).
+triggers_paused = false
 
 [theme]
 # Any built-in theme, or one imported with `t1k theme import <file>`
@@ -178,6 +180,16 @@ titles = true
 recaps = true
 search = true
 
+# Triggers (Settings › Triggers edits these): when a tab prints a match, an agent needs you
+# or a command fails, do something, or ask with buttons and a default after a timeout. Each is
+# a [[triggers]] table, for example:
+# [[triggers]]
+# name = "Tests fail"
+# when = "output"                  # "output", "agent" or "exit"
+# pattern = "^(FAIL|error)\\b(.*)"  # a regex; $1, $2... are its groups
+# mode = "auto"                    # "auto", or "ask" to offer the actions as buttons
+# actions = [{ kind = "notify", arg = "Tests failed: $2" }]
+
 [keys]
 # Shortcut overrides, by action (Settings › Keybindings writes these). Several shortcuts are
 # separated by commas; "" turns one off. For example:
@@ -189,6 +201,8 @@ search = true
 #[serde(default)]
 pub struct Config {
     pub appearance: String,
+    pub triggers_paused: bool,
+    pub triggers: Vec<TriggerCfg>,
     pub theme: ThemeCfg,
     pub terminal: TerminalCfg,
     pub interface: InterfaceCfg,
@@ -203,6 +217,85 @@ pub struct Config {
     pub window: WindowCfg,
     /// Shortcut overrides by `keymap::Bind::id`.
     pub keys: std::collections::BTreeMap<String, String>,
+}
+
+/// A trigger (canvas v3-az): when something happens in a tab, do something, or ask.
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+#[serde(default)]
+pub struct TriggerCfg {
+    pub name: String,
+    pub enabled: bool,
+    /// "output" (a line a tab prints), "agent" (an agent event) or "exit" (a command failed).
+    pub when: String,
+    /// A regex. Output: matched against each new line. Agent: against what the agent wants
+    /// ("Bash: cargo test"). Exit: against the exit status. Empty matches anything.
+    pub pattern: String,
+    /// Agent events: "needs", "done", "error" or "watching_ends".
+    pub event: String,
+    /// "all", "groups" (tabs in `groups`, by name) or "program" (while `program` runs).
+    pub scope: String,
+    pub groups: Vec<String>,
+    pub program: String,
+    /// "auto" runs the actions; "ask" offers them as buttons.
+    pub mode: String,
+    pub actions: Vec<ActionCfg>,
+    /// Ask: the action run when nobody chooses in `timeout` seconds; -1 does nothing.
+    pub default: i64,
+    pub timeout: u64,
+    /// Seconds before it fires again in the same tab.
+    pub cooldown: u64,
+}
+
+impl Default for TriggerCfg {
+    fn default() -> Self {
+        Self {
+            name: "New trigger".into(),
+            enabled: true,
+            when: "output".into(),
+            pattern: String::new(),
+            event: "needs".into(),
+            scope: "all".into(),
+            groups: Vec::new(),
+            program: String::new(),
+            mode: "auto".into(),
+            actions: vec![ActionCfg { kind: "notify".into(), ..Default::default() }],
+            default: -1,
+            timeout: 30,
+            cooldown: 10,
+        }
+    }
+}
+
+/// One thing a trigger does. `arg` may use $0 (the match) and $1, $2... (its groups).
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Default)]
+#[serde(default)]
+pub struct ActionCfg {
+    /// notify, unread, needs, send, run, open, copy, highlight, remind, prompt, front.
+    pub kind: String,
+    pub arg: String,
+    /// The button's label when the trigger asks (empty: from the action).
+    pub label: String,
+}
+
+/// Write every trigger to config.toml, replacing the [[triggers]] tables (comments elsewhere
+/// are kept).
+pub fn set_triggers(list: &[TriggerCfg]) {
+    #[derive(Serialize)]
+    struct W<'a> {
+        triggers: &'a [TriggerCfg],
+    }
+    let Some(p) = path() else { return };
+    let text = std::fs::read_to_string(&p).unwrap_or_else(|_| TEMPLATE.into());
+    let Ok(mut doc) = text.parse::<toml_edit::DocumentMut>() else { return };
+    doc.remove("triggers");
+    if !list.is_empty() {
+        let Ok(t) = toml::to_string(&W { triggers: list }) else { return };
+        let Ok(new) = t.parse::<toml_edit::DocumentMut>() else { return };
+        if let Some(item) = new.get("triggers") {
+            doc.insert("triggers", item.clone());
+        }
+    }
+    let _ = std::fs::write(&p, doc.to_string());
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
@@ -411,6 +504,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             appearance: "system".into(),
+            triggers_paused: false,
+            triggers: Vec::new(),
             theme: ThemeCfg::default(),
             terminal: TerminalCfg::default(),
             interface: InterfaceCfg::default(),
