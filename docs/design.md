@@ -141,7 +141,11 @@ Amber and red are used only for states where a person needs to act.
 - Move a tab: its menu lists each other window ("Move to Window: infra-terraform · 4 tabs") and "Move to New Window"; or drag its row out of the window and drop it on another T1K window, or anywhere else for a new window there. The tab keeps its terminal, scrollback and session. A window whose last tab leaves closes.
 - Attention is the app's: ⌘J walks waiting tabs in every window, bringing the window forward; each sidebar lists its own, plus "+1 in infra-terraform" for other windows; the Dock badge, banners and plan usage cover all windows.
 - Closing a window asks only about what runs in it. ⌘Q asks each window that has something running, one after another.
-- Not built from the board: the insertion line while dragging over another window (macOS keeps a drag's events in the window it began in), the window name centered in the title bar, the overview grouped by window, the Dock icon raising the longest-waiting window.
+- With more than one window, each shows its name (the project most of its tabs are in) at the right of the strip and in its title (Mission Control, the Window menu).
+- ⌘O shows this window's tabs, then a section per other window, needs-you first; a card there brings its window forward.
+- Clicking the Dock icon brings forward the window holding the tab that has waited longest.
+- ⌘Q's card covers every window: "5 tabs in 2 windows are still running", the other windows' programs listed under a heading each; Quit anyway stops them all at once.
+- Not built from the board: the insertion line while dragging over another window (macOS keeps a drag's events in the window it began in), and naming a window by hand.
 
 ## Watching (canvas v3-ax)
 

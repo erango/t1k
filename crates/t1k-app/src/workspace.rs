@@ -3033,7 +3033,9 @@ impl Render for Workspace {
         let title = self.tabs.get(self.active).map(|t| t.title()).unwrap_or_default();
         let needs = self.needs_queue().len();
         let badge = if needs > 0 { format!("({needs}) ") } else { String::new() };
-        window.set_window_title(&format!("{badge}{title} — T1K"));
+        // With more than one window, its name tells them apart (Mission Control, Window menu).
+        let named = if crate::windows::count() > 1 { format!("{} · ", self.window_name()) } else { String::new() };
+        window.set_window_title(&format!("{badge}{named}{title} — T1K"));
         // Cached: sidebar spinners and other workspace repaints reuse the terminal's last frame
         // unless the terminal itself changed.
         crate::app_icon::SCALE.store(window.scale_factor().round().max(1.) as u32, std::sync::atomic::Ordering::Relaxed);

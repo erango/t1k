@@ -981,7 +981,28 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
             let sel = order.get(*selected).copied();
             let mut grid = div().flex().flex_wrap().gap(px(GAP)).content_start();
             for &i in &order {
-                grid = grid.child(card(ws, i, sel == Some(i), cx));
+                grid = grid.child(card(ws, i, sel == Some(i), None, cx));
+            }
+            // Other windows (canvas v3-aq): a section each, under this window's own.
+            let others = crate::windows::others(ws.hub_id);
+            let heading = |text: String| div().pt(px(6.)).text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_tertiary).child(text);
+            let mut sections = div().flex().flex_col().gap(px(14.));
+            if others.is_empty() {
+                sections = sections.child(grid);
+            } else {
+                sections = sections.child(heading(format!("THIS WINDOW · {}", ws.window_name().to_uppercase()))).child(grid);
+                for o in &others {
+                    let Ok(e) = o.handle.entity(cx) else { continue };
+                    let ow = e.read(cx);
+                    // Who needs you first, then the sidebar's order.
+                    let mut idx = ow.visual_order();
+                    idx.sort_by_key(|&i| !ow.tabs[i].needs_you());
+                    let mut g = div().flex().flex_wrap().gap(px(GAP)).content_start();
+                    for i in idx {
+                        g = g.child(card(ow, i, false, Some(o.handle), cx));
+                    }
+                    sections = sections.child(heading(format!("WINDOW · {}", o.name.to_uppercase()))).child(g);
+                }
             }
             Some(
                 scrim(ws, false, cx)
@@ -1015,7 +1036,7 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                             .child(div().flex_1())
                             .child(div().text_size(px(12.)).text_color(ui.text_tertiary).child("Type to filter · arrows move · ↵ opens · esc")),
                     )
-                    .child(div().id("overview-scroll").flex_1().overflow_y_scroll().child(grid))
+                    .child(div().id("overview-scroll").flex_1().overflow_y_scroll().child(sections))
                     .into_any_element(),
             )
         }
@@ -1184,7 +1205,9 @@ fn status_text(t: &crate::workspace::Tab) -> String {
     }
 }
 
-fn card(ws: &Workspace, i: usize, selected: bool, cx: &mut Context<Workspace>) -> AnyElement {
+/// One tab's card in the overview. `other`: the tab is in another window (canvas v3-aq);
+/// opening it brings that window forward.
+fn card(ws: &Workspace, i: usize, selected: bool, other: Option<gpui::WindowHandle<Workspace>>, cx: &Context<Workspace>) -> AnyElement {
     let ui = ws.ui;
     let t = &ws.tabs[i];
     let since = t.agent.as_ref().map(|a| {
@@ -1219,9 +1242,25 @@ fn card(ws: &Workspace, i: usize, selected: bool, cx: &mut Context<Workspace>) -
         .flex()
         .flex_col()
         .gap(px(6.))
-        .on_click(cx.listener(move |this, _, window, cx| {
-            this.close_overlay(window, cx);
-            this.activate(i, window, cx);
+        .on_click(cx.listener({
+            let id = t.id.clone();
+            move |this, _, window, cx| {
+                this.close_overlay(window, cx);
+                match other {
+                    None => this.activate(i, window, cx),
+                    Some(w) => {
+                        let id = id.clone();
+                        cx.defer(move |cx| {
+                            let _ = w.update(cx, |ws, window, cx| {
+                                window.activate_window();
+                                if let Some(ix) = ws.tabs.iter().position(|t| t.id == id) {
+                                    ws.activate(ix, window, cx);
+                                }
+                            });
+                        });
+                    }
+                }
+            }
         }))
         .child(
             div()

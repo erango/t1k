@@ -235,6 +235,10 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
                     .child("Open prompt"),
             )
         })
+        // With more than one window, which one this is (canvas v3-aq).
+        .when(crate::windows::count() > 1, |d| {
+            d.child(div().flex_none().text_size(px(11.5)).text_color(ui.text_tertiary).child(ws.window_name()))
+        })
         // With the sidebar hidden, the usage meter moves here.
         .children((!matches!(ws.sidebar_shown(), crate::rail::Shown::Full(_))).then(|| crate::secure_input::indicator(ws, "secure-strip", cx)).flatten())
         .children((!matches!(ws.sidebar_shown(), crate::rail::Shown::Full(_))).then(|| crate::usage::meter(ws, "usage-strip", cx)).flatten())

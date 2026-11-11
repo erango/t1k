@@ -80,7 +80,22 @@ fn main() {
         Ok("panic") => panic!("test panic in `private text`"),
         _ => {}
     }
-    Application::new().run(|cx: &mut App| {
+    let app = Application::new();
+    // Clicking the Dock icon brings forward the window holding the tab that has waited longest
+    // (canvas v3-aq); macOS has already brought the app forward.
+    app.on_reopen(|cx| {
+        if let Some((_, window, wait)) = windows::queue().into_iter().next() {
+            cx.defer(move |cx| {
+                let _ = window.update(cx, |ws, window, cx| {
+                    window.activate_window();
+                    if let Some(ix) = ws.tabs.iter().position(|t| t.id == wait.tab) {
+                        ws.jump_to_pane(ix, wait.pane, window, cx);
+                    }
+                });
+            });
+        }
+    });
+    app.run(|cx: &mut App| {
         keymap::install(cx, &if demo::on() { Default::default() } else { config::load().keys });
         // Deferred: ⌘Q from the keyboard dispatches while GPUI has the window checked out for
         // the key event, so updating it here fails and the app used to quit without asking.

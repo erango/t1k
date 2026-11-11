@@ -66,6 +66,10 @@ impl Workspace {
     /// This window's turn at quit: with something running it asks; otherwise it's done and
     /// the next window is asked (T1K quits after the last).
     pub fn ask_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Already stopping (Quit anyway in another window): it reports when it's done.
+        if self.quitting.is_some() {
+            return;
+        }
         if self.running_programs(cx).is_empty() {
             self.quit_done(cx);
         } else {
@@ -151,6 +155,19 @@ impl Workspace {
         let live: HashSet<String> = running.iter().filter(|(i, _)| self.is_claude(*i)).map(|(i, _)| self.tabs[*i].id.clone()).collect();
         self.resume_after_quit.extend(live.iter().cloned());
         self.quitting = Some(Instant::now());
+        // One card for every window (canvas v3-aq): Quit anyway stops them all at once.
+        if !self.closing_window {
+            let me = self.hub_id;
+            cx.defer(move |cx| {
+                for o in crate::windows::others(me) {
+                    let _ = o.handle.update(cx, |ws, _, cx| {
+                        if ws.quitting.is_none() && !ws.running_programs(cx).is_empty() {
+                            ws.quit_gracefully(cx);
+                        }
+                    });
+                }
+            });
+        }
         for (i, _) in &running {
             let t = &self.tabs[*i];
             let term = &t.view.read(cx).terminal;
@@ -380,6 +397,29 @@ pub fn render(ws: &Workspace, expanded: bool, selected: usize, cx: &mut Context<
         format!("{n} tabs are still running: {}. {after}", names(&list))
     };
 
+    // What runs in the other windows (quitting, not closing one window): listed under this
+    // window's, so one card covers them all.
+    let elsewhere: Vec<(String, Vec<String>)> = if ws.closing_window {
+        Vec::new()
+    } else {
+        crate::windows::others(ws.hub_id)
+            .into_iter()
+            .filter_map(|o| {
+                let e = o.handle.entity(cx).ok()?;
+                let other = e.read(cx);
+                let names: Vec<String> = other.running_list(cx).iter().map(|r| if r.claude { other.tabs[r.tab].title() } else { short(&r.command) }).collect();
+                (!names.is_empty()).then_some((o.name, names))
+            })
+            .collect()
+    };
+    let more: usize = elsewhere.iter().map(|(_, v)| v.len()).sum();
+    let body = if more > 0 {
+        let windows = elsewhere.len() + 1;
+        format!("{} tabs in {windows} windows are still running. Claude sessions resume next time; other programs stop.", n + more)
+    } else {
+        body
+    };
+
     let mut c = card(ws)
         .w(px(if expanded { 540. } else { 440. }))
         .child(heading(ws, if ws.closing_window { "Close this window?".to_string() } else { "Quit T1K?".to_string() }, None))
@@ -483,9 +523,14 @@ pub fn render(ws: &Workspace, expanded: bool, selected: usize, cx: &mut Context<
                     .child(div().flex_none().child(right)),
             );
         }
-        c = c.child(rows).child(
-            div().text_size(px(11.)).text_color(ui.text_tertiary).child("↑↓ move · ↵ go to tab · ⌫ stop · ⌘↵ quit anyway · esc back"),
-        );
+        c = c.child(rows);
+        // The other windows' running programs, under a heading each (read-only here).
+        for (name, items) in &elsewhere {
+            c = c
+                .child(div().pt(px(4.)).text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_tertiary).child(format!("WINDOW · {}", name.to_uppercase())))
+                .children(items.iter().map(|i| div().pl(px(4.)).truncate().text_size(px(12.5)).text_color(ui.text_secondary).child(i.clone())));
+        }
+        c = c.child(div().text_size(px(11.)).text_color(ui.text_tertiary).child("↑↓ move · ↵ go to tab · ⌫ stop · ⌘↵ quit anyway · esc back"));
     }
 
     c.child(
