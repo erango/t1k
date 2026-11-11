@@ -39,6 +39,9 @@ pub struct SavedTab {
     /// Where an imported tab came from ("Warp ttys004").
     #[serde(default)]
     pub origin: Option<String>,
+    /// Typed in it but not sent when T1K quit; typed back once it's ready again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draft: Option<String>,
     /// When the tab's state last changed, unix seconds (for "Last updated" sorting).
     #[serde(default)]
     pub updated: Option<u64>,

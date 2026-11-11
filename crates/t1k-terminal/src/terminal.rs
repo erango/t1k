@@ -475,6 +475,78 @@ impl Terminal {
         out
     }
 
+    /// Text typed but not sent: in Claude Code's input box (between its two ─ rules), or on
+    /// the shell's command line (under T1K's command mark). None when nothing is typed, or
+    /// only a placeholder shows (drawn dim).
+    pub fn draft(&self) -> Option<String> {
+        use alacritty_terminal::grid::Dimensions;
+        use alacritty_terminal::index::{Column, Line};
+        use alacritty_terminal::term::cell::Flags;
+        let term = self.term.lock();
+        let grid = term.grid();
+        let cols = term.columns();
+        let bottom = term.bottommost_line().0;
+        let top = (bottom - term.screen_lines() as i32 + 1).max(term.topmost_line().0);
+        let text_of = |l: i32| -> String { (0..cols).map(|c| grid[Line(l)][Column(c)].c).collect::<String>().replace('\0', " ").trim_end().to_string() };
+        let rule = |l: i32| {
+            let t = text_of(l);
+            let t = t.trim();
+            t.chars().count() >= 20 && t.chars().all(|c| c == '─')
+        };
+        // Claude's input: the lowest pair of rules on screen, with what's between them.
+        let rules: Vec<i32> = (top..=bottom).rev().filter(|&l| rule(l)).take(2).collect();
+        if let [low, high] = rules[..] {
+            if low - high >= 2 && low - high <= 30 {
+                let mut lines = Vec::new();
+                let mut dim_only = true;
+                for l in high + 1..low {
+                    let row = &grid[Line(l)];
+                    let mut line = text_of(l);
+                    for p in ["> ", "❯ "] {
+                        if l == high + 1 && line.trim_start().starts_with(p) {
+                            line = line.trim_start()[p.len()..].to_string();
+                        }
+                    }
+                    let line = line.strip_prefix("  ").map(str::to_string).unwrap_or(line);
+                    for c in 0..cols {
+                        let cell = &row[Column(c)];
+                        if !cell.c.is_whitespace() && cell.c != '>' && cell.c != '❯' && cell.c != '\0' && !cell.flags.contains(Flags::DIM) {
+                            dim_only = false;
+                        }
+                    }
+                    lines.push(line);
+                }
+                let text = lines.join("\n").trim().to_string();
+                return (!text.is_empty() && !dim_only).then_some(text);
+            }
+        }
+        // A shell: what's under the command mark on the cursor's line.
+        let cur = grid.cursor.point.line;
+        let row = &grid[cur];
+        let typed: String = (0..cols).filter(|&c| row[Column(c)].hyperlink().is_some_and(|h| h.uri() == "t1k://prompt/cmd")).map(|c| row[Column(c)].c).collect::<String>().replace('\0', " ");
+        let typed = typed.trim().to_string();
+        (!typed.is_empty()).then_some(typed)
+    }
+
+    /// The shell is at its prompt, ready for input (T1K's command mark is on the cursor's line).
+    pub fn at_prompt(&self) -> bool {
+        use alacritty_terminal::grid::Dimensions;
+        use alacritty_terminal::index::Column;
+        let term = self.term.lock();
+        let grid = term.grid();
+        let row = &grid[grid.cursor.point.line];
+        // An empty command line has no cells under the command mark yet; the prompt's do.
+        (0..term.columns()).any(|c| row[Column(c)].hyperlink().is_some_and(|h| h.uri().starts_with("t1k://prompt")))
+    }
+
+    /// Claude Code's input box is drawn (its two ─ rules near the bottom): it's ready to type.
+    pub fn input_box_shown(&self) -> bool {
+        self.last_lines(12).iter().filter(|l| {
+            let t = l.trim();
+            t.chars().count() >= 20 && t.chars().all(|c| c == '─')
+        }).count() >= 2
+    }
+
     pub fn clear_selection(&self) {
         self.term.lock().selection = None;
     }

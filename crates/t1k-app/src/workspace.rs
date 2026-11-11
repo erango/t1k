@@ -51,6 +51,11 @@ pub struct Tab {
     pub reminder_due: bool,
     /// A trigger is asking here (canvas v3-az): counts as needs-you.
     pub trigger_ask: bool,
+    /// Typed but not sent when T1K last quit: put back once the tab is ready (its shell at a
+    /// prompt, or its Claude session resumed and showing its input), then since when it was.
+    pub draft: Option<(String, Instant, Option<Instant>)>,
+    /// What's typed and not sent, as of the last poll (saved with the session).
+    pub typed: Option<String>,
     /// Claude session id restored from the last run (for resume).
     pub last_session: Option<String>,
     /// Set when the user moved the tab to a group by hand; folder changes don't regroup it.
@@ -710,6 +715,7 @@ impl Workspace {
                 .unwrap_or(true)
         });
         cx.on_app_quit(|this, cx| {
+            this.read_drafts(cx);
             this.save_scrollback(cx);
             this.save();
             async {}
@@ -746,6 +752,7 @@ impl Workspace {
                 }
                 tab.reminder_at = t.reminder_at.map(|s| UNIX_EPOCH + Duration::from_secs(s));
                 tab.unread = t.unread;
+                tab.draft = t.draft.clone().filter(|d| !d.trim().is_empty()).map(|d| (d, Instant::now(), None));
                 if let Some(u) = t.updated {
                     tab.updated = UNIX_EPOCH + Duration::from_secs(u);
                 }
@@ -1261,6 +1268,8 @@ impl Workspace {
             reminder_at: None,
             reminder_due: false,
             trigger_ask: false,
+            draft: None,
+            typed: None,
             last_session: None,
             pinned_group: None,
             icon: None,
@@ -1992,8 +2001,46 @@ impl Workspace {
     }
 
     /// Refresh each tab's cwd and foreground program; regroup tabs that changed project.
+    /// What each tab has typed but not sent (kept for the session), and drafts from the last
+    /// run typed back once their tab is ready: a shell at its prompt, or a resumed Claude
+    /// session showing its input box, steady for a second. Given up after a minute.
+    fn read_drafts(&mut self, cx: &mut Context<Self>) {
+        let resuming: Vec<bool> = self.tabs.iter().map(|t| self.is_resuming(&t.id)).collect();
+        // Tabs whose Claude session is being resumed wait for Claude, not for the shell's
+        // prompt (it shows for a moment before `claude --resume` starts).
+        let resumed: Vec<bool> = self.tabs.iter().map(|t| self.restore.as_ref().is_some_and(|r| r.all.contains(&t.id))).collect();
+        for (i, t) in self.tabs.iter_mut().enumerate() {
+            let term = &t.view.read(cx).terminal;
+            if t.draft.is_none() {
+                t.typed = term.draft();
+                continue;
+            }
+            let Some((text, since, ready)) = t.draft.clone() else { continue };
+            if since.elapsed() > Duration::from_secs(60) {
+                t.draft = None;
+                continue;
+            }
+            let claude = resumed[i];
+            // Without shell integration there's no prompt mark: a shell quiet for 3 s will do.
+            let ok = !resuming[i]
+                && if claude { term.input_box_shown() && term.draft().is_none() } else { t.program.is_none() && (term.at_prompt() || since.elapsed() > Duration::from_secs(3)) };
+            match (ok, ready) {
+                (false, _) => t.draft = Some((text, since, None)),
+                (true, None) => t.draft = Some((text, since, Some(Instant::now()))),
+                (true, Some(at)) if at.elapsed() >= Duration::from_secs(1) => {
+                    term.paste(&text);
+                    t.draft = None;
+                }
+                _ => {}
+            }
+        }
+    }
+
     fn poll(&mut self, cx: &mut Context<Self>) {
         self.context_tick(cx);
+        if !crate::demo::on() {
+            self.read_drafts(cx);
+        }
         self.sync_broadcast(cx);
         if self.broadcast_resume.is_some() && self.notice.is_none() {
             self.broadcast_resume = None;
@@ -2565,6 +2612,8 @@ impl Workspace {
                             a.kind == t1k_agent::agents::AgentKind::Claude && !a.session_id.is_empty() && !matches!(a.status, Status::Ended)
                         }) && t.program.is_some(),
                     unread: t.unread,
+                    // What's typed but not sent goes too; a draft still waiting to go back stays.
+                    draft: t.draft.as_ref().map(|d| d.0.clone()).or_else(|| t.typed.clone()),
                     updated: t.updated.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs()),
                 }
             }).collect(),
