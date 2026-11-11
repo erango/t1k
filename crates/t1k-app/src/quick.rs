@@ -50,6 +50,8 @@ pub struct Quick {
     /// The terminal the panel is showing (its window shows a placeholder meanwhile).
     shown: Option<Entity<TerminalView>>,
     pinned: bool,
+    /// Sliding out: the panel goes in a moment; the shortcut waits for it.
+    leaving: bool,
 }
 
 impl Global for Quick {}
@@ -111,20 +113,46 @@ fn repaint_windows(cx: &mut App) {
     }
 }
 
+/// In 140 ms (ease-out), out in 100 ms (ease-in), 16 pt from its edge; none with Reduce
+/// Motion.
+const IN_MS: f32 = 140.;
+const OUT_MS: f32 = 100.;
+
 pub fn hide(cx: &mut App) {
     let Some(q) = cx.try_global::<Quick>() else { return };
-    let Some(panel) = q.panel else { return };
-    let q = cx.global_mut::<Quick>();
-    q.panel = None;
-    q.target = None;
-    q.shown = None;
-    let _ = panel.update(cx, |_, window, _| window.remove_window());
-    repaint_windows(cx);
+    let Some(panel) = q.panel.filter(|_| !q.leaving) else { return };
+    let animate = !crate::platform::reduce_motion();
+    cx.global_mut::<Quick>().leaving = true;
+    let _ = panel.update(cx, |p, _, cx| {
+        p.leaving = Some(std::time::Instant::now());
+        cx.notify();
+    });
+    let gone = move |cx: &mut App| {
+        let q = cx.global_mut::<Quick>();
+        q.panel = None;
+        q.target = None;
+        q.shown = None;
+        q.leaving = false;
+        let _ = panel.update(cx, |_, window, _| window.remove_window());
+        repaint_windows(cx);
+    };
+    if animate {
+        cx.spawn(async move |cx| {
+            cx.background_executor().timer(std::time::Duration::from_millis(OUT_MS as u64)).await;
+            let _ = cx.update(gone);
+        })
+        .detach();
+    } else {
+        gone(cx);
+    }
 }
 
 /// The shortcut: show the panel, or put it away.
 pub fn toggle(cx: &mut App) {
     if !cx.has_global::<Quick>() {
+        return;
+    }
+    if cx.global::<Quick>().leaving {
         return;
     }
     if cx.global::<Quick>().panel.is_some() {
@@ -158,6 +186,15 @@ pub fn debug_show(spec: &str, cx: &mut App) {
     q.cfg.screen = "main".into();
     let target = pick(None, cx);
     show(target, false, cx);
+    // `confirm`: ⌘W's question in the quick shell.
+    if spec.split(',').any(|p| p == "confirm") {
+        if let Some(p) = cx.global::<Quick>().panel {
+            let _ = p.update(cx, |p, _, cx| {
+                p.confirm = true;
+                cx.notify();
+            });
+        }
+    }
 }
 
 /// A T1K window to borrow from (the look, a place to start the shell): the frontmost.
@@ -294,7 +331,7 @@ fn show(target: Target, focus: bool, cx: &mut App) {
                     }
                 })
                 .detach();
-                Panel { look, focus }
+                Panel { look, focus, opened: std::time::Instant::now(), leaving: None, edge: cfg.position.clone(), confirm: false, look_set: None }
             })
         },
     );
@@ -372,15 +409,79 @@ pub struct Panel {
     /// A window to take the look (colors, text scale) from.
     look: WindowHandle<Workspace>,
     focus: FocusHandle,
+    opened: std::time::Instant,
+    leaving: Option<std::time::Instant>,
+    /// "panel" or the edge it slides from.
+    edge: String,
+    /// ⌘W in the quick shell: "End the quick shell?" in the strip.
+    confirm: bool,
+    look_set: Option<gpui::WindowBackgroundAppearance>,
+}
+
+impl Panel {
+    /// How far in it is, 0 to 1, and whether it's still moving.
+    fn progress(&self) -> (f32, bool) {
+        if crate::platform::reduce_motion() {
+            return (if self.leaving.is_some() { 0. } else { 1. }, false);
+        }
+        match self.leaving {
+            Some(t) => {
+                let x = (t.elapsed().as_secs_f32() * 1000. / OUT_MS).min(1.);
+                // Ease-in: slow to start, then away.
+                (1. - x * x, x < 1.)
+            }
+            None => {
+                let x = (self.opened.elapsed().as_secs_f32() * 1000. / IN_MS).min(1.);
+                // Ease-out (cubic): quick, then settling.
+                (1. - (1. - x).powi(3), x < 1.)
+            }
+        }
+    }
+}
+
+/// ⌘W in the panel: the quick shell asks first (ending it ends what runs there); a tab's
+/// terminal is only put away (the tab stays in its window).
+fn close_key(panel: &mut Panel, cx: &mut Context<Panel>) {
+    match cx.global::<Quick>().target {
+        Some(Target::Shell) => {
+            panel.confirm = true;
+            cx.notify();
+        }
+        _ => cx.defer(hide),
+    }
+}
+
+/// End the quick shell (its terminal goes, and with it what ran there).
+fn end_shell(cx: &mut App) {
+    let shell = cx.global_mut::<Quick>().shell.take();
+    hide(cx);
+    drop(shell);
 }
 
 impl Render for Panel {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let (t, moving) = self.progress();
+        if moving {
+            window.request_animation_frame();
+        }
         let q = cx.global::<Quick>();
         let (target, shown, pinned) = (q.target.clone(), q.shown.clone(), q.pinned);
         let Some(ws) = self.look.entity(cx).ok() else { return div() };
         let ui = ws.read(cx).ui;
-        let bg = ui.bg_terminal;
+        // See-through and blurred like the windows (Settings › Appearance › Window).
+        let (bg, look) = {
+            let w = ws.read(cx);
+            let look = match (w.translucent(), w.config.window.background_blur) {
+                (false, _) => gpui::WindowBackgroundAppearance::Opaque,
+                (true, true) => gpui::WindowBackgroundAppearance::Blurred,
+                (true, false) => gpui::WindowBackgroundAppearance::Transparent,
+            };
+            (w.term_bg(), look)
+        };
+        if self.look_set != Some(look) {
+            window.set_background_appearance(look);
+            self.look_set = Some(look);
+        }
         let waiting = crate::windows::total_waiting();
         let mono = |s: String, c: gpui::Hsla| div().flex_none().font_family("JetBrains Mono").text_size(px(11.)).text_color(c).child(s);
 
@@ -443,6 +544,16 @@ impl Render for Panel {
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .child(label)
         };
+        if self.confirm {
+            let what = shown
+                .as_ref()
+                .and_then(|v| v.read(cx).terminal.foreground_command().map(|(c, _)| c))
+                .filter(|c| !crate::close::SHELLS.contains(&c.split_whitespace().next().unwrap_or("").trim_start_matches('-')))
+                .map(|c| format!("End the quick shell? {} stops.", c.split_whitespace().take(3).collect::<Vec<_>>().join(" ")))
+                .unwrap_or_else(|| "End the quick shell?".into());
+            left = div().flex_1().min_w_0().truncate().text_size(px(12.5)).text_color(ui.text_primary).child(what);
+        }
+        let confirming = self.confirm;
         let strip = div()
             .h(px(34.))
             .flex_none()
@@ -454,7 +565,19 @@ impl Render for Panel {
             .border_color(ui.border)
             .font_family(".SystemUIFont")
             .child(left)
-            .children(more.map(|(text, tone)| {
+            .when(confirming, |d| {
+                d.child(button("quick-cancel", "Cancel", false).on_click(cx.listener(|p, _, _, cx| {
+                    p.confirm = false;
+                    cx.notify();
+                })))
+                .child(
+                    button("quick-end", "End", false)
+                        .bg(ui.status_error)
+                        .text_color(t1k_themes::on_hsla(ui.status_error))
+                        .on_click(|_, _, cx| cx.defer(end_shell)),
+                )
+            })
+            .when(!confirming, |d| d.children(more.map(|(text, tone)| {
                 div()
                     .id("quick-next")
                     .flex_none()
@@ -465,26 +588,42 @@ impl Render for Panel {
                     .on_click(|_, _, cx| cx.defer(next))
                     .child(div().text_size(px(11.5)).text_color(tone).child(text))
                     .when(others > 0, |d| d.child(mono("⌘J".into(), ui.text_tertiary)))
-            }))
-            .child(button("quick-pin", if pinned { "Pinned" } else { "Keep open" }, pinned).on_click(cx.listener(|_, _, _, cx| {
+            })))
+            .when(!confirming, |d| d.child(button("quick-pin", if pinned { "Pinned" } else { "Keep open" }, pinned).on_click(cx.listener(|_, _, _, cx| {
                 let q = cx.global_mut::<Quick>();
                 q.pinned = !q.pinned;
                 cx.notify();
-            })))
-            .child(button("quick-open", "Open in window", false).on_click(|_, _, cx| cx.defer(open_in_window)));
+            }))))
+            .when(!confirming, |d| d.child(button("quick-open", "Open in window", false).on_click(|_, _, cx| cx.defer(open_in_window))));
 
-        div()
-            .size_full()
-            .track_focus(&self.focus)
-            .flex()
-            .flex_col()
-            .bg(bg)
-            .border_1()
-            .border_color(ui.border)
-            // ⌘J here walks the tabs that need you, in place.
-            .on_action(|_: &crate::actions::JumpToNeeds, _, cx| cx.defer(next))
-            .child(strip)
-            .child(div().flex_1().min_h_0().children(shown))
+        // Slide 16 pt in from its edge, fading in.
+        let off = 16. * (1. - t);
+        let (dx, dy) = match self.edge.as_str() {
+            "bottom" => (0., off),
+            "left" => (-off, 0.),
+            "right" => (off, 0.),
+            _ => (0., -off),
+        };
+
+        div().size_full().relative().child(
+            div()
+                .absolute()
+                .top(px(dy))
+                .left(px(dx))
+                .size_full()
+                .opacity(t)
+                .track_focus(&self.focus)
+                .flex()
+                .flex_col()
+                .bg(bg)
+                .border_1()
+                .border_color(ui.border)
+                // ⌘J here walks the tabs that need you, in place.
+                .on_action(|_: &crate::actions::JumpToNeeds, _, cx| cx.defer(next))
+                .on_action(cx.listener(|p, _: &crate::actions::CloseTab, _, cx| close_key(p, cx)))
+                .child(strip)
+                .child(div().flex_1().min_h_0().children(shown)),
+        )
     }
 }
 

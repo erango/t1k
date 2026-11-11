@@ -132,7 +132,8 @@ Amber and red are used only for states where a person needs to act.
 - It goes away on the shortcut, or when another app is clicked (unless kept open, or "Hide when it loses focus" is off). Esc does not dismiss it: Esc belongs to the programs. Hiding never closes anything.
 - Position: a panel centered under the menu bar (S 720 × 340, M 900 × 420, L 1100 × 520), or an edge at 40% of the screen (S 30%, L 55%); on the screen with the pointer, or the main one.
 - A shortcut macOS refuses shows "In use by another app" in Settings; one that registers but doesn't open has a "Not opening?" line.
-- Not built from the board: the slide-and-fade animation, opacity and blur following the window setting, and asking before ⌘W ends the quick shell.
+- It slides 16 pt in from its edge with a fade (140 ms ease-out), and out in 100 ms (ease-in); none with Reduce Motion. Its background follows the windows' opacity and blur.
+- ⌘W in the quick shell asks first ("End the quick shell? npm stops."); on a tab's terminal it only puts the panel away.
 
 ## Windows (canvas v3-aq)
 
