@@ -306,7 +306,13 @@ impl Workspace {
         let task = cx.background_spawn(async move {
             let mut out = Vec::new();
             for chunk in urls.chunks(REFRESH_PARALLEL) {
-                let handles: Vec<_> = chunk.iter().cloned().map(|u| std::thread::spawn(move || (u.clone(), fetch_pr(&u)))).collect();
+                let handles: Vec<_> = chunk.iter().map(|u| {
+                    let u = u.clone();
+                    std::thread::spawn(move || {
+                        let info = fetch_pr(&u);
+                        (u, info)
+                    })
+                }).collect();
                 out.extend(handles.into_iter().filter_map(|h| h.join().ok()));
             }
             out
