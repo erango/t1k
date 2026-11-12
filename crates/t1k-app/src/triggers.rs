@@ -150,13 +150,16 @@ pub struct Fired {
     pub run: Option<Run>,
 }
 
+/// Where a background command reports how it ended: (end, last lines, how long it took).
+type RunDone = std::sync::mpsc::Receiver<(RunEnd, Vec<String>, Duration)>;
+
 /// Lines of a background command's output kept, and how long one may be.
 const RUN_LINES: usize = 20;
 const RUN_LINE_MAX: usize = 300;
 
 /// Run `command` with `sh -c` in `cwd`, keeping its last lines; stop it after `limit`
 /// (SIGTERM, then SIGKILL 5 s later).
-fn run_in_background(command: String, cwd: std::path::PathBuf, env: Vec<(String, String)>, limit: Duration) -> std::sync::mpsc::Receiver<(RunEnd, Vec<String>, Duration)> {
+fn run_in_background(command: String, cwd: std::path::PathBuf, env: Vec<(String, String)>, limit: Duration) -> RunDone {
     use std::io::Read;
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -234,9 +237,9 @@ pub struct TrigState {
     pub log: HashMap<String, Vec<Fired>>,
     next_id: u64,
     /// A background command just started by an action, for the entry being recorded.
-    started: Option<(Run, std::sync::mpsc::Receiver<(RunEnd, Vec<String>, Duration)>)>,
+    started: Option<(Run, RunDone)>,
     /// Commands still running: (tab, entry id, where they report).
-    running: Vec<(String, u64, std::sync::mpsc::Receiver<(RunEnd, Vec<String>, Duration)>)>,
+    running: Vec<(String, u64, RunDone)>,
     /// The entry the notice is about, so a finishing command updates it in place.
     notice_for: Option<u64>,
     /// The TRIGGERS entry open in the Outputs panel.
