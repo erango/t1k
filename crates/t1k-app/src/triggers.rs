@@ -81,6 +81,11 @@ pub fn compile(pattern: &str) -> Result<Option<Regex>, String> {
     Regex::new(pattern).map(Some).map_err(|e| e.to_string().lines().last().unwrap_or("Not a valid pattern").trim().to_string())
 }
 
+/// "aws sso login": a command's first three words.
+pub fn short_cmd(c: &str) -> String {
+    c.split_whitespace().take(3).collect::<Vec<_>>().join(" ")
+}
+
 /// `$0`, `$1`… in `s`, filled from the match.
 pub fn fill(s: &str, caps: &[String]) -> String {
     let mut out = s.to_string();
@@ -105,14 +110,120 @@ pub struct Ask {
     pub timeout: Duration,
 }
 
+/// How a background command a trigger ran ended (canvas v3-ba).
+#[derive(Clone, Debug, PartialEq)]
+pub enum RunEnd {
+    Running,
+    Exit(i32),
+    /// Ended by a signal, or couldn't be waited on.
+    Killed,
+    /// Ran past the trigger's limit and was stopped.
+    Stopped(u64),
+}
+
+impl RunEnd {
+    pub fn failed(&self) -> bool {
+        !matches!(self, RunEnd::Running | RunEnd::Exit(0))
+    }
+}
+
+/// A background command a trigger started: what, how it went, its last lines.
+#[derive(Clone)]
+pub struct Run {
+    pub command: String,
+    pub end: RunEnd,
+    pub took: Option<Duration>,
+    pub output: Vec<String>,
+}
+
 /// What a trigger did, for the toast and the tab's log.
 #[derive(Clone)]
 pub struct Fired {
+    pub id: u64,
     pub at: SystemTime,
     pub name: String,
     pub what: String,
     /// "automatically", "you chose", "no choice in 60s".
     pub why: String,
+    /// The line it matched.
+    pub line: String,
+    pub run: Option<Run>,
+}
+
+/// Lines of a background command's output kept, and how long one may be.
+const RUN_LINES: usize = 20;
+const RUN_LINE_MAX: usize = 300;
+
+/// Run `command` with `sh -c` in `cwd`, keeping its last lines; stop it after `limit`
+/// (SIGTERM, then SIGKILL 5 s later).
+fn run_in_background(command: String, cwd: std::path::PathBuf, env: Vec<(String, String)>, limit: Duration) -> std::sync::mpsc::Receiver<(RunEnd, Vec<String>, Duration)> {
+    use std::io::Read;
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let started = Instant::now();
+        let mut cmd = std::process::Command::new("/bin/sh");
+        cmd.arg("-c").arg(&command).current_dir(cwd).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+        cmd.env("PATH", crate::platform::tool_path());
+        for (k, v) in env {
+            cmd.env(k, v);
+        }
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                let _ = tx.send((RunEnd::Killed, vec![format!("couldn't start: {e}")], started.elapsed()));
+                return;
+            }
+        };
+        let lines = std::sync::Arc::new(std::sync::Mutex::new(VecDeque::<String>::new()));
+        let mut readers = Vec::new();
+        for stream in [child.stdout.take().map(|s| Box::new(s) as Box<dyn Read + Send>), child.stderr.take().map(|s| Box::new(s) as Box<dyn Read + Send>)].into_iter().flatten() {
+            let lines = lines.clone();
+            readers.push(std::thread::spawn(move || {
+                let mut stream = stream;
+                let mut split = t1k_terminal::notify_scan::LineSplitter::default();
+                let mut buf = [0u8; 4096];
+                let mut out = Vec::new();
+                while let Ok(n) = stream.read(&mut buf) {
+                    if n == 0 {
+                        break;
+                    }
+                    split.feed(&buf[..n], &mut out);
+                    let mut q = lines.lock().unwrap_or_else(|e| e.into_inner());
+                    for l in out.drain(..) {
+                        let l = if l.chars().count() > RUN_LINE_MAX { format!("{}…", l.chars().take(RUN_LINE_MAX).collect::<String>()) } else { l };
+                        if q.len() >= RUN_LINES {
+                            q.pop_front();
+                        }
+                        q.push_back(l);
+                    }
+                }
+            }));
+        }
+        let mut stopped = false;
+        let end = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break if stopped { RunEnd::Stopped(limit.as_secs() / 60) } else { status.code().map(RunEnd::Exit).unwrap_or(RunEnd::Killed) },
+                Ok(None) => {}
+                Err(_) => break RunEnd::Killed,
+            }
+            if !stopped && started.elapsed() > limit {
+                stopped = true;
+                unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
+                let pid = child.id();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_secs(5));
+                    unsafe { libc::kill(pid as i32, libc::SIGKILL) };
+                });
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        };
+        for r in readers {
+            let _ = r.join();
+        }
+        let out: Vec<String> = lines.lock().unwrap_or_else(|e| e.into_inner()).iter().cloned().collect();
+        let _ = tx.send((end, out, started.elapsed()));
+    });
+    rx
 }
 
 #[derive(Default)]
@@ -121,6 +232,15 @@ pub struct TrigState {
     compiled_for: Vec<String>,
     pub asks: Vec<Ask>,
     pub log: HashMap<String, Vec<Fired>>,
+    next_id: u64,
+    /// A background command just started by an action, for the entry being recorded.
+    started: Option<(Run, std::sync::mpsc::Receiver<(RunEnd, Vec<String>, Duration)>)>,
+    /// Commands still running: (tab, entry id, where they report).
+    running: Vec<(String, u64, std::sync::mpsc::Receiver<(RunEnd, Vec<String>, Duration)>)>,
+    /// The entry the notice is about, so a finishing command updates it in place.
+    notice_for: Option<u64>,
+    /// The TRIGGERS entry open in the Outputs panel.
+    pub open: Option<u64>,
     last: HashMap<(usize, String), Instant>,
     typed: HashMap<(usize, String), Instant>,
     rate: HashMap<(usize, String), VecDeque<Instant>>,
@@ -313,9 +433,10 @@ impl Workspace {
                 cx.notify();
             } else {
                 let what: Vec<String> = t.actions.iter().map(|a| self.run_action(ti, ix, pane, a, &line, &caps, window, cx)).collect();
-                self.trig_record(&t.name, ix, what.join(", "), "automatically".into(), cx);
+                self.trig_record(&t.name, ix, &line, what.join(", "), "automatically".into(), cx);
             }
         }
+        self.trig_runs_done(cx);
         // Asks whose time ran out: the default, or nothing.
         let due: Vec<usize> = (0..self.trig.asks.len()).filter(|&i| self.trig.asks[i].deadline <= Instant::now()).collect();
         for i in due.into_iter().rev() {
@@ -339,14 +460,16 @@ impl Workspace {
         // Forget lines that left the screen a while ago, so the same text later fires again.
         seen.retain(|t, at| on_screen.contains(t.as_str()) || at.elapsed() < Duration::from_secs(30));
         let mut out = Vec::new();
-        for l in streamed.into_iter().chain(screen) {
+        // What streamed past is always new; the screen's rows only after the first look.
+        let n = streamed.len();
+        for (i, l) in streamed.into_iter().chain(screen).enumerate() {
             let t = l.trim().to_string();
             if t.is_empty() {
                 continue;
             }
             let fresh = !seen.contains_key(&t);
             seen.insert(t.clone(), now);
-            if fresh && !first {
+            if fresh && (i < n || !first) {
                 out.push(t);
             }
         }
@@ -373,7 +496,7 @@ impl Workspace {
             Some(c) => self.finish_ask(ask, Some(c), why, window, cx),
             None => {
                 self.sync_ask_flags();
-                self.trig_record(&ask.name, self.tabs.iter().position(|t| t.id == ask.tab).unwrap_or(0), "did nothing".into(), why, cx);
+                self.trig_record(&ask.name, self.tabs.iter().position(|t| t.id == ask.tab).unwrap_or(0), &ask.line, "did nothing".into(), why, cx);
             }
         }
     }
@@ -386,18 +509,85 @@ impl Workspace {
             Some(a) => self.run_action(ask.trigger, ix, ask.pane, &a, &ask.line, &ask.caps, window, cx),
             None => "did nothing".into(),
         };
-        self.trig_record(&ask.name, ix, what, why, cx);
+        self.trig_record(&ask.name, ix, &ask.line, what, why, cx);
     }
 
-    fn trig_record(&mut self, name: &str, ix: usize, what: String, why: String, cx: &mut Context<Self>) {
+    fn trig_record(&mut self, name: &str, ix: usize, line: &str, what: String, why: String, cx: &mut Context<Self>) {
+        self.trig.next_id += 1;
+        let id = self.trig.next_id;
+        let started = self.trig.started.take();
+        let run = started.as_ref().map(|(r, _)| r.clone());
+        let text = match &run {
+            Some(r) => format!("Trigger \u{201c}{name}\u{201d} running {}\u{2026}", short_cmd(&r.command)),
+            None => format!("Trigger \u{201c}{name}\u{201d} {what} ({why})"),
+        };
         if let Some(t) = self.tabs.get(ix) {
-            let log = self.trig.log.entry(t.id.clone()).or_default();
-            log.push(Fired { at: SystemTime::now(), name: name.to_string(), what: what.clone(), why: why.clone() });
+            let tab = t.id.clone();
+            if let Some((_, rx)) = started {
+                self.trig.running.push((tab.clone(), id, rx));
+            }
+            let log = self.trig.log.entry(tab).or_default();
+            log.push(Fired { id, at: SystemTime::now(), name: name.to_string(), what, why, line: line.to_string(), run });
             if log.len() > 50 {
                 log.remove(0);
             }
         }
-        self.trig_toast(format!("Trigger \u{201c}{name}\u{201d} {what} ({why})"), cx);
+        self.trig_toast(text, cx);
+        self.trig.notice_for = Some(id);
+    }
+
+    /// Background commands that finished: their entry, the notice if it's still about them,
+    /// a banner and an unread tab when one failed.
+    fn trig_runs_done(&mut self, cx: &mut Context<Self>) {
+        let mut done = Vec::new();
+        self.trig.running.retain(|(tab, id, rx)| match rx.try_recv() {
+            Ok(r) => {
+                done.push((tab.clone(), *id, r));
+                false
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => true,
+            Err(_) => false,
+        });
+        for (tab, id, (end, output, took)) in done {
+            let Some(f) = self.trig.log.get_mut(&tab).and_then(|l| l.iter_mut().find(|f| f.id == id)) else { continue };
+            let Some(run) = f.run.as_mut() else { continue };
+            run.end = end.clone();
+            run.took = Some(took);
+            run.output = output.clone();
+            let (name, prog) = (f.name.clone(), short_cmd(&run.command));
+            let secs = took.as_secs_f32();
+            let took_s = if secs < 60. { format!("{secs:.1}s") } else { crate::usage::span(secs as i64) };
+            let summary = match &end {
+                RunEnd::Exit(0) => format!("ran {prog}: exit 0 \u{b7} {took_s}"),
+                RunEnd::Exit(c) => format!("failed (exit {c}) \u{b7} {took_s}"),
+                RunEnd::Stopped(m) => format!("stopped after {m}m"),
+                _ => format!("failed (stopped by a signal) \u{b7} {took_s}"),
+            };
+            f.what = summary.clone();
+            if self.trig.notice_for == Some(id) && self.notice.is_some() {
+                self.notice = Some((format!("Trigger \u{201c}{name}\u{201d} {summary}"), Instant::now()));
+                self.notice_brief = !end.failed();
+            }
+            if end.failed() {
+                self.trig.open = Some(id);
+                if self.config.notify.error {
+                    let title = self.tabs.iter().find(|t| t.id == tab).map(|t| t.title()).unwrap_or_default();
+                    let last = output.last().cloned().unwrap_or_default();
+                    crate::platform::notify_tab(&tab, &format!("Trigger \u{201c}{name}\u{201d} failed"), &format!("{prog} {} in {title}", match end {
+                        RunEnd::Exit(c) => format!("exited {c}"),
+                        RunEnd::Stopped(m) => format!("was stopped after {m}m"),
+                        _ => "was stopped".into(),
+                    }), &last);
+                }
+                // In a tab you're not looking at: it turns unread, so you find it.
+                if self.tabs.get(self.active).is_none_or(|t| t.id != tab) {
+                    if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab) {
+                        t.unread = true;
+                    }
+                }
+            }
+            cx.notify();
+        }
     }
 
     fn trig_toast(&mut self, text: String, cx: &mut Context<Self>) {
@@ -471,17 +661,18 @@ impl Workspace {
                 .detach();
                 format!("opened a pane running {}", arg.split_whitespace().take(3).collect::<Vec<_>>().join(" "))
             }
+            // In the background: kept to its last lines, stopped past the trigger's limit;
+            // how it ended updates the entry when it does (canvas v3-ba).
             "run" => {
+                if arg.trim().is_empty() {
+                    return "had no command to run".into();
+                }
                 let cwd = self.tabs[ix].cwd.clone().unwrap_or_else(|| std::env::var_os("HOME").map(Into::into).unwrap_or_default());
-                let mut cmd = std::process::Command::new("/bin/sh");
-                cmd.arg("-c").arg(&arg).current_dir(cwd).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
-                for (i, c) in caps.iter().enumerate() {
-                    cmd.env(format!("T1K_MATCH_{i}"), c);
-                }
-                match cmd.spawn() {
-                    Ok(_) => format!("ran {}", arg.split_whitespace().next().unwrap_or("a command")),
-                    Err(e) => format!("couldn't run it ({e})"),
-                }
+                let env: Vec<(String, String)> = caps.iter().enumerate().map(|(i, c)| (format!("T1K_MATCH_{i}"), c.clone())).collect();
+                let limit = Duration::from_secs(self.config.triggers.get(ti).map_or(10, |t| t.run_limit.max(1)) * 60);
+                let rx = run_in_background(arg.clone(), cwd, env, limit);
+                self.trig.started = Some((Run { command: arg.clone(), end: RunEnd::Running, took: None, output: Vec::new() }, rx));
+                format!("running {}", short_cmd(&arg))
             }
             "open" => {
                 let url = if arg.trim().is_empty() { matched } else { arg };

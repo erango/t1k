@@ -26,6 +26,7 @@ pub enum Field {
     Groups,
     Timeout,
     Cooldown,
+    RunLimit,
     Arg(usize),
     Label(usize),
 }
@@ -49,13 +50,14 @@ pub struct Editor {
     groups_text: String,
     timeout_text: String,
     cooldown_text: String,
+    limit_text: String,
 }
 
 impl Editor {
     pub fn new(index: Option<usize>, t: TriggerCfg) -> Self {
         let groups_text = t.groups.join(", ");
-        let (timeout_text, cooldown_text) = (t.timeout.to_string(), t.cooldown.to_string());
-        Self { index, t, focus: Some(Field::Name), sel: Sel::default(), test: String::new(), describe: String::new(), asking: None, helper_note: None, picking: None, warn: false, groups_text, timeout_text, cooldown_text }
+        let (timeout_text, cooldown_text, limit_text) = (t.timeout.to_string(), t.cooldown.to_string(), t.run_limit.to_string());
+        Self { index, t, focus: Some(Field::Name), sel: Sel::default(), test: String::new(), describe: String::new(), asking: None, helper_note: None, picking: None, warn: false, groups_text, timeout_text, cooldown_text, limit_text }
     }
 
     fn text_mut(&mut self, f: Field) -> Option<&mut String> {
@@ -68,6 +70,7 @@ impl Editor {
             Field::Groups => &mut self.groups_text,
             Field::Timeout => &mut self.timeout_text,
             Field::Cooldown => &mut self.cooldown_text,
+            Field::RunLimit => &mut self.limit_text,
             Field::Arg(i) => &mut self.t.actions.get_mut(i)?.arg,
             Field::Label(i) => &mut self.t.actions.get_mut(i)?.label,
         })
@@ -83,6 +86,7 @@ impl Editor {
             Field::Groups => self.groups_text.clone(),
             Field::Timeout => self.timeout_text.clone(),
             Field::Cooldown => self.cooldown_text.clone(),
+            Field::RunLimit => self.limit_text.clone(),
             Field::Arg(i) => self.t.actions.get(i).map(|a| a.arg.clone()).unwrap_or_default(),
             Field::Label(i) => self.t.actions.get(i).map(|a| a.label.clone()).unwrap_or_default(),
         }
@@ -113,7 +117,15 @@ impl Editor {
             v.push(Field::Timeout);
         }
         v.push(Field::Cooldown);
+        if self.runs() {
+            v.push(Field::RunLimit);
+        }
         v
+    }
+
+    /// It runs background commands (their time limit applies).
+    fn runs(&self) -> bool {
+        self.t.actions.iter().any(|a| a.kind == "run")
     }
 
     /// What's typed into the number and list fields, back onto the trigger.
@@ -121,6 +133,7 @@ impl Editor {
         self.t.groups = self.groups_text.split(',').map(|g| g.trim().to_string()).filter(|g| !g.is_empty()).collect();
         self.t.timeout = self.timeout_text.trim().parse().unwrap_or(30).clamp(1, 3600);
         self.t.cooldown = self.cooldown_text.trim().parse().unwrap_or(10).min(86400);
+        self.t.run_limit = self.limit_text.trim().parse().unwrap_or(10).clamp(1, 1440);
         if self.t.default >= self.t.actions.len() as i64 {
             self.t.default = -1;
         }
@@ -571,6 +584,12 @@ pub fn editor(ws: &Workspace, ed: &Editor, cx: &mut Context<Workspace>) -> State
         div().flex().items_center().gap(px(8.)).child(div().w(px(70.)).flex().child(field(ws, ed, Field::Cooldown, "10", true, cx))).child(div().text_size(px(12.)).text_color(ui.text_tertiary).child("seconds before it fires again in the same tab")),
     ));
 
+    if ed.runs() {
+        body = body.child(row(
+            "Time limit",
+            div().flex().items_center().gap(px(8.)).child(div().w(px(70.)).flex().child(field(ws, ed, Field::RunLimit, "10", true, cx))).child(div().text_size(px(12.)).text_color(ui.text_tertiary).child("minutes a background command may run; then it's stopped")),
+        ));
+    }
     let bad = compile(&ed.t.pattern).is_err() || ed.t.actions.is_empty();
     let footer = div()
         .flex()

@@ -244,6 +244,8 @@ pub struct TriggerCfg {
     pub timeout: u64,
     /// Seconds before it fires again in the same tab.
     pub cooldown: u64,
+    /// Minutes a background command may run before it's stopped (and counts as failed).
+    pub run_limit: u64,
 }
 
 impl Default for TriggerCfg {
@@ -262,6 +264,7 @@ impl Default for TriggerCfg {
             default: -1,
             timeout: 30,
             cooldown: 10,
+            run_limit: 10,
         }
     }
 }

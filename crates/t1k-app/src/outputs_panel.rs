@@ -1003,31 +1003,134 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             );
         }
     }
-    // What triggers did in this tab (canvas v3-az), newest first.
-    let fired: Vec<crate::triggers::Fired> = ws.tabs.get(ws.active).and_then(|t| ws.trig.log.get(&t.id)).map(|l| l.iter().rev().take(8).cloned().collect()).unwrap_or_default();
+    // What triggers did in this tab (canvas v3-az, v3-ba), newest first: a status mark, the
+    // name and what it did, how long ago (the clock time on hover); a click opens the detail.
+    let fired: Vec<crate::triggers::Fired> = ws.tabs.get(ws.active).and_then(|t| ws.trig.log.get(&t.id)).map(|l| l.iter().rev().take(12).cloned().collect()).unwrap_or_default();
     if !fired.is_empty() && scope == Scope::Tab {
+        use crate::triggers::RunEnd;
         hue_n += 1;
         let tone = crate::groups::rainbow(hue_n, dark);
         list = list.child(
             div().h(px(24.)).mt(px(6.)).px(px(10.)).flex().items_center().gap(px(6.)).text_size(px(10.5 * k)).font_weight(FontWeight::SEMIBOLD).text_color(tone).child("TRIGGERS").child(div().text_color(ui.text_disabled).child(fired.len().to_string())),
         );
+        let clock = |t: SystemTime| crate::usage::clock(t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0));
         for f in fired {
-            let tip = format!("{} {} ({})", f.name, f.what, f.why);
+            let id = f.id;
+            let open = ws.trig.open == Some(id);
+            let end = f.run.as_ref().map(|r| r.end.clone());
+            let failed = end.as_ref().is_some_and(RunEnd::failed);
+            let mark = match &end {
+                Some(RunEnd::Running) => div().size(px(12.)).child(crate::sidebar::spinner_sized(ui.text_tertiary, ws.started, 4.5)).into_any_element(),
+                Some(e) if e.failed() => div().size(px(12.)).rounded_full().bg(ui.status_error).flex().items_center().justify_center().text_size(px(8.)).text_color(t1k_themes::on_hsla(ui.status_error)).child("×").into_any_element(),
+                Some(_) => div().text_size(px(11.)).text_color(ui.text_tertiary).child("✓").into_any_element(),
+                None => div().text_size(px(11. * k)).text_color(tone).child("⚡").into_any_element(),
+            };
+            let group = SharedString::from(format!("fired-{id}"));
             list = list.child(
                 div()
-                    .id(SharedString::from(format!("fired-{}-{}", f.name, f.at.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0))))
+                    .id(group.clone())
+                    .group(group.clone())
+                    .relative()
                     .h(px(28.))
+                    .flex_none()
                     .px(px(10.))
                     .rounded(px(6.))
                     .flex()
                     .items_center()
                     .gap(px(8.))
+                    .cursor_pointer()
                     .hover(move |d| d.bg(ui.bg_hover))
-                    .tooltip(crate::tooltip::text(ui, tip))
-                    .child(div().size(px(20.)).flex_none().flex().items_center().justify_center().text_size(px(12. * k)).text_color(tone).child("⚡"))
-                    .child(div().flex_1().min_w_0().truncate().text_size(px(12.5 * k)).text_color(ui.text_primary).child(format!("{}: {}", f.name, f.what)))
-                    .child(div().flex_none().font_family("JetBrains Mono").text_size(px(10.5 * k)).text_color(ui.text_tertiary).child(age(f.at))),
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.trig.open = if this.trig.open == Some(id) { None } else { Some(id) };
+                        cx.notify();
+                    }))
+                    .child(div().size(px(20.)).flex_none().flex().items_center().justify_center().child(mark))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .gap(px(5.))
+                            .text_size(px(12.5 * k))
+                            .child(div().flex_none().text_color(ui.text_primary).child(f.name.clone()))
+                            .child(div().min_w_0().truncate().text_color(if failed { ui.status_error } else { ui.text_tertiary }).child(format!("\u{b7} {}", f.what))),
+                    )
+                    // How long ago; the clock time while hovered.
+                    .child(div().flex_none().font_family("JetBrains Mono").text_size(px(10.5 * k)).text_color(ui.text_tertiary).group_hover(group.clone(), |d| d.invisible()).child(age(f.at)))
+                    .child(div().absolute().right(px(28.)).invisible().group_hover(group.clone(), |d| d.visible()).font_family("JetBrains Mono").text_size(px(10.5 * k)).text_color(ui.text_secondary).child(clock(f.at)))
+                    .child(div().flex_none().text_size(px(11.)).text_color(ui.text_tertiary).child(if open { "⌄" } else { "›" })),
             );
+            if open {
+                let kv = |key: &'static str, val: String, mono: bool, color: gpui::Hsla| {
+                    div()
+                        .flex()
+                        .gap(px(8.))
+                        .text_size(px(11.5 * k))
+                        .child(div().w(px(64.)).flex_none().text_color(ui.text_tertiary).child(key))
+                        .child(div().flex_1().min_w_0().when(mono, |d| d.font_family("JetBrains Mono")).text_color(color).child(val))
+                };
+                let mut d = div().ml(px(38.)).mr(px(10.)).mb(px(6.)).flex().flex_col().gap(px(4.));
+                if !f.line.is_empty() {
+                    d = d.child(kv("Matched", f.line.clone(), true, ui.text_secondary));
+                }
+                d = d.child(kv("Did", f.what.clone(), false, ui.text_secondary)).child(kv("Why", f.why.clone(), false, ui.text_secondary));
+                if let Some(r) = &f.run {
+                    let ended = match &r.end {
+                        RunEnd::Running => "Running…".to_string(),
+                        RunEnd::Exit(0) => "Succeeded \u{b7} exit 0".to_string(),
+                        RunEnd::Exit(c) => format!("Failed \u{b7} exit {c}"),
+                        RunEnd::Stopped(m) => format!("Stopped after {m}m"),
+                        RunEnd::Killed => "Stopped by a signal".to_string(),
+                    };
+                    let took = r.took.map(|t| {
+                        let s = t.as_secs_f32();
+                        if s < 60. { format!("{s:.1}s") } else { crate::usage::span(s as i64) }
+                    });
+                    d = d
+                        .child(kv("Command", r.command.clone(), true, ui.text_secondary))
+                        .child(kv("Ended", ended, false, if r.end.failed() { ui.status_error } else { ui.text_secondary }))
+                        .child(kv("Took", format!("{} \u{b7} started {}", took.unwrap_or_else(|| "\u{2026}".into()), clock(f.at)), false, ui.text_secondary));
+                    if !r.output.is_empty() {
+                        let text = r.output.join("\n");
+                        d = d.child(
+                            div()
+                                .mt(px(2.))
+                                .p(px(8.))
+                                .rounded(px(6.))
+                                .bg(ui.bg_terminal)
+                                .border_1()
+                                .border_color(ui.border)
+                                .flex()
+                                .flex_col()
+                                .font_family("JetBrains Mono")
+                                .text_size(px(11. * k))
+                                .text_color(ui.text_secondary)
+                                .children(r.output.iter().map(|l| div().truncate().child(l.clone()))),
+                        )
+                        .child(
+                            div().flex().child(
+                                div()
+                                    .id(SharedString::from(format!("fired-copy-{id}")))
+                                    .h(px(22.))
+                                    .px(px(8.))
+                                    .rounded(px(5.))
+                                    .flex()
+                                    .items_center()
+                                    .bg(ui.bg_control)
+                                    .text_size(px(11.5))
+                                    .text_color(ui.text_secondary)
+                                    .cursor_pointer()
+                                    .hover(move |d| d.text_color(ui.text_primary))
+                                    .on_click(move |_, _, cx| cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone())))
+                                    .child("Copy output"),
+                            ),
+                        );
+                    }
+                } else {
+                    d = d.child(kv("At", clock(f.at), false, ui.text_secondary));
+                }
+                list = list.child(d);
+            }
         }
     }
     if items.is_empty() {
