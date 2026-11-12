@@ -270,7 +270,7 @@ impl Default for TriggerCfg {
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Default)]
 #[serde(default)]
 pub struct ActionCfg {
-    /// notify, unread, needs, send, run, open, copy, highlight, remind, prompt, front.
+    /// notify, unread, needs, send, run, pane, open, copy, highlight, remind, prompt, front.
     pub kind: String,
     pub arg: String,
     /// The button's label when the trigger asks (empty: from the action).
@@ -280,22 +280,29 @@ pub struct ActionCfg {
 /// Write every trigger to config.toml, replacing the [[triggers]] tables (comments elsewhere
 /// are kept).
 pub fn set_triggers(list: &[TriggerCfg]) {
+    let Some(p) = path() else { return };
+    let text = std::fs::read_to_string(&p).unwrap_or_else(|_| TEMPLATE.into());
+    if let Some(out) = with_triggers(&text, list) {
+        let _ = std::fs::write(&p, out);
+    }
+}
+
+/// `text` with its [[triggers]] replaced by `list`, written as one block at the end (each
+/// trigger followed by its [[triggers.actions]]), so they never land among other tables.
+pub fn with_triggers(text: &str, list: &[TriggerCfg]) -> Option<String> {
     #[derive(Serialize)]
     struct W<'a> {
         triggers: &'a [TriggerCfg],
     }
-    let Some(p) = path() else { return };
-    let text = std::fs::read_to_string(&p).unwrap_or_else(|_| TEMPLATE.into());
-    let Ok(mut doc) = text.parse::<toml_edit::DocumentMut>() else { return };
+    let mut doc = text.parse::<toml_edit::DocumentMut>().ok()?;
     doc.remove("triggers");
+    let mut out = doc.to_string().trim_end().to_string();
+    out.push('\n');
     if !list.is_empty() {
-        let Ok(t) = toml::to_string(&W { triggers: list }) else { return };
-        let Ok(new) = t.parse::<toml_edit::DocumentMut>() else { return };
-        if let Some(item) = new.get("triggers") {
-            doc.insert("triggers", item.clone());
-        }
+        out.push('\n');
+        out.push_str(&toml::to_string(&W { triggers: list }).ok()?);
     }
-    let _ = std::fs::write(&p, doc.to_string());
+    Some(out)
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
@@ -731,6 +738,19 @@ mod tests {
         assert_eq!(c.terminal.font.size, 15.);
         let out = super::edit("", &["theme", "dark"], "Dracula".into()).unwrap();
         assert!(out.contains("[theme]") && out.contains("dark = \"Dracula\""));
+    }
+
+    #[test]
+    fn triggers_write_as_one_block() {
+        let t = super::TriggerCfg { name: "A".into(), ..Default::default() };
+        let out = super::with_triggers(super::TEMPLATE, &[t.clone(), super::TriggerCfg { name: "B".into(), ..t }]).unwrap();
+        // The template mentions [[triggers]] in a comment; the real tables start a line.
+        let tail = &out[out.find("\n[[triggers]]\n").unwrap()..];
+        // Nothing but triggers and their actions after the first one.
+        assert!(tail.lines().filter(|l| l.starts_with('[')).all(|l| l == "[[triggers]]" || l == "[[triggers.actions]]"), "{tail}");
+        let c: super::Config = toml::from_str(&out).unwrap();
+        assert_eq!(c.triggers.len(), 2);
+        assert_eq!(c.triggers[1].actions.len(), 1);
     }
 
     #[test]

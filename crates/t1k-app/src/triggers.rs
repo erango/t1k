@@ -3,8 +3,8 @@
 //! its actions, or asks: a bar under the terminal offers them as buttons (⌃1–⌃9) with a
 //! default that runs when nobody chooses in time.
 //!
-//! Matching sees new output only, line by line with escape sequences removed (never the
-//! scrollback or redraws). Loop guards: after a trigger types into a tab it ignores that tab's
+//! Matching sees new output only, line by line with escape sequences removed: what streams
+//! past, and rows that appear on screen (programs like Claude Code draw in place), each once. Loop guards: after a trigger types into a tab it ignores that tab's
 //! output for 2 s, it fires at most once per cooldown per tab, and five firings in a minute
 //! switch it off for that tab.
 
@@ -30,7 +30,8 @@ pub const ACTIONS: &[(&str, &str, &str)] = &[
     ("needs", "Mark needs you", ""),
     ("send", "Send text", "Text; \\n presses Enter"),
     ("prompt", "Send a prompt to the agent", "Prompt"),
-    ("run", "Run a command", "Shell command; $1… are the match's groups"),
+    ("pane", "Run in a new pane", "Command; the pane closes when it succeeds"),
+    ("run", "Run a command in the background", "Shell command; $1… are the match's groups"),
     ("open", "Open a URL", "URL; $0 is the match"),
     ("copy", "Copy", "What to copy (empty: the match)"),
     ("highlight", "Highlight the match", ""),
@@ -44,7 +45,7 @@ pub fn action_label(a: &ActionCfg) -> String {
     }
     match a.kind.as_str() {
         "send" => format!("Send \u{201c}{}\u{201d}", a.arg.replace("\\n", " ⏎").trim()),
-        "run" => format!("Run {}", a.arg.split_whitespace().next().unwrap_or("command")),
+        "run" | "pane" => format!("Run {}", a.arg.split_whitespace().take(3).collect::<Vec<_>>().join(" ")),
         "remind" => format!("Remind me in {}m", a.arg.trim().parse::<u64>().unwrap_or(15)),
         k => ACTIONS.iter().find(|x| x.0 == k).map(|x| x.1.to_string()).unwrap_or_else(|| k.to_string()),
     }
@@ -124,6 +125,10 @@ pub struct TrigState {
     typed: HashMap<(usize, String), Instant>,
     rate: HashMap<(usize, String), VecDeque<Instant>>,
     off: HashSet<(usize, String)>,
+    /// Lines already matched against, per terminal (by view): output a program redraws in
+    /// place (Claude Code draws by moving the cursor) is read off the screen, and each line
+    /// counts once while it's there.
+    seen: HashMap<gpui::EntityId, HashMap<String, Instant>>,
     /// Last agent state seen per tab: (status kind, watching), to notice changes.
     agent_seen: HashMap<String, (u8, bool)>,
     watching_lines: bool,
@@ -188,7 +193,7 @@ impl Workspace {
                 .chain(self.tabs[ix].panes.helpers.iter().map(|h| (h.id, h.view.clone())))
                 .collect();
             for (pane, view) in panes {
-                let lines = if want_lines { view.read(cx).terminal.take_lines() } else { Vec::new() };
+                let lines = if want_lines { self.new_lines(&view, cx) } else { Vec::new() };
                 let exits = view.read(cx).terminal.take_exits();
                 for (ti, t) in self.config.triggers.iter().enumerate() {
                     if !t.enabled || paused || !self.trig_in_scope(t, ix, pane) {
@@ -320,6 +325,34 @@ impl Workspace {
         }
     }
 
+    /// Lines a terminal showed since the last look: what streamed past (plain output), and
+    /// rows on screen not seen before (programs that draw in place). Each text once while
+    /// it's on screen; a terminal seen for the first time counts what's already there as old.
+    fn new_lines(&mut self, view: &gpui::Entity<t1k_terminal::TerminalView>, cx: &mut Context<Self>) -> Vec<String> {
+        let term = &view.read(cx).terminal;
+        let streamed = term.take_lines();
+        let screen = term.last_lines(80);
+        let first = !self.trig.seen.contains_key(&view.entity_id());
+        let seen = self.trig.seen.entry(view.entity_id()).or_default();
+        let now = Instant::now();
+        let on_screen: HashSet<&str> = screen.iter().map(|l| l.trim()).collect();
+        // Forget lines that left the screen a while ago, so the same text later fires again.
+        seen.retain(|t, at| on_screen.contains(t.as_str()) || at.elapsed() < Duration::from_secs(30));
+        let mut out = Vec::new();
+        for l in streamed.into_iter().chain(screen) {
+            let t = l.trim().to_string();
+            if t.is_empty() {
+                continue;
+            }
+            let fresh = !seen.contains_key(&t);
+            seen.insert(t.clone(), now);
+            if fresh && !first {
+                out.push(t);
+            }
+        }
+        out
+    }
+
     /// Asks count as needs-you: the tab holding one says so.
     fn sync_ask_flags(&mut self) {
         let asking: HashSet<String> = self.trig.asks.iter().map(|a| a.tab.clone()).collect();
@@ -413,6 +446,30 @@ impl Workspace {
                     .detach();
                 }
                 format!("sent \u{201c}{}{}\u{201d}", body.chars().take(40).collect::<String>(), if enter { " ⏎" } else { "" })
+            }
+            // A pane below the tab's terminal runs it where you can see it (and answer it: a
+            // login, a password), leaving whatever the tab runs alone. It closes when the
+            // command succeeds; on failure it stays, so you can see why.
+            "pane" => {
+                if arg.trim().is_empty() {
+                    return "had no command to run".into();
+                }
+                if self.tabs[ix].panes.count() >= crate::split::MAX_PANES {
+                    return "couldn't open a pane (this tab has four)".into();
+                }
+                let before: Vec<PaneId> = self.tabs[ix].panes.layout.leaves();
+                self.open_split(ix, true, window, cx);
+                let Some(id) = self.tabs[ix].panes.layout.leaves().into_iter().find(|p| !before.contains(p)) else { return "couldn't open a pane".into() };
+                let Some(v) = self.pane_view(ix, id) else { return "couldn't open a pane".into() };
+                self.trig.typed.insert((ti, tab_id), Instant::now());
+                // Typed once the new shell is listening.
+                let line = format!("{} && exit\r", arg.trim());
+                cx.spawn(async move |_, cx| {
+                    cx.background_executor().timer(Duration::from_millis(400)).await;
+                    let _ = v.update(cx, |v, _| v.terminal.write(line.into_bytes()));
+                })
+                .detach();
+                format!("opened a pane running {}", arg.split_whitespace().take(3).collect::<Vec<_>>().join(" "))
             }
             "run" => {
                 let cwd = self.tabs[ix].cwd.clone().unwrap_or_else(|| std::env::var_os("HOME").map(Into::into).unwrap_or_default());
