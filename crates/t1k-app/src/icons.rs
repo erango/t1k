@@ -390,6 +390,27 @@ pub fn artifact(kind: &str, color: Hsla, size: f32) -> impl IntoElement {
                 line(p, 3.5, 3.5, 10.5, 10.5);
                 line(p, 10.5, 3.5, 3.5, 10.5);
             }
+            // GitHub's pull request marks: two branches, the right one with an arrow back
+            // (open), or crossed out (closed).
+            "pr-open" | "pr-closed" => {
+                circle(p, 3.5, 2.75, 1.5);
+                circle(p, 3.5, 11.25, 1.5);
+                line(p, 3.5, 4.25, 3.5, 9.75);
+                circle(p, 10.5, 11.25, 1.5);
+                if kind == "pr-open" {
+                    p.move_to(pt(10.5, 9.75));
+                    p.line_to(pt(10.5, 4.5));
+                    p.line_to(pt(9.5, 3.));
+                    p.line_to(pt(6.5, 3.));
+                    p.move_to(pt(8., 1.5));
+                    p.line_to(pt(6.5, 3.));
+                    p.line_to(pt(8., 4.5));
+                } else {
+                    line(p, 10.5, 9.75, 10.5, 7.);
+                    line(p, 8.75, 1.75, 12.25, 5.25);
+                    line(p, 12.25, 1.75, 8.75, 5.25);
+                }
+            }
             "chart" => {
                 line(p, 2., 2., 2., 12.);
                 line(p, 2., 12., 12.5, 12.);

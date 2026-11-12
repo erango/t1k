@@ -851,7 +851,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                         .gap(px(10.))
                         .hover(move |d| d.bg(ui.bg_hover))
                         .on_click(open)
-                        .child(div().size(px(28.)).flex_none().flex().items_center().justify_center().child(crate::icons::artifact(if merged { "merge" } else { "closed" }, ui.text_tertiary, 16.)))
+                        .child(div().size(px(28.)).flex_none().flex().items_center().justify_center().child(crate::icons::artifact(if merged { "merge" } else { "pr-closed" }, if merged { crate::github::merged() } else { crate::github::closed() }, 16.)))
                         .child(div().flex_none().text_size(px(12. * k)).font_family("JetBrains Mono").text_color(ui.text_secondary).child(format!("#{}", o.label.rsplit('#').next().unwrap_or(&o.label))))
                         .child(div().flex_1().min_w_0().truncate().text_size(px(12.5 * k)).text_color(ui.text_secondary).child(title))
                         .child(div().flex_none().text_size(px(11.5 * k)).text_color(ui.text_tertiary).group_hover(rid, |s| s.invisible()).child(when))
@@ -909,6 +909,17 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                                 .flex()
                                 .items_center()
                                 .gap(px(8.))
+                                // GitHub's mark in its state's color, so open / merged / closed
+                                // read at a glance.
+                                .child(crate::icons::artifact(
+                                    match pr.as_ref().map(|p| p.state.as_str()) {
+                                        Some("MERGED") => "merge",
+                                        Some("CLOSED") => "pr-closed",
+                                        _ => "pr-open",
+                                    },
+                                    state_color,
+                                    15.,
+                                ))
                                 .child(div().flex_none().text_size(px(12.5 * k)).font_family("JetBrains Mono").font_weight(FontWeight::SEMIBOLD).text_color(ink).child(o.label.clone()))
                                 .child(state_pill(state, state_color))
                                 .child(div().flex_1())
