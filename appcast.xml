@@ -3,6 +3,16 @@
   <channel>
     <title>T1K</title>
     <item>
+      <title>T1K 0.1.7</title>
+      <pubDate>Thu, 12 Nov 2026 11:32:17 +0200</pubDate>
+      <sparkle:version>0.1.7</sparkle:version>
+      <sparkle:shortVersionString>0.1.7</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/erango/t1k/releases/tag/v0.1.7</sparkle:fullReleaseNotesLink>
+      <description><![CDATA[<ul><li>Triggers (Settings › Triggers): when a tab prints a match (including what Claude Code draws), an agent needs you or a command fails, run actions, or ask with buttons and a default after a timeout. Actions include running a command in a new pane, or in the background with its exit status and last lines kept. The helper can write the pattern from a description.</li><li>What you typed but didn&#x27;t send comes back after a restart: into the shell once its prompt is ready, or into Claude once the session has resumed and shows its input.</li><li>Windows: each shows its name, ⌘O groups tabs by window, the Dock icon brings forward the window that has waited longest, and ⌘Q asks once for every window.</li><li>Outputs: everything but PRs takes one line, the panel can be dragged wider, and the PR section says when status was last fetched, with a refresh for all of them.</li><li>Links can open with a plain click (Settings › Tabs &amp; Links).</li><li>Quick terminal slides in and out, follows the window&#x27;s opacity, and asks before ⌘W ends its shell.</li></ul>]]></description>
+      <enclosure url="https://github.com/erango/t1k/releases/download/v0.1.7/T1K-0.1.7.zip" type="application/octet-stream" sparkle:edSignature="xcXl6cLQHBMU9tdSQnD/H1l6Iej40RM45pWteikGBCRQJsBomRPIKL/zLJGp+N1iMkKtEulIA6ADMiErNPHlCw==" length="12237811" />
+    </item>
+    <item>
       <title>T1K 0.1.6</title>
       <pubDate>Tue, 10 Nov 2026 22:08:12 +0200</pubDate>
       <sparkle:version>0.1.6</sparkle:version>
