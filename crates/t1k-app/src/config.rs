@@ -242,8 +242,11 @@ pub struct TriggerCfg {
     /// Ask: the action run when nobody chooses in `timeout` seconds; -1 does nothing.
     pub default: i64,
     pub timeout: u64,
-    /// Seconds before it fires again in the same tab.
+    /// Seconds before it fires again: in the same tab, or anywhere (`cooldown_scope`).
     pub cooldown: u64,
+    /// "tab": the cooldown is per tab; "all": once it fires, no tab fires it until it's over
+    /// (a message that shows up in several tabs at once).
+    pub cooldown_scope: String,
     /// Minutes a background command may run before it's stopped (and counts as failed).
     pub run_limit: u64,
 }
@@ -264,6 +267,7 @@ impl Default for TriggerCfg {
             default: -1,
             timeout: 30,
             cooldown: 10,
+            cooldown_scope: "tab".into(),
             run_limit: 10,
         }
     }

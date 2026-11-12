@@ -47,6 +47,12 @@ pub struct Editor {
     pub picking: Option<usize>,
     /// Save asked: "This trigger types into terminals by itself".
     pub warn: bool,
+    /// ⌘Z / ⌘⇧Z in the fields: (field, its text, selection) before each change, and after
+    /// an undo.
+    undo: Vec<(Field, String, Sel)>,
+    redo: Vec<(Field, String, Sel)>,
+    /// The field being typed into word by word (one undo step per word).
+    typing: Option<Field>,
     groups_text: String,
     timeout_text: String,
     cooldown_text: String,
@@ -57,7 +63,7 @@ impl Editor {
     pub fn new(index: Option<usize>, t: TriggerCfg) -> Self {
         let groups_text = t.groups.join(", ");
         let (timeout_text, cooldown_text, limit_text) = (t.timeout.to_string(), t.cooldown.to_string(), t.run_limit.to_string());
-        Self { index, t, focus: Some(Field::Name), sel: Sel::default(), test: String::new(), describe: String::new(), asking: None, helper_note: None, picking: None, warn: false, groups_text, timeout_text, cooldown_text, limit_text }
+        Self { index, t, focus: Some(Field::Name), sel: Sel::default(), test: String::new(), describe: String::new(), asking: None, helper_note: None, picking: None, warn: false, undo: Vec::new(), redo: Vec::new(), typing: None, groups_text, timeout_text, cooldown_text, limit_text }
     }
 
     fn text_mut(&mut self, f: Field) -> Option<&mut String> {
@@ -185,9 +191,34 @@ impl Workspace {
             ed.warn = false;
             return Some(Overlay::TriggerEdit(ed));
         }
+        // Esc leaves the field first; with none focused it closes the editor.
+        if ks.key == "escape" && ed.focus.is_some() {
+            ed.focus = None;
+            return Some(Overlay::TriggerEdit(ed));
+        }
         if ks.key == "escape" {
             self.open_overlay(Overlay::Settings { section: crate::settings::Section::Triggers }, window, cx);
             return None;
+        }
+        // ⌘Z / ⌘⇧Z: undo and redo typing in the fields.
+        if ks.modifiers.platform && ks.key == "z" {
+            let popped = if ks.modifiers.shift { ed.redo.pop() } else { ed.undo.pop() };
+            if let Some((f, text, sel)) = popped {
+                let now = ed.text(f);
+                let cur = ed.sel;
+                if ks.modifiers.shift {
+                    ed.undo.push((f, now, cur));
+                } else {
+                    ed.redo.push((f, now, cur));
+                }
+                if let Some(t) = ed.text_mut(f) {
+                    *t = text;
+                }
+                ed.focus = Some(f);
+                ed.sel = sel;
+                ed.typing = None;
+            }
+            return Some(Overlay::TriggerEdit(ed));
         }
         // ⌘S / ⌘↵ save.
         if ks.modifiers.platform && (ks.key == "s" || ks.key == "enter") {
@@ -203,12 +234,26 @@ impl Workspace {
             return Some(Overlay::TriggerEdit(ed));
         }
         let Some(f) = ed.focus else { return Some(Overlay::TriggerEdit(ed)) };
+        let before = (ed.text(f), ed.sel);
         let mut sel = ed.sel;
         let key = match ed.text_mut(f) {
             Some(text) => input::edit(text, &mut sel, ev, cx),
             None => Key::Ignored,
         };
         ed.sel = sel;
+        if ed.text(f) != before.0 {
+            // Typing within a word is one step; a space, a paste or a delete starts another.
+            let word = !ks.modifiers.platform && ks.key_char.as_deref().is_some_and(|c| !c.is_empty() && c.chars().all(char::is_alphanumeric));
+            let joins = word && ed.typing == Some(f);
+            ed.typing = word.then_some(f);
+            if !joins {
+                ed.undo.push((f, before.0, before.1));
+                if ed.undo.len() > 200 {
+                    ed.undo.remove(0);
+                }
+            }
+            ed.redo.clear();
+        }
         if matches!(key, Key::Submit) && f == Field::Describe {
             self.helper_regex(&mut ed, cx);
         }
@@ -581,7 +626,13 @@ pub fn editor(ws: &Workspace, ed: &Editor, cx: &mut Context<Workspace>) -> State
     }
     body = body.child(row(
         "Cooldown",
-        div().flex().items_center().gap(px(8.)).child(div().w(px(70.)).flex().child(field(ws, ed, Field::Cooldown, "10", true, cx))).child(div().text_size(px(12.)).text_color(ui.text_tertiary).child("seconds before it fires again in the same tab")),
+        div()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .child(div().w(px(70.)).flex().child(field(ws, ed, Field::Cooldown, "10", true, cx)))
+            .child(div().text_size(px(12.)).text_color(ui.text_tertiary).child("seconds before it fires again"))
+            .child(seg_row(ui, "cool", &ed.t.cooldown_scope, &[("tab".to_string(), "in the same tab"), ("all".to_string(), "in any tab")], cx, |e, v| e.t.cooldown_scope = v)),
     ));
 
     if ed.runs() {
@@ -595,7 +646,7 @@ pub fn editor(ws: &Workspace, ed: &Editor, cx: &mut Context<Workspace>) -> State
         .flex()
         .items_center()
         .gap(px(8.))
-        .child(div().flex_1().text_size(px(11.5)).text_color(ui.text_tertiary).child("Tab moves between fields · ⌘S saves · esc"))
+        .child(div().flex_1().text_size(px(11.5)).text_color(ui.text_tertiary).child("Tab moves between fields · ⌘Z undoes · ⌘S saves · esc leaves a field, then closes"))
         .child(small_button(ui, "tr-cancel", "Cancel").on_click(cx.listener(|this, _, window, cx| {
             this.open_overlay(Overlay::Settings { section: crate::settings::Section::Triggers }, window, cx);
         })))
@@ -664,7 +715,15 @@ pub fn editor(ws: &Workspace, ed: &Editor, cx: &mut Context<Workspace>) -> State
         .flex()
         .flex_col()
         .gap(px(16.))
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        // A click anywhere but a field leaves the field (a field's own click focuses it again).
+        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+            cx.stop_propagation();
+            if let Overlay::TriggerEdit(ed) = &mut this.overlay {
+                if ed.focus.take().is_some() {
+                    cx.notify();
+                }
+            }
+        }))
         .child(div().text_size(px(18.)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_primary).child(if ed.index.is_some() { "Edit trigger" } else { "New trigger" }))
         .child(body)
         .children(warn)
@@ -683,14 +742,14 @@ pub fn section(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         .flex()
         .items_center()
         .gap(px(8.))
-        .child(div().flex_1().text_size(px(12.)).text_color(ui.text_tertiary).child("They run in this order. Each fires at most once per cooldown in a tab."))
+        .child(div().flex_1().text_size(px(12.)).text_color(ui.text_tertiary).child("They run in this order. Each fires at most once per cooldown, per tab or across tabs."))
         .child(small_button(ui, "tr-pause", if paused { "Resume all" } else { "Pause all" }).on_click(cx.listener(|this, _, _, cx| this.toggle_triggers_paused(cx))))
         .child(small_button(ui, "tr-new", "+ New trigger").bg(ui.accent).text_color(ui.on_accent).on_click(cx.listener(|this, _, window, cx| this.edit_trigger(None, window, cx))));
     let mut list = div().flex().flex_col().rounded(px(8.)).border_1().border_color(ui.border).overflow_hidden();
     let n = ws.config.triggers.len();
     for (i, t) in ws.config.triggers.iter().enumerate() {
         let (count, last) = fired(&t.name);
-        let when = last.and_then(|l| l.elapsed().ok()).map(|d| crate::usage::span(d.as_secs() as i64));
+        let when = last.and_then(|l| l.elapsed().ok()).map(|d| if d.as_secs() < 60 { "now".to_string() } else { crate::usage::span(d.as_secs() as i64) });
         let auto = t.mode == "auto";
         let on = t.enabled;
         list = list.child(

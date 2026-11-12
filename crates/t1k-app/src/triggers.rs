@@ -401,7 +401,9 @@ impl Workspace {
             if self.trig.typed.get(&key).is_some_and(|at| at.elapsed() < IGNORE_AFTER_TYPING) {
                 continue;
             }
-            if self.trig.last.get(&key).is_some_and(|at| at.elapsed() < Duration::from_secs(t.cooldown)) {
+            // The cooldown counts per tab, or for every tab at once.
+            let cool = if t.cooldown_scope == "all" { (ti, String::new()) } else { key.clone() };
+            if self.trig.last.get(&cool).is_some_and(|at| at.elapsed() < Duration::from_secs(t.cooldown)) {
                 continue;
             }
             let rate = self.trig.rate.entry(key.clone()).or_default();
@@ -414,7 +416,7 @@ impl Workspace {
                 self.trig_toast(format!("Trigger \u{201c}{}\u{201d} fired {RATE_MAX} times in a minute; it's off in this tab", t.name), cx);
                 continue;
             }
-            self.trig.last.insert(key, now);
+            self.trig.last.insert(cool, now);
             if t.mode == "ask" {
                 if !asked.insert((ix, line.clone())) {
                     continue;
