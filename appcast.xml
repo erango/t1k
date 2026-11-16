@@ -3,6 +3,16 @@
   <channel>
     <title>T1K</title>
     <item>
+      <title>T1K 0.1.8</title>
+      <pubDate>Mon, 16 Nov 2026 14:16:13 +0200</pubDate>
+      <sparkle:version>0.1.8</sparkle:version>
+      <sparkle:shortVersionString>0.1.8</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/erango/t1k/releases/tag/v0.1.8</sparkle:fullReleaseNotesLink>
+      <description><![CDATA[<ul><li>Much less CPU: working spinners redraw about 10 times a second and only while the window is in front (they redrew 30 times a second, even in the background).</li><li>Trigger notices name the tab when it isn&#x27;t the one you&#x27;re on, and a click goes there; trigger banners show the trigger, the tab and its group.</li><li>Triggers: a cooldown can count across all tabs, so a message several tabs show at once fires once.</li><li>Trigger editor: ⌘Z / ⌘⇧Z undo and redo in its fields; clicking outside a field or Esc leaves it.</li><li>Outputs: PRs carry GitHub&#x27;s mark in their state&#x27;s color (green open, gray draft, purple merged, red closed).</li></ul>]]></description>
+      <enclosure url="https://github.com/erango/t1k/releases/download/v0.1.8/T1K-0.1.8.zip" type="application/octet-stream" sparkle:edSignature="VC9nNciroS1GP2MyXJuIKEzYpbkCvz9OVZX+ZcVgZP4AjJWgEPJuq20Jun71KUGOWDGBwEL26cbmDgah7ImuDg==" length="12237963" />
+    </item>
+    <item>
       <title>T1K 0.1.7</title>
       <pubDate>Thu, 12 Nov 2026 11:32:17 +0200</pubDate>
       <sparkle:version>0.1.7</sparkle:version>
