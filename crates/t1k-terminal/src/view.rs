@@ -1492,16 +1492,30 @@ fn detect_links(
         let mut chars = Vec::with_capacity(cols);
         let mut pos = Vec::with_capacity(cols);
         let mut is_prompt = false;
+        let mut from = 0;
         loop {
             is_prompt |= prompt_rows[r];
-            for (c, ch) in grid[r].iter().enumerate().take(cols) {
+            for (c, ch) in grid[r].iter().enumerate().take(cols).skip(from) {
                 chars.push(*ch);
                 pos.push((c, r));
             }
             let wrapped = wraps[r];
             r += 1;
-            if !wrapped || r >= rows {
+            if r >= rows {
                 break;
+            }
+            from = 0;
+            if !wrapped {
+                // Programs that wrap their own text (Claude Code's prompt box) break long URLs
+                // with a newline and an indent: carry on into the next row there.
+                match url_continues(&chars, &pos, cols, &grid[r]) {
+                    Some((keep, next)) => {
+                        chars.truncate(keep);
+                        pos.truncate(keep);
+                        from = next;
+                    }
+                    None => break,
+                }
             }
         }
         // Earlier kinds win where spans overlap: OSC 8, URLs, files, PR refs, tickets.
@@ -1537,6 +1551,29 @@ fn detect_links(
         }
     }
     (links, map)
+}
+
+/// A URL running to the right edge (within a few columns) that the next row seems to carry
+/// on: that row starts, after its indent, with URL text. Returns how much of `chars` to keep
+/// (up to the URL's end) and the next row's first column.
+fn url_continues(chars: &[char], pos: &[(usize, usize)], cols: usize, next: &[char]) -> Option<(usize, usize)> {
+    const SLACK: usize = 4;
+    let blank = |c: char| c == ' ' || c == '\0';
+    let last = chars.iter().rposition(|&c| !blank(c))?;
+    if pos[last].0 + SLACK < cols {
+        return None;
+    }
+    let (_, end) = *crate::links::find_urls(&chars[..=last]).last()?;
+    // The URL reaches the row's last character (give or take trailing punctuation it dropped).
+    if end + 1 < last + 1 {
+        return None;
+    }
+    let first = next.iter().position(|&c| !blank(c))?;
+    // An indent, not a new column of text further right.
+    if first > SLACK || crate::links::is_terminator(next[first]) {
+        return None;
+    }
+    Some((last + 1, first))
 }
 
 /// Snapshot the visible grid into paint-ready batches. Holds the term lock briefly.
@@ -2344,6 +2381,24 @@ mod prompt_tests {
     use alacritty_terminal::event::VoidListener;
     use alacritty_terminal::term::{test::TermSize, Config, Term};
     use alacritty_terminal::vte::ansi::Processor;
+
+    /// Claude Code's prompt box wraps a long URL itself: a newline and a two-space indent.
+    #[test]
+    fn joins_urls_wrapped_by_the_program() {
+        use crate::links::{Link, LinkRules};
+        let mut term = Term::new(Config::default(), &TermSize::new(40, 6), VoidListener);
+        let mut parser: Processor = Processor::new();
+        // Row one ends at column 39 with the URL; row two carries on after an indent.
+        let a = "> see https://example.com/abcdefghijklmn";
+        assert_eq!(a.chars().count(), 40);
+        let text = format!("{}\r\n  opqrst?x=1&y=2 --\r\nnext https://b.co/x\r\n  not-joined", &a[..39]);
+        parser.advance(&mut term, format!("{}", text).as_bytes());
+        let content = term.renderable_content();
+        let cells: Vec<_> = content.display_iter.collect();
+        let (links, _) = super::detect_links(&cells, 0, 6, 40, LinkRules::default(), &mut |_| None);
+        let urls: Vec<_> = links.iter().filter_map(|l| if let Link::Url(u) = l { Some(u.as_str()) } else { None }).collect();
+        assert_eq!(urls, vec!["https://example.com/abcdefghijklmopqrst?x=1&y=2", "https://b.co/x"]);
+    }
 
     #[test]
     fn finds_marked_prompts() {

@@ -40,7 +40,7 @@ pub struct LinkRules {
 const SCHEMES: &[&str] = &["https://", "http://", "file://"];
 
 /// Characters that end a URL.
-fn is_terminator(c: char) -> bool {
+pub(crate) fn is_terminator(c: char) -> bool {
     c.is_whitespace()
         || c == '\0'
         || matches!(c, '<' | '>' | '"' | '\'' | '`' | '{' | '}' | '|' | '\\' | '^')
