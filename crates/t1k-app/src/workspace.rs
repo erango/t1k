@@ -504,18 +504,17 @@ impl Workspace {
 
         // Agent socket: one for the app; each window takes the messages for its own tabs.
         let socket = crate::windows::socket();
-        // Fast loop: drain agent messages and animate spinners.
-        // Every 33 ms the spinner advances (only while something works and the sidebar shows);
-        // every third pass also does the 100 ms housekeeping in `tick`.
+        // Fast loop: every 100 ms, drain agent messages and do the housekeeping in `tick`.
+        // Working spinners advance with it (about 10 frames a second), and only while the
+        // window is in front: each frame redraws the whole window, and at 30 a second a few
+        // working tabs kept T1K busy even in the background. Behind other windows they hold
+        // still (the row still says Working).
         let fast = cx.spawn_in(window, async move |this, cx| {
-            let mut n: u32 = 0;
             loop {
-                cx.background_executor().timer(Duration::from_millis(33)).await;
-                n = n.wrapping_add(1);
+                cx.background_executor().timer(Duration::from_millis(100)).await;
                 let alive = this.update_in(cx, |ws, window, cx| {
-                    if n.is_multiple_of(3) {
-                        ws.tick(window, cx);
-                    } else if ws.sidebar_open && ws.tabs.iter().any(|t| t.status() == Some(&Status::Working)) {
+                    ws.tick(window, cx);
+                    if !ws.window_inactive && ws.sidebar_open && ws.tabs.iter().any(|t| t.status() == Some(&Status::Working)) {
                         cx.notify();
                     }
                 });
@@ -2275,11 +2274,11 @@ impl Workspace {
             crate::platform::set_dock_icon(&icon.0, icon.1);
             self.dock_icon = Some(icon);
         }
-        let working = self.tabs.iter().any(|t| t.status() == Some(&Status::Working));
-        // The usage meter's countdowns and staleness move with the clock.
+        // The usage meter's countdowns and staleness move with the clock. (Spinners are the
+        // fast loop's: it redraws for them only while the window is in front.)
         let minute = crate::usage::now() / 60;
         let tick = !self.usage.is_empty() && std::mem::replace(&mut self.usage_minute, minute) != minute;
-        if changed || working || tick {
+        if changed || tick {
             cx.notify();
         }
     }

@@ -252,6 +252,10 @@ pub struct TrigState {
     /// place (Claude Code draws by moving the cursor) is read off the screen, and each line
     /// counts once while it's there.
     seen: HashMap<gpui::EntityId, HashMap<String, Instant>>,
+    /// Terminals whose screen has been read once (what was there then is old).
+    primed: HashSet<gpui::EntityId>,
+    /// When the screens were last read for triggers.
+    screen_at: Option<Instant>,
     /// Last agent state seen per tab: (status kind, watching), to notice changes.
     agent_seen: HashMap<String, (u8, bool)>,
     watching_lines: bool,
@@ -310,13 +314,17 @@ impl Workspace {
             self.trig.watching_lines = want_lines;
         }
         self.trig_regexes();
+        let screen_now = self.trig.screen_at.is_none_or(|t| t.elapsed() >= Duration::from_millis(500));
+        if screen_now {
+            self.trig.screen_at = Some(Instant::now());
+        }
         let mut hits: Vec<(usize, usize, PaneId, String, Vec<String>)> = Vec::new();
         for ix in 0..self.tabs.len() {
             let panes: Vec<(PaneId, gpui::Entity<t1k_terminal::TerminalView>)> = std::iter::once((MAIN, self.tabs[ix].view.clone()))
                 .chain(self.tabs[ix].panes.helpers.iter().map(|h| (h.id, h.view.clone())))
                 .collect();
             for (pane, view) in panes {
-                let lines = if want_lines { self.new_lines(&view, cx) } else { Vec::new() };
+                let lines = if want_lines { self.new_lines(&view, screen_now, cx) } else { Vec::new() };
                 let exits = view.read(cx).terminal.take_exits();
                 for (ti, t) in self.config.triggers.iter().enumerate() {
                     if !t.enabled || paused || !self.trig_in_scope(t, ix, pane) {
@@ -454,16 +462,23 @@ impl Workspace {
     /// Lines a terminal showed since the last look: what streamed past (plain output), and
     /// rows on screen not seen before (programs that draw in place). Each text once while
     /// it's on screen; a terminal seen for the first time counts what's already there as old.
-    fn new_lines(&mut self, view: &gpui::Entity<t1k_terminal::TerminalView>, cx: &mut Context<Self>) -> Vec<String> {
+    fn new_lines(&mut self, view: &gpui::Entity<t1k_terminal::TerminalView>, screen_too: bool, cx: &mut Context<Self>) -> Vec<String> {
         let term = &view.read(cx).terminal;
         let streamed = term.take_lines();
-        let screen = term.last_lines(80);
-        let first = !self.trig.seen.contains_key(&view.entity_id());
+        // The screen is read twice a second, not every tick: every terminal, every pane.
+        let screen = if screen_too { term.last_lines(80) } else { Vec::new() };
+        if streamed.is_empty() && screen.is_empty() {
+            return Vec::new();
+        }
+        // The first screen read of a terminal takes what's there as old.
+        let first = screen_too && self.trig.primed.insert(view.entity_id());
         let seen = self.trig.seen.entry(view.entity_id()).or_default();
         let now = Instant::now();
         let on_screen: HashSet<&str> = screen.iter().map(|l| l.trim()).collect();
         // Forget lines that left the screen a while ago, so the same text later fires again.
-        seen.retain(|t, at| on_screen.contains(t.as_str()) || at.elapsed() < Duration::from_secs(30));
+        if screen_too {
+            seen.retain(|t, at| on_screen.contains(t.as_str()) || at.elapsed() < Duration::from_secs(30));
+        }
         let mut out = Vec::new();
         // What streamed past is always new; the screen's rows only after the first look.
         let n = streamed.len();
