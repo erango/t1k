@@ -3,6 +3,16 @@
   <channel>
     <title>T1K</title>
     <item>
+      <title>T1K 0.1.9</title>
+      <pubDate>Mon, 16 Nov 2026 15:01:11 +0200</pubDate>
+      <sparkle:version>0.1.9</sparkle:version>
+      <sparkle:shortVersionString>0.1.9</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/erango/t1k/releases/tag/v0.1.9</sparkle:fullReleaseNotesLink>
+      <description><![CDATA[<ul><li>Less CPU while agents work: lines and blocks drawn by programs like Claude Code paint as one shape instead of one per character, and with T1K behind other apps its terminals redraw at most 10 times a second.</li><li>Opening a second window (⌘N, or moving a tab to a new window) no longer crashes T1K.</li></ul>]]></description>
+      <enclosure url="https://github.com/erango/t1k/releases/download/v0.1.9/T1K-0.1.9.zip" type="application/octet-stream" sparkle:edSignature="htHHM6Z6Bo6U92P2u4Q+VoW1ZPcLQtSLJDjFExPk7g0lYJu/d5W7qsknT/1WLUzDm9Y+krDYHG5K4lGIHcm7DQ==" length="12238755" />
+    </item>
+    <item>
       <title>T1K 0.1.8</title>
       <pubDate>Mon, 16 Nov 2026 14:16:13 +0200</pubDate>
       <sparkle:version>0.1.8</sparkle:version>
