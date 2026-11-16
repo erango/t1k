@@ -294,6 +294,8 @@ pub struct Workspace {
     pub icon_ui: crate::group_icons::PickerUi,
     /// The window isn't key (its chrome dims), and the pointer is over the sidebar (it doesn't).
     window_inactive: bool,
+    /// Counted in `t1k_terminal::view::ACTIVE_WINDOWS` (this window is in front).
+    counted_active: bool,
     sidebar_hover: bool,
     /// Tabs coming back after a quit (canvas v3-ab).
     pub restore: Option<crate::restore::Restore>,
@@ -565,6 +567,7 @@ impl Workspace {
             notice_brief: false,
             icon_ui: Default::default(),
             window_inactive: false,
+            counted_active: false,
             sidebar_hover: false,
             restore: None,
             auto_hues: HashMap::new(),
@@ -689,6 +692,7 @@ impl Workspace {
             this.scan_for_match(cx);
         }
         cx.observe_window_activation(window, |this, window, cx| this.set_inactive(!window.is_window_active(), cx)).detach();
+        this.count_active(window.is_window_active());
         if !window.is_window_active() && std::env::var_os("T1K_DEBUG_BACKGROUND").is_some() {
             this.set_inactive(true, cx);
         }
@@ -2772,6 +2776,7 @@ impl Workspace {
 
     fn set_inactive(&mut self, inactive: bool, cx: &mut Context<Self>) {
         self.window_inactive = inactive;
+        self.count_active(!inactive);
         self.apply_secure(cx);
         self.apply_dim(cx);
     }
@@ -3347,4 +3352,24 @@ fn read_tail(path: &std::path::Path, max: u64) -> Option<String> {
 
 fn self_drop_hover(ws: &mut Workspace, target: crate::drop::DropTarget, paths: Vec<PathBuf>) {
     ws.drop_hover = Some(crate::drop::DropHover { target, paths });
+}
+
+impl Workspace {
+    fn count_active(&mut self, active: bool) {
+        use std::sync::atomic::Ordering;
+        if active != self.counted_active {
+            self.counted_active = active;
+            if active {
+                t1k_terminal::view::ACTIVE_WINDOWS.fetch_add(1, Ordering::Relaxed);
+            } else {
+                t1k_terminal::view::ACTIVE_WINDOWS.fetch_sub(1, Ordering::Relaxed);
+            }
+        }
+    }
+}
+
+impl Drop for Workspace {
+    fn drop(&mut self) {
+        self.count_active(false);
+    }
 }

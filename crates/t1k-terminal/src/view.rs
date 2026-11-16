@@ -122,7 +122,15 @@ impl Default for TerminalStyle {
 /// Makes the bytes for a screen of (columns, rows).
 pub type FeedOnSize = Box<dyn FnOnce(usize, usize) -> Vec<u8>>;
 
+/// How many of the app's windows are in front. With none (T1K behind other apps), output
+/// redraws a terminal at most 10 times a second: each redraw repaints the whole window, and a
+/// few busy agents kept T1K at a third of a core while nobody was looking.
+pub static ACTIVE_WINDOWS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+const BACKGROUND_REDRAW: std::time::Duration = std::time::Duration::from_millis(100);
+
 pub struct TerminalView {
+    redraw_at: Option<std::time::Instant>,
+    redraw_task: Option<Task<()>>,
     pub terminal: Terminal,
     /// Set by the app while input is broadcast.
     pub paste_hold: PasteHold,
@@ -336,6 +344,8 @@ impl TerminalView {
             // Debug aid for screenshots: open the find bar with this query.
             search: std::env::var("T1K_DEBUG_FIND").ok().map(|q| crate::search::Search { query: q, dirty: true, ..Default::default() }),
             pending_size: None,
+            redraw_at: None,
+            redraw_task: None,
             resize_task: None,
             feed_on_size: None,
             copy_ui: Default::default(),
@@ -389,6 +399,30 @@ impl TerminalView {
         }));
     }
 
+    /// New output: redraw now, or, while T1K is behind other apps, at most every 100 ms.
+    fn redraw_for_output(&mut self, cx: &mut Context<Self>) {
+        use std::sync::atomic::Ordering;
+        let now = std::time::Instant::now();
+        let since = self.redraw_at.map(|t| now.duration_since(t));
+        if ACTIVE_WINDOWS.load(Ordering::Relaxed) > 0 || since.is_none_or(|d| d >= BACKGROUND_REDRAW) {
+            self.redraw_at = Some(now);
+            self.redraw_task = None;
+            cx.notify();
+            return;
+        }
+        if self.redraw_task.is_none() {
+            let wait = BACKGROUND_REDRAW - since.unwrap_or_default();
+            self.redraw_task = Some(cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(wait).await;
+                let _ = this.update(cx, |view, cx| {
+                    view.redraw_task = None;
+                    view.redraw_at = Some(std::time::Instant::now());
+                    cx.notify();
+                });
+            }));
+        }
+    }
+
     fn handle_event(&mut self, ev: AlacEvent, cx: &mut Context<Self>) {
         match ev {
             AlacEvent::Wakeup => {
@@ -400,7 +434,7 @@ impl TerminalView {
                 }
                 self.scroll_ui.prompts = None;
                 self.sync_offset(false);
-                cx.notify();
+                self.redraw_for_output(cx);
             }
             AlacEvent::MouseCursorDirty | AlacEvent::CursorBlinkingChange => cx.notify(),
             AlacEvent::Title(t) => {
@@ -2111,6 +2145,15 @@ fn paint_frame(
     }
 
     let fs = f32::from(style.font_size);
+    // Neighbouring rectangles that line up (a rule of ─, a row of █) are painted as one: every
+    // quad is filed in GPUI's bounds tree, and one per cell made full screens of box and block
+    // characters the bulk of a frame (Claude Code draws plenty).
+    let mut run: Option<(f32, f32, f32, f32, Hsla)> = None;
+    let flush = |run: &mut Option<(f32, f32, f32, f32, Hsla)>, window: &mut Window| {
+        if let Some((x, y, w, h, color)) = run.take() {
+            window.paint_quad(fill(Bounds::new(point(px(x), px(y)), size(px(w), px(h))), color));
+        }
+    };
     for &(col, row, c, color) in &frame.drawn {
         if row >= g.rows {
             continue;
@@ -2122,11 +2165,18 @@ fn paint_frame(
         let (w, h) = (f32::from(next.x).round() - x0, f32::from(next.y).round() - y0);
         for piece in crate::glyphs::pieces(c, w, h, fs).unwrap_or_default() {
             match piece {
-                crate::glyphs::Piece::Rect { x, y, w, h, alpha } => window.paint_quad(fill(
-                    Bounds::new(point(px(x0 + x), px(y0 + y)), size(px(w), px(h))),
-                    color.opacity(alpha),
-                )),
+                crate::glyphs::Piece::Rect { x, y, w, h, alpha } => {
+                    let (x, y, c) = (x0 + x, y0 + y, color.opacity(alpha));
+                    match &mut run {
+                        Some((rx, ry, rw, rh, rc)) if *ry == y && *rh == h && *rc == c && (*rx + *rw - x).abs() < 0.01 => *rw += w,
+                        _ => {
+                            flush(&mut run, window);
+                            run = Some((x, y, w, h, c));
+                        }
+                    }
+                }
                 crate::glyphs::Piece::Arc { right, down, t } => {
+                    flush(&mut run, window);
                     // A quad with two borders and one rounded corner: its edges run from the cell
                     // center out to the cell edges, matching the straight lines next to it.
                     let (cx, cy) = (x0 + (w / 2.).floor(), y0 + (h / 2.).floor());
@@ -2155,6 +2205,8 @@ fn paint_frame(
             }
         }
     }
+
+    flush(&mut run, window);
 
     // One shaped line per row: every batch on the row becomes a styled run, and the gaps
     // between batches become plain spaces. Wide and combining glyphs stay on their own.
