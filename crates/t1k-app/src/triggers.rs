@@ -522,9 +522,11 @@ impl Workspace {
         let id = self.trig.next_id;
         let started = self.trig.started.take();
         let run = started.as_ref().map(|(r, _)| r.clone());
+        // In a tab you're not looking at: say which (a click on the notice goes there).
+        let place = self.tabs.get(ix).filter(|_| ix != self.active).map(|t| format!(" in {}", t.title())).unwrap_or_default();
         let text = match &run {
-            Some(r) => format!("Trigger \u{201c}{name}\u{201d} running {}\u{2026}", short_cmd(&r.command)),
-            None => format!("Trigger \u{201c}{name}\u{201d} {what} ({why})"),
+            Some(r) => format!("Trigger \u{201c}{name}\u{201d}{place} running {}\u{2026}", short_cmd(&r.command)),
+            None => format!("Trigger \u{201c}{name}\u{201d}{place} {what} ({why})"),
         };
         if let Some(t) = self.tabs.get(ix) {
             let tab = t.id.clone();
@@ -539,6 +541,7 @@ impl Workspace {
         }
         self.trig_toast(text, cx);
         self.trig.notice_for = Some(id);
+        self.notice_tab = self.tabs.get(ix).map(|t| t.id.clone());
     }
 
     /// Background commands that finished: their entry, the notice if it's still about them,
@@ -570,7 +573,8 @@ impl Workspace {
             };
             f.what = summary.clone();
             if self.trig.notice_for == Some(id) && self.notice.is_some() {
-                self.notice = Some((format!("Trigger \u{201c}{name}\u{201d} {summary}"), Instant::now()));
+                let place = self.tabs.iter().position(|t| t.id == tab).filter(|&i| i != self.active).map(|i| format!(" in {}", self.tabs[i].title())).unwrap_or_default();
+                self.notice = Some((format!("Trigger \u{201c}{name}\u{201d}{place} {summary}"), Instant::now()));
                 self.notice_brief = !end.failed();
             }
             if end.failed() {
@@ -596,6 +600,7 @@ impl Workspace {
     }
 
     fn trig_toast(&mut self, text: String, cx: &mut Context<Self>) {
+        self.notice_tab = None;
         self.notice = Some((text, Instant::now()));
         self.notice_undo = false;
         self.notice_brief = true;
@@ -613,7 +618,10 @@ impl Workspace {
         match a.kind.as_str() {
             "notify" => {
                 let body = if arg.trim().is_empty() { line.to_string() } else { arg };
-                crate::platform::notify_tab(&tab_id, "T1K · Trigger", &title, &body);
+                // The banner says which trigger, and which tab (a click goes there).
+                let trig_name = self.config.triggers.get(ti).map(|t| t.name.clone()).unwrap_or_default();
+                let group = self.group_label(&self.tabs[ix].group);
+                crate::platform::notify_tab(&tab_id, &format!("T1K \u{b7} {trig_name}"), &format!("{title} \u{b7} {group}"), &body);
                 "notified you".into()
             }
             "unread" => {

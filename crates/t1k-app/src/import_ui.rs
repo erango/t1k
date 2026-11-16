@@ -658,8 +658,19 @@ pub fn offer(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement> 
 pub fn notice(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement> {
     let ui = ws.ui;
     let (text, _) = ws.notice.as_ref()?;
+    let goes = ws.notice_tab.clone().filter(|id| ws.tabs.get(ws.active).is_none_or(|t| &t.id != id));
     Some(
         div()
+            .id("notice")
+            .when_some(goes, |d, id| {
+                d.cursor_pointer().hover(move |d| d.border_color(ui.text_tertiary)).on_click(cx.listener(move |this, _, window, cx| {
+                    if let Some(ix) = this.tabs.iter().position(|t| t.id == id) {
+                        this.activate(ix, window, cx);
+                    }
+                    this.notice = None;
+                    cx.notify();
+                }))
+            })
             .absolute()
             .left(px(10.))
             .right(px(10.))

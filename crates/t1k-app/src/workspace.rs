@@ -266,6 +266,8 @@ pub struct Workspace {
     caught_up_task: Option<Task<()>>,
     /// The notice offers Undo (it's about a move).
     pub notice_undo: bool,
+    /// The tab a notice is about (a trigger's): clicking the notice goes there.
+    pub notice_tab: Option<String>,
     /// Tab moves between groups, newest last: (tab id, group, pinned group) before the move.
     pub move_undo: Vec<Vec<(String, PathBuf, Option<PathBuf>)>>,
     /// "Match your terminal": the scan and the sheet's choices.
@@ -545,6 +547,7 @@ impl Workspace {
             import_last: saved.import_last,
             notice: None,
             notice_undo: false,
+            notice_tab: None,
             hover_row: None,
             dragging_tab: None,
             caught_up_at: None,
