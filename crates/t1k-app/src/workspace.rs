@@ -350,6 +350,8 @@ pub struct Workspace {
     /// The window background last asked of macOS, so it's set only when it changes.
     window_look: Option<gpui::WindowBackgroundAppearance>,
     pub selected_row: std::rc::Rc<std::cell::Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
+    /// Set on arriving at a tab: the selected row scrolls itself into view when it's next laid out.
+    pub reveal_row: std::rc::Rc<std::cell::Cell<bool>>,
     /// Where the active tab's panes were drawn (⌘⌥ arrows).
     pub pane_bounds: crate::split::PaneBounds,
     pub outputs_scroll: gpui::ScrollHandle,
@@ -597,6 +599,7 @@ impl Workspace {
             turns_done: Vec::new(),
             sidebar_scroll: gpui::ScrollHandle::new(),
             selected_row: Default::default(),
+            reveal_row: Default::default(),
             pane_bounds: Default::default(),
             window_look: None,
             outputs_scroll: gpui::ScrollHandle::new(),
@@ -1430,18 +1433,11 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Arriving at a tab whose group is scrolled out of the sidebar (⌘P, back/forward, ⌘J):
-    /// bring the group into view. A group that's partly visible is left alone, so clicking a row
-    /// never jumps the list.
-    fn reveal_in_sidebar(&self, ix: usize) {
-        let Some(gi) = self.grouped().iter().position(|(g, _)| *g == self.tabs[ix].group) else { return };
-        let sh = &self.sidebar_scroll;
-        let (Some(b), view) = (sh.bounds_for_item(gi), sh.bounds()) else { return };
-        let off = sh.offset().y;
-        let (top, bottom) = (b.top() + off, b.bottom() + off);
-        if bottom <= view.top() || top >= view.bottom() {
-            sh.scroll_to_item(gi);
-        }
+    /// Arriving at a tab (⌘J, ⌘P, back/forward, a click): once its row is laid out, scroll
+    /// the sidebar just enough to show all of it (`sidebar::reveal`). A row already in full
+    /// view stays put, so clicking a row never jumps the list.
+    fn reveal_in_sidebar(&self, _ix: usize) {
+        self.reveal_row.set(true);
     }
 
     /// ⌘[ (`back`) / ⌘]: return to the previously visited tab, skipping closed ones.

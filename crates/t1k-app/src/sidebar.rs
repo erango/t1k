@@ -857,7 +857,22 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         const R: f32 = 8.;
         // Where the row is this frame, for the selected-tab outline (canvas v3-as).
         let at = ws.selected_row.clone();
-        el = el.child(gpui::canvas(move |b, _, _| at.set(Some(b)), |_, _, _, _| {}).absolute().inset_0()).rounded_l(px(R));
+        let (reveal, scroll) = (ws.reveal_row.clone(), ws.sidebar_scroll.clone());
+        el = el
+            .child(
+                gpui::canvas(
+                    move |b, window, _| {
+                        at.set(Some(b));
+                        if reveal.take() {
+                            reveal_row(&scroll, b, window);
+                        }
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .inset_0(),
+            )
+            .rounded_l(px(R));
         // See-through, the sidebar's backdrop leaves the row's shape for the terminal color.
         if !ws.translucent() {
             el = el.bg(ui.bg_terminal).child(fillet(true)).child(fillet(false));
@@ -866,6 +881,27 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
         el = el.mr(px(INSET)).rounded(px(6.)).hover(move |d| d.bg(ui.sidebar_hover));
     }
     el.into_any_element()
+}
+
+/// Scroll the sidebar's list so the selected row `b` (as laid out this frame) shows whole,
+/// with a little room above and below; the new offset shows from the next frame.
+fn reveal_row(scroll: &gpui::ScrollHandle, b: gpui::Bounds<gpui::Pixels>, window: &mut gpui::Window) {
+    const ROOM: f32 = 12.;
+    let view = scroll.bounds();
+    if view.size.height <= px(0.) {
+        return;
+    }
+    let mut off = scroll.offset();
+    let y = if b.top() < view.top() {
+        off.y + (view.top() - b.top()) + px(ROOM)
+    } else if b.bottom() > view.bottom() {
+        off.y - (b.bottom() - view.bottom()) - px(ROOM)
+    } else {
+        return;
+    };
+    off.y = y.min(px(0.)).max(-scroll.max_offset().height);
+    scroll.set_offset(off);
+    window.refresh();
 }
 
 /// The see-through sidebar's background (canvas v3-ar): the sidebar color with a notch where
