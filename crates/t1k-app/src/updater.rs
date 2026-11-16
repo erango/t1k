@@ -375,6 +375,13 @@ mod mac {
 
     /// Load Sparkle from the app bundle and start the updater. False when not bundled.
     pub fn start(cfg: &UpdatesCfg) -> bool {
+        // One updater for the app: every window calls this as it opens, and declaring the
+        // driver class a second time panics (⌘N crashed T1K in bundled builds).
+        static STARTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *STARTED.get_or_init(|| start_once(cfg))
+    }
+
+    fn start_once(cfg: &UpdatesCfg) -> bool {
         unsafe {
             let main: id = msg_send![class!(NSBundle), mainBundle];
             let frameworks: id = msg_send![main, privateFrameworksPath];
