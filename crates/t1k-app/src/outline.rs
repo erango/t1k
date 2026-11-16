@@ -35,6 +35,8 @@ pub fn render(ws: &Workspace, shown: Shown, inactive: bool, window: &Window) -> 
         a /= 2.;
     }
     let color = Hsla { a: base.a * a, ..base };
+    // Outside the outline's left corners: the sidebar's surface, not the terminal's.
+    let side = if ws.translucent() { ws.side_bg() } else { ws.ui.bg_sidebar };
     let row = ws.selected_row.clone();
     let viewport = ws.sidebar_scroll.clone();
     let rw = if window.is_fullscreen() { 0. } else { WINDOW_R };
@@ -47,6 +49,11 @@ pub fn render(ws: &Workspace, shown: Shown, inactive: bool, window: &Window) -> 
                 let rows = row.map(|r| {
                     (f32::from(r.left() - bounds.left()), f32::from(r.top() - bounds.top()), f32::from(r.bottom() - bounds.top()))
                 });
+                for p in pockets(bounds, s, rows) {
+                    if let Ok(path) = p.build() {
+                        window.paint_path(path, side);
+                    }
+                }
                 for p in paths(bounds, s, rows, rw) {
                     if let Ok(path) = p.build() {
                         window.paint_path(path, color);
@@ -68,6 +75,43 @@ fn half_visible(row: Bounds<Pixels>, view: Bounds<Pixels>) -> bool {
     let top = row.top().max(view.top());
     let bottom = row.bottom().min(view.bottom());
     f32::from(bottom - top) * 2. >= f32::from(row.size.height)
+}
+
+/// The corners the outline rounds at the sidebar's edge, top and bottom: the bit between the
+/// curve and the window's edge, filled up to the stroke's center line so the stroke covers the
+/// seam. Same radii as `paths`.
+fn pockets(b: Bounds<Pixels>, s: f32, row: Option<(f32, f32, f32)>) -> Vec<PathBuilder> {
+    let c = STROKE / 2.;
+    let e = c + EDGE;
+    let h = f32::from(b.size.height);
+    let at = |x: f32, y: f32| -> Point<Pixels> { b.origin + point(px(x), px(y)) };
+    let (rt, rb) = match row {
+        Some((_, y0, y1)) => (R.min(((y0 - e) / 2.).max(0.)), R.min(((h - y1 - e) / 2.).max(0.))),
+        None => (R, R),
+    };
+    let x = s + c;
+    let mut out = Vec::new();
+    if rt > 0. {
+        let mut p = PathBuilder::fill();
+        p.move_to(at(s, 0.));
+        p.line_to(at(x + rt, 0.));
+        p.line_to(at(x + rt, e));
+        p.arc_to(point(px(rt), px(rt)), px(0.), false, false, at(x, e + rt));
+        p.line_to(at(s, e + rt));
+        p.close();
+        out.push(p);
+    }
+    if rb > 0. {
+        let mut p = PathBuilder::fill();
+        p.move_to(at(s, h));
+        p.line_to(at(x + rb, h));
+        p.line_to(at(x + rb, h - e));
+        p.arc_to(point(px(rb), px(rb)), px(0.), false, true, at(x, h - e - rb));
+        p.line_to(at(s, h - e - rb));
+        p.close();
+        out.push(p);
+    }
+    out
 }
 
 /// The strokes, in window points relative to `b`: around the row and out to the window's right
