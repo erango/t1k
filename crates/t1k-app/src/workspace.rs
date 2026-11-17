@@ -985,6 +985,10 @@ impl Workspace {
                 _ => (spec.clone(), None),
             };
             this.view_file(std::path::Path::new(&p), line, cx);
+            // T1K_DEBUG_VIEW_SEL=<seg>:<ix>-<seg>:<ix> preselects text there, for screenshots.
+            if let Ok(sel) = std::env::var("T1K_DEBUG_VIEW_SEL") {
+                this.debug_viewer_selection(&sel);
+            }
         }
         // T1K_DEBUG_DROP=pane|row|group|theme:<path>: files "dragged" over the pane or the active row,
         // or the theme-file choice, for screenshots (a real Finder drag can't be scripted).

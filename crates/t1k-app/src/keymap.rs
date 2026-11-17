@@ -134,6 +134,9 @@ pub fn install(cx: &mut App, overrides: &BTreeMap<String, String>) {
             }
         }
     }
+    // The file viewer's own copy and select-all, while it has focus (you selected text in it).
+    out.push(KeyBinding::new("cmd-c", crate::actions::ViewerCopy, Some("Viewer")));
+    out.push(KeyBinding::new("cmd-a", crate::actions::ViewerSelectAll, Some("Viewer")));
     cx.clear_key_bindings();
     cx.bind_keys(out);
 }
