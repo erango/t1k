@@ -1746,5 +1746,7 @@ impl gpui::Render for GroupGhost {
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(ui.text_primary)
             .child(self.label.clone())
+            // A closed hand while a row or group is held, wherever the pointer goes.
+            .child(gpui::canvas(|_, _, _| (), |_, _, window, _| window.set_window_cursor_style(gpui::CursorStyle::ClosedHand)).absolute().size_0())
     }
 }
