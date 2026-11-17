@@ -18,11 +18,12 @@ pub enum Section {
     Keybindings,
     Quick,
     Triggers,
+    Access,
     Advanced,
 }
 
 impl Section {
-    pub const ALL: [Section; 9] = [
+    pub const ALL: [Section; 10] = [
         Section::Appearance,
         Section::Interface,
         Section::Tabs,
@@ -31,6 +32,7 @@ impl Section {
         Section::Keybindings,
         Section::Quick,
         Section::Triggers,
+        Section::Access,
         Section::Advanced,
     ];
     pub fn label(self) -> &'static str {
@@ -43,6 +45,7 @@ impl Section {
             Section::Keybindings => "Keybindings",
             Section::Quick => "Quick terminal",
             Section::Triggers => "Triggers",
+            Section::Access => "Notifications & access",
             Section::Advanced => "Advanced",
         }
     }
@@ -626,11 +629,13 @@ fn page(ws: &Workspace, section: Section, query: &str, window: &mut Window, cx: 
         }
         return body.into_any_element();
     }
-    body = body.child(title(section.label().to_string(), None));
+    let sub = (section == Section::Access && crate::access_ui::all_set()).then(|| "All set".to_string());
+    body = body.child(title(section.label().to_string(), sub));
     let mine: Vec<Entry> = all.into_iter().filter(|e| e.section == section).collect();
     body = body.children(cards(ui, mine, 0));
     match section {
         Section::Triggers => body = body.child(crate::trigger_ui::section(ws, cx)),
+        Section::Access => body = body.child(crate::access_ui::section(ws, cx)),
         Section::Appearance => {
             body = body
                 .child(
@@ -887,6 +892,8 @@ fn render_inner(ws: &Workspace, section: Section, window: &mut Window, cx: &mut 
                     cx.notify();
                 }))
                 .child(div().flex_1().child(s.label()))
+                // Notifications need fixing: a small amber dot (canvas v3-bc).
+                .when(s == Section::Access && crate::access_ui::needs_fixing(), |d| d.child(crate::access_ui::dot(ui)))
                 .children(count.filter(|n| *n > 0).map(|n| div().text_size(px(11.)).font_family("JetBrains Mono").text_color(ui.text_quiet).child(n.to_string()))),
         );
     }

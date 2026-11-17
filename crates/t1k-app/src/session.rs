@@ -126,6 +126,11 @@ pub struct Session {
     /// The quick terminal's first-run hint was answered (canvas v3-ay).
     #[serde(default)]
     pub quick_hint_done: bool,
+    /// The "Notifications are off" card (canvas v3-bc): snoozed until (unix secs), or never.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notif_card_snooze: Option<u64>,
+    #[serde(default)]
+    pub notif_card_never: bool,
     /// A window opened to take a tab moved out of another: it starts with no tab of its own.
     #[serde(skip)]
     pub adopt: bool,

@@ -134,6 +134,9 @@ done = false
 dock_badge = true
 # Banners programs ask for (OSC 9 / 777), e.g. a long build saying it's done.
 programs = true
+# How banners sound: "mercury", "bell", "tick", "pulse", "chord", "system" (macOS's own) or
+# "silent". Needs you and errors get the brighter sound of the pair, the rest the softer one.
+sound = "mercury"
 
 [quick]
 # Quick terminal: a panel over whatever app you're in, on a shortcut that works everywhere.
@@ -458,11 +461,13 @@ pub struct NotifyCfg {
     pub dock_badge: bool,
     /// Programs' own notifications (OSC 9 / OSC 777).
     pub programs: bool,
+    /// Sound theme (crate::sound), "system" or "silent".
+    pub sound: String,
 }
 
 impl Default for NotifyCfg {
     fn default() -> Self {
-        Self { needs_input: true, error: true, reminder: true, done: false, dock_badge: true, programs: true }
+        Self { needs_input: true, error: true, reminder: true, done: false, dock_badge: true, programs: true, sound: crate::sound::DEFAULT.to_string() }
     }
 }
 

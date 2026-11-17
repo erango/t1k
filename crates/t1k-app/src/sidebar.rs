@@ -216,7 +216,10 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                             this.open_overlay(crate::overlay::Overlay::SidebarView { at }, window, cx);
                         }))
                         .tooltip(crate::tooltip::text(ui, "View options"))
-                        .child(crate::icons::sliders_at(ui.text_secondary, 16.)),
+                        .relative()
+                        .child(crate::icons::sliders_at(ui.text_secondary, 16.))
+                        // Notifications need fixing: a dot until they work (canvas v3-bc).
+                        .when(crate::access_ui::needs_fixing(), |d| d.child(div().absolute().top(px(3.)).right(px(3.)).child(crate::access_ui::dot(ui)))),
                 )
                 .child(
                     ghost("new-tab", ui)
@@ -282,7 +285,11 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         )
         .children(crate::broadcast::pick_bar(ws, cx))
         .when(!dragging, |d| {
-            d.children(crate::close::toast(ws, cx)).children(crate::import_ui::notice(ws, cx)).children(crate::import_ui::offer(ws, cx)).children(crate::match_ui::offer(ws, cx)).children(crate::quick::offer(ws, cx))
+            d.children(crate::close::toast(ws, cx)).children(crate::import_ui::notice(ws, cx)).children(crate::import_ui::offer(ws, cx)).children(crate::match_ui::offer(ws, cx)).children({
+                // Missing notifications come first (canvas v3-bc); the quick-terminal hint waits.
+                let card = crate::access_ui::card(ws, cx);
+                if card.is_some() { card } else { crate::quick::offer(ws, cx) }
+            })
         })
         // While a tab is dragged: a place at the bottom to drop it out of its group, back into
         // its folder's project group (made if there isn't one).

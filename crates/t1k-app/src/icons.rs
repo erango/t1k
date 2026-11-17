@@ -763,3 +763,35 @@ pub fn agent_mark(program: &str, size: f32) -> Option<gpui::AnyElement> {
         .into_any_element(),
     )
 }
+
+/// A speaker, with sound waves, or struck through (silent).
+pub fn speaker_at(color: Hsla, size: f32, silent: bool) -> impl IntoElement {
+    icon_at(size, move |pt, p| {
+        p.move_to(pt(1.5, 5.));
+        p.line_to(pt(4., 5.));
+        p.line_to(pt(7., 2.5));
+        p.line_to(pt(7., 11.5));
+        p.line_to(pt(4., 9.));
+        p.line_to(pt(1.5, 9.));
+        p.close();
+        if silent {
+            p.move_to(pt(9., 5.));
+            p.line_to(pt(13., 9.));
+            p.move_to(pt(13., 5.));
+            p.line_to(pt(9., 9.));
+        } else {
+            for r in [2.2f32, 4.4] {
+                let n = 10;
+                for k in 0..=n {
+                    let a = -0.85 + 1.7 * k as f32 / n as f32;
+                    let q = pt(7.5 + r * a.cos(), 7. + r * a.sin());
+                    if k == 0 {
+                        p.move_to(q);
+                    } else {
+                        p.line_to(q);
+                    }
+                }
+            }
+        }
+    }, color)
+}

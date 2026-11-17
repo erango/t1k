@@ -278,6 +278,7 @@ pub struct Workspace {
     pub match_hidden: bool,
     /// The quick terminal's hint card was answered, or isn't due.
     pub quick_hint_done: bool,
+    pub access: crate::access_ui::AccessState,
     /// "Set up T1K": progress (saved), snapshots for Undo, tried keys.
     pub setup: crate::setup::SetupState,
     /// The font picker and "Get more fonts" installs.
@@ -561,6 +562,7 @@ impl Workspace {
             match_undo: None,
             match_hidden: saved.match_offered,
             quick_hint_done: saved.quick_hint_done,
+            access: crate::access_ui::AccessState::new(saved.notif_card_snooze, saved.notif_card_never),
             setup: crate::setup::SetupState::new(saved.setup_step),
             fonts: Default::default(),
             drop_hover: None,
@@ -703,6 +705,7 @@ impl Workspace {
             crate::updater::start(&this.config.updates);
         }
         crate::secure_input::apply(this.config.terminal.secure_input, window.is_window_active());
+        crate::sound::set_theme(&this.config.notify.sound);
         // Remember where the window is; saved with the session (debounced through `poll`).
         cx.observe_window_bounds(window, |this, window, _| this.window_frame = Some(frame_of(window))).detach();
         // The close button closes this window (with one window, that quits T1K), so it asks
@@ -1106,6 +1109,7 @@ impl Workspace {
                     Some(Overlay::Settings { section: crate::settings::Section::Terminal })
                 }
                 "settings-advanced" => Some(Overlay::Settings { section: crate::settings::Section::Advanced }),
+                "settings-access" => Some(Overlay::Settings { section: crate::settings::Section::Access }),
                 "settings-tabs" => Some(Overlay::Settings { section: crate::settings::Section::Tabs }),
                 "update" => {
                     crate::updater::check_now();
@@ -2214,6 +2218,10 @@ impl Workspace {
             Some(Err(e)) => log::error!("config not applied: {e}"),
             None => {}
         }
+        // A permission changed (read when the window got focus): the card, dots and Settings.
+        if crate::permissions::take_changed() {
+            cx.notify();
+        }
         // A clicked banner brings its tab forward.
         for id in crate::windows::take_clicked(|id| self.owns_tab(id)) {
             if let Some(ix) = self.tabs.iter().position(|t| t.id == id) {
@@ -2370,7 +2378,8 @@ impl Workspace {
                 _ => None,
             };
             if let Some((what, body)) = msg {
-                crate::platform::notify_tab(&tab.id, &format!("T1K · {what}"), &tab.title(), &body);
+                let kind = if what == "Done" { crate::sound::Kind::Soft } else { crate::sound::Kind::Alert };
+                crate::platform::notify_tab(&tab.id, &format!("T1K · {what}"), &tab.title(), &body, kind);
             }
         }
         true
@@ -2410,7 +2419,7 @@ impl Workspace {
                 _ => None,
             };
             if let Some((what, body)) = msg {
-                crate::platform::notify_tab(tab_id, &format!("T1K · {what}"), &format!("{title} · pane {number}"), &body);
+                crate::platform::notify_tab(tab_id, &format!("T1K · {what}"), &format!("{title} · pane {number}"), &body, crate::sound::Kind::Alert);
             }
         }
         true
@@ -2430,7 +2439,7 @@ impl Workspace {
         log::info!("program notification (osc), banner posted");
         tab.unread = true;
         let title = if n.title.is_empty() { "T1K".to_string() } else { format!("T1K · {}", n.title) };
-        crate::platform::notify_tab(&tab.id, &title, &tab.title(), &n.body);
+        crate::platform::notify_tab(&tab.id, &title, &tab.title(), &n.body, crate::sound::Kind::Soft);
         cx.notify();
     }
 
@@ -2651,6 +2660,8 @@ impl Workspace {
             import_last: self.import_last,
             match_offered: self.match_hidden,
             quick_hint_done: self.quick_hint_done,
+            notif_card_snooze: self.access.snooze,
+            notif_card_never: self.access.never,
             setup_step: self.setup.progress,
             ..Default::default()
         }
@@ -2775,6 +2786,10 @@ impl Workspace {
     }
 
     fn set_inactive(&mut self, inactive: bool, cx: &mut Context<Self>) {
+        // Back from System Settings, maybe: read the permissions again.
+        if !inactive {
+            crate::permissions::refresh();
+        }
         self.window_inactive = inactive;
         self.count_active(!inactive);
         self.apply_secure(cx);
@@ -2948,6 +2963,7 @@ impl Workspace {
         }
         (self.mode, self.dark, self.light) = Self::slots(&self.config);
         crate::updater::apply(&self.config.updates);
+        crate::sound::set_theme(&self.config.notify.sound);
         crate::secure_input::apply(self.config.terminal.secure_input, window.is_window_active());
         crate::quick::configure(&self.config.quick, cx);
         self.apply_theme(window, cx);

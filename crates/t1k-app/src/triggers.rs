@@ -601,7 +601,7 @@ impl Workspace {
                         RunEnd::Exit(c) => format!("exited {c}"),
                         RunEnd::Stopped(m) => format!("was stopped after {m}m"),
                         _ => "was stopped".into(),
-                    }), &last);
+                    }), &last, crate::sound::Kind::Alert);
                 }
                 // In a tab you're not looking at: it turns unread, so you find it.
                 if self.tabs.get(self.active).is_none_or(|t| t.id != tab) {
@@ -636,7 +636,7 @@ impl Workspace {
                 // The banner says which trigger, and which tab (a click goes there).
                 let trig_name = self.config.triggers.get(ti).map(|t| t.name.clone()).unwrap_or_default();
                 let group = self.group_label(&self.tabs[ix].group);
-                crate::platform::notify_tab(&tab_id, &format!("T1K \u{b7} {trig_name}"), &format!("{title} \u{b7} {group}"), &body);
+                crate::platform::notify_tab(&tab_id, &format!("T1K \u{b7} {trig_name}"), &format!("{title} \u{b7} {group}"), &body, crate::sound::Kind::Soft);
                 "notified you".into()
             }
             "unread" => {

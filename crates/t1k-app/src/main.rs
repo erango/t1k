@@ -53,6 +53,9 @@ mod shell;
 mod split;
 mod strip;
 mod sidebar;
+mod sound;
+mod permissions;
+mod access_ui;
 mod title;
 mod keymap;
 mod telemetry;
@@ -129,6 +132,7 @@ fn main() {
         secure_input::apply(config::load().terminal.secure_input, false);
         menus::install(cx);
         platform::init_notifications();
+        permissions::refresh();
         platform::guard_terminate();
         cx.on_window_closed(|cx| {
             if cx.windows().is_empty() {

@@ -90,7 +90,9 @@ pub fn tool_path() -> String {
 
 /// Tab ids from notifications the user clicked, drained by the workspace each tick.
 static CLICKED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
-static UN_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub(crate) static UN_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Running as T1K.app, so notifications go through UserNotifications (and can be checked).
+pub static BUNDLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// (tab id, minutes) from a reminder banner's Snooze buttons, drained each tick.
 static SNOOZED: std::sync::Mutex<Vec<(String, u64)>> = std::sync::Mutex::new(Vec::new());
@@ -192,10 +194,12 @@ pub fn init_notifications() {
             let set: id = msg_send![class!(NSSet), setWithObject: cat];
             let _: () = msg_send![center, setNotificationCategories: set];
         }
+        BUNDLED.store(true, std::sync::atomic::Ordering::SeqCst);
         let handler = ConcreteBlock::new(|granted: BOOL, _err: id| {
             if granted != cocoa::base::NO {
                 UN_READY.store(true, std::sync::atomic::Ordering::SeqCst);
             }
+            crate::permissions::refresh();
         })
         .copy();
         // UNAuthorizationOptionBadge | Sound | Alert
@@ -208,16 +212,18 @@ pub fn init_notifications() {}
 
 /// Post a banner that focuses `tab` when clicked. Falls back to osascript (no click target)
 /// outside the app bundle or without permission.
-pub fn notify_tab(tab: &str, title: &str, subtitle: &str, body: &str) {
-    notify_tab_in(tab, title, subtitle, body, None)
+pub fn notify_tab(tab: &str, title: &str, subtitle: &str, body: &str, kind: crate::sound::Kind) {
+    notify_tab_in(tab, title, subtitle, body, None, kind)
 }
 
 /// A reminder banner: like `notify_tab`, with Snooze buttons.
 pub fn notify_reminder(tab: &str, title: &str, body: &str) {
-    notify_tab_in(tab, "T1K", title, body, Some("t1k-reminder"))
+    notify_tab_in(tab, "T1K", title, body, Some("t1k-reminder"), crate::sound::Kind::Soft)
 }
 
-fn notify_tab_in(tab: &str, title: &str, subtitle: &str, body: &str, category: Option<&str>) {
+fn notify_tab_in(tab: &str, title: &str, subtitle: &str, body: &str, category: Option<&str>, kind: crate::sound::Kind) {
+    use crate::sound::Banner;
+    let sound = crate::sound::for_banner(&crate::sound::theme(), kind);
     #[cfg(target_os = "macos")]
     if UN_READY.load(std::sync::atomic::Ordering::SeqCst) {
         use cocoa::base::{id, nil};
@@ -234,8 +240,18 @@ fn notify_tab_in(tab: &str, title: &str, subtitle: &str, body: &str, category: O
             if let Some(c) = category {
                 let _: () = msg_send![content, setCategoryIdentifier: s(c)];
             }
-            let sound: id = msg_send![class!(UNNotificationSound), defaultSound];
-            let _: () = msg_send![content, setSound: sound];
+            // The sound rides on the notification, so Focus and Do Not Disturb silence it too.
+            match &sound {
+                Banner::Silent => {}
+                Banner::System => {
+                    let s: id = msg_send![class!(UNNotificationSound), defaultSound];
+                    let _: () = msg_send![content, setSound: s];
+                }
+                Banner::Named(name) => {
+                    let s: id = msg_send![class!(UNNotificationSound), soundNamed: s(name)];
+                    let _: () = msg_send![content, setSound: s];
+                }
+            }
             let ident = s(&format!("t1k-{tab}-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)));
             let request: id = msg_send![class!(UNNotificationRequest), requestWithIdentifier: ident content: content trigger: nil];
             let center: id = msg_send![class!(UNUserNotificationCenter), currentNotificationCenter];
@@ -243,6 +259,10 @@ fn notify_tab_in(tab: &str, title: &str, subtitle: &str, body: &str, category: O
             let _: () = msg_send![content, release];
         }
         return;
+    }
+    // No bundle (a dev build): osascript's banner, and the sound played here.
+    if sound != Banner::Silent {
+        crate::sound::play(&crate::sound::theme(), kind);
     }
     notify(title, subtitle, body);
 }
