@@ -2760,13 +2760,20 @@ impl Workspace {
         self.ui_base = self.theme.ui();
         self.ui = self.ui_base.inactive(self.dim_level());
         let palette = self.theme.palette();
-        for tab in &self.tabs {
-            tab.view.update(cx, |v, cx| {
+        for view in self.terminal_views(cx) {
+            view.update(cx, |v, cx| {
                 v.palette = palette.clone();
                 cx.notify();
             });
         }
         cx.notify();
+    }
+
+    /// Every terminal: each tab's main pane, its helper panes, and the quick terminal.
+    fn terminal_views(&self, cx: &App) -> Vec<Entity<TerminalView>> {
+        let mut views: Vec<_> = self.tabs.iter().flat_map(|t| std::iter::once(t.view.clone()).chain(t.panes.helpers.iter().map(|h| h.view.clone()))).collect();
+        views.extend(crate::quick::shell_view(cx));
+        views
     }
 
     /// Canvas v3-u: 150 ms ease-out into the inactive look, 80 ms back; instant with Reduce motion.
@@ -2968,8 +2975,8 @@ impl Workspace {
         crate::quick::configure(&self.config.quick, cx);
         self.apply_theme(window, cx);
         let style = self.terminal_style();
-        for tab in &self.tabs {
-            tab.view.update(cx, |v, cx| {
+        for view in self.terminal_views(cx) {
+            view.update(cx, |v, cx| {
                 v.style = style.clone();
                 cx.notify();
             });

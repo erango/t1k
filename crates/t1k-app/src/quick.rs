@@ -219,6 +219,11 @@ fn pick(after: Option<(&str, PaneId)>, cx: &App) -> Target {
     Target::Shell
 }
 
+/// The quick shell, if it's running (theme and style changes reach it too).
+pub fn shell_view(cx: &App) -> Option<Entity<TerminalView>> {
+    cx.try_global::<Quick>()?.shell.as_ref().map(|(v, _, _)| v.clone())
+}
+
 /// The quick shell, started on first use in the frontmost tab's folder.
 fn shell(cx: &mut App) -> Option<Entity<TerminalView>> {
     if let Some((v, _, _)) = &cx.global::<Quick>().shell {
