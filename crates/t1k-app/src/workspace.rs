@@ -367,6 +367,10 @@ pub struct Workspace {
     theme_before: Option<(AppearanceMode, &'static Theme, &'static Theme)>,
     /// The Settings page a drill-down (the theme picker) was opened from; Esc and ‹ return there.
     pub settings_return: Option<crate::settings::Section>,
+    /// The theme picker's list: scrolled by hand, and to the selection when keys move it.
+    pub theme_scroll: gpui::ScrollHandle,
+    /// Scroll the theme list to the selection on the next frame.
+    pub theme_follow: std::cell::Cell<bool>,
     /// Outputs count per tab id when the user last saw them (panel open on that tab).
     pub outputs_seen: HashMap<String, usize>,
     /// Set once Quit anyway was pressed: programs are being closed.
@@ -611,6 +615,8 @@ impl Workspace {
             switcher_filter: Default::default(),
             theme_before: None,
             settings_return: None,
+            theme_scroll: gpui::ScrollHandle::new(),
+            theme_follow: std::cell::Cell::new(false),
             outputs_seen: HashMap::new(),
             quitting: None,
             edit_sel: Default::default(),
@@ -1133,6 +1139,7 @@ impl Workspace {
                     let dark = this.theme.is_dark();
                     let current = this.theme_slot(dark).name.clone();
                     let selected = crate::theme_picker::results("", dark).iter().position(|t| t.name == current).unwrap_or(0);
+                    this.theme_follow.set(true);
                     Some(Overlay::ThemePicker { query: String::new(), selected, dark })
                 }
                 "remind" => Some(Overlay::RemindCustom { tab: this.active, text: "tomorrow 9:15".into() }),

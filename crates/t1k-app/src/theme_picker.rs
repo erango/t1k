@@ -36,6 +36,8 @@ impl Workspace {
     pub fn open_theme_picker_for(&mut self, dark: bool, window: &mut Window, cx: &mut Context<Self>) {
         let current = self.theme_slot(dark).name.clone();
         let selected = results("", dark).iter().position(|t| t.name == current).unwrap_or(0);
+        self.theme_scroll = gpui::ScrollHandle::new();
+        self.theme_follow.set(true);
         self.open_overlay(Overlay::ThemePicker { query: String::new(), selected, dark }, window, cx);
     }
 
@@ -65,6 +67,7 @@ impl Workspace {
         if let Some(t) = results(&query, dark).get(selected) {
             self.preview_theme(&t.name, window, cx);
         }
+        self.theme_follow.set(true);
         Some(Overlay::ThemePicker { query, selected, dark })
     }
 
@@ -86,6 +89,7 @@ impl Workspace {
             let dark = t.is_dark();
             let selected = results("", dark).iter().position(|x| x.name == t.name).unwrap_or(0);
             self.overlay = Overlay::ThemePicker { query: String::new(), selected, dark };
+            self.theme_follow.set(true);
             self.preview_theme(&name, window, cx);
         }
     }
@@ -259,19 +263,23 @@ pub fn render(ws: &Workspace, query: &str, selected: usize, dark: bool, window: 
         div().h(px(22.)).px(px(8.)).flex().items_center().text_size(px(10.5)).font_weight(FontWeight::SEMIBOLD).text_color(ui.text_tertiary).child(label)
     };
 
-    // Rows that fit between the header, the slot note and the import area; a window of them
-    // follows the selection.
-    let fit = (((h - 52. - 56. - 30. - 150.) / 50.).floor() as usize).max(3);
-    let start = selected.saturating_sub(fit / 2).min(hits.len().saturating_sub(fit));
-    let mut list = div().flex().flex_col().gap(px(2.));
+    // Every row, in a list you can scroll; keys scroll it to the selection, clicks leave it be.
+    let mut list = div().id("theme-list").size_full().overflow_y_scroll().track_scroll(&ws.theme_scroll).flex().flex_col().gap(px(2.));
+    let mut child = 0usize;
+    let mut selected_child = None;
     let mut last_builtin = None;
-    for (i, t) in hits.iter().enumerate().skip(start).take(fit) {
+    for (i, t) in hits.iter().enumerate() {
         let builtin = is_builtin(t);
         if query.trim().is_empty() && last_builtin != Some(builtin) {
-            list = list.child(section(if builtin { "BUILT IN" } else { "IMPORTED" }));
+            list = list.child(section(if builtin { "BUILT IN" } else { "IMPORTED" }).flex_none());
             last_builtin = Some(builtin);
+            child += 1;
         }
         let on = i == selected;
+        if on {
+            selected_child = Some(child);
+        }
+        child += 1;
         let name = t.name.to_string();
         let tag = if t.name == current {
             "in use".to_string()
@@ -315,6 +323,11 @@ pub fn render(ws: &Workspace, query: &str, selected: usize, dark: bool, window: 
                 )
                 .child(swatch_bar(t)),
         );
+    }
+    if ws.theme_follow.take() {
+        if let Some(ix) = selected_child {
+            ws.theme_scroll.scroll_to_item(ix);
+        }
     }
     if hits.is_empty() {
         list = list.child(div().p(px(10.)).text_size(px(13.)).text_color(ui.text_tertiary).child("No matching themes"));
@@ -450,7 +463,7 @@ pub fn render(ws: &Workspace, query: &str, selected: usize, dark: bool, window: 
                 .flex()
                 .flex_col()
                 .child(slot_note)
-                .child(div().flex_1().min_h_0().overflow_hidden().child(list))
+                .child(div().flex_1().min_h_0().child(list))
                 .child(drop_zone)
                 .child(toggle_row)
                 .child(import_btn),
@@ -511,6 +524,7 @@ pub fn render(ws: &Workspace, query: &str, selected: usize, dark: bool, window: 
                                 let slot = this.saved_slot(for_dark).name.clone();
                                 let selected = results(&q, for_dark).iter().position(|t| t.name == slot).unwrap_or(0);
                                 this.overlay = Overlay::ThemePicker { query: q, selected, dark: for_dark };
+                                this.theme_follow.set(true);
                                 cx.notify();
                             }
                         }
