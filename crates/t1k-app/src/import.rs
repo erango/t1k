@@ -156,9 +156,15 @@ pub fn scan() -> Vec<Found> {
         if fg_name == "tmux" && source != Source::Tmux {
             continue;
         }
-        let claude = list.iter().filter(|i| names[&i.pid] == "claude").find_map(|i| claude_session(i.pid));
-        let running = fg.filter(|f| !is_shell(&names[&f.pid]) && names[&f.pid] != "claude").and_then(|f| process::command(f.pid));
-        let cwd = claude.as_ref().and_then(|c| claude_cwd(c.pid)).or_else(|| process::cwd(shell.pid));
+        // Claude Code writes a session file under its pid, whatever the process is called
+        // ("claude" from the native installer, "node" from npm). Without one (an older Claude
+        // Code), a process that is Claude still resumes, as the folder's latest session.
+        let claude = list.iter().find_map(|i| claude_session(i.pid)).or_else(|| {
+            list.iter().find(|i| is_claude(&names[&i.pid], process::command(i.pid).as_deref())).map(|i| Claude { pid: i.pid, session_id: String::new(), busy: false, name: None })
+        });
+        let claude_pid = claude.as_ref().map(|c| c.pid);
+        let running = fg.filter(|f| !is_shell(&names[&f.pid]) && Some(f.pid) != claude_pid).and_then(|f| process::command(f.pid));
+        let cwd = claude.as_ref().and_then(|c| claude_cwd(c.pid).or_else(|| process::cwd(c.pid))).or_else(|| process::cwd(shell.pid));
         out.push(Found { source, tty: process::tty_name(dev).unwrap_or_default(), cwd, running, claude, title: None, order: None });
     }
     out.sort_by(|a, b| (a.source, &a.tty).cmp(&(b.source, &b.tty)));
@@ -180,6 +186,16 @@ fn owner(mut pid: i32, parent: impl Fn(i32) -> Option<i32>, source: impl Fn(i32)
         }
     }
     None
+}
+
+/// Whether a process is Claude Code: the native binary, or node running its CLI.
+fn is_claude(name: &str, command: Option<&str>) -> bool {
+    name == "claude" || (name == "node" && command.is_some_and(|c| c.split_whitespace().take(2).any(|a| a.ends_with("/claude") || a.contains("@anthropic-ai/claude-code/"))))
+}
+
+/// The command that resumes a session here: by id, or the folder's latest when unknown.
+pub fn resume_command(session_id: &str) -> String {
+    if session_id.is_empty() { "claude --continue\r".into() } else { format!("claude --resume {session_id}\r") }
 }
 
 fn sessions_dir() -> Option<PathBuf> {
@@ -361,6 +377,17 @@ fn tmux() -> Vec<(String, String, (u32, u32))> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn claude_is_found_however_it_was_installed() {
+        assert!(is_claude("claude", None));
+        assert!(is_claude("node", Some("node /usr/local/bin/claude --model opus")));
+        assert!(is_claude("node", Some("node /opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js")));
+        assert!(!is_claude("node", Some("node server.js claude")));
+        assert!(!is_claude("zsh", None));
+        assert_eq!(resume_command(""), "claude --continue\r");
+        assert_eq!(resume_command("abc"), "claude --resume abc\r");
+    }
 
     #[test]
     fn a_shell_under_a_root_login_belongs_to_its_terminal() {

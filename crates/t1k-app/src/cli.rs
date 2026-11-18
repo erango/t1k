@@ -28,7 +28,7 @@ pub fn run(args: &[String]) -> bool {
             for f in &found {
                 let home = std::env::var("HOME").unwrap_or_default();
                 let cwd = f.cwd.as_ref().map(|c| c.display().to_string().replacen(&home, "~", 1)).unwrap_or_default();
-                let claude = f.claude.as_ref().map(|c| format!("  claude {} ({})", &c.session_id[..8.min(c.session_id.len())], if c.busy { "busy" } else { "idle" })).unwrap_or_default();
+                let claude = f.claude.as_ref().map(|c| format!("  claude {} ({})", if c.session_id.is_empty() { "latest in folder" } else { &c.session_id[..8.min(c.session_id.len())] }, if c.busy { "busy" } else { "idle" })).unwrap_or_default();
                 let running = f.running.as_ref().map(|r| format!("  running: {r}")).unwrap_or_default();
                 let title = f.title.as_ref().map(|t| format!("  \"{t}\"")).unwrap_or_default();
                 println!("{:<9} {:<8} {cwd}{title}{claude}{running}", f.source.label(), f.tty);

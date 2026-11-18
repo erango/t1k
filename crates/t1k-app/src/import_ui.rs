@@ -101,7 +101,7 @@ impl Workspace {
                 let prog = program_of(&f);
                 let key = origin(&f);
                 let already = self.tabs.iter().any(|t| {
-                    let same_session = f.claude.as_ref().is_some_and(|c| {
+                    let same_session = f.claude.as_ref().filter(|c| !c.session_id.is_empty()).is_some_and(|c| {
                         t.agent.as_ref().is_some_and(|a| a.session_id == c.session_id)
                             || t.last_session.as_deref() == Some(c.session_id.as_str())
                             || t.waiting.as_ref().is_some_and(|w| w.session_id == c.session_id)
@@ -254,11 +254,13 @@ impl Workspace {
             let ix = self.tabs.len() - 1;
             self.tabs[ix].origin = Some(origin(&f));
             if let Some(c) = &f.claude {
-                self.tabs[ix].last_session = Some(c.session_id.clone());
+                if !c.session_id.is_empty() {
+                    self.tabs[ix].last_session = Some(c.session_id.clone());
+                }
                 if import::alive(c.pid) {
                     self.tabs[ix].waiting = Some(Waiting { pid: c.pid, session_id: c.session_id.clone(), source: f.source, tty: f.tty.clone(), busy: c.busy });
                 } else {
-                    self.tabs[ix].view.read(cx).terminal.write(format!("claude --resume {}\r", c.session_id).into_bytes());
+                    self.tabs[ix].view.read(cx).terminal.write(import::resume_command(&c.session_id).into_bytes());
                 }
             } else if let Some(r) = &f.running {
                 self.tabs[ix].was_running = Some(r.clone());
@@ -293,7 +295,7 @@ impl Workspace {
                 continue;
             }
             self.tabs[i].waiting = None;
-            self.tabs[i].view.read(cx).terminal.write(format!("claude --resume {}\r", w.session_id).into_bytes());
+            self.tabs[i].view.read(cx).terminal.write(import::resume_command(&w.session_id).into_bytes());
             let title = self.tabs[i].title();
             self.notice_brief = false;
             self.notice = Some((format!("Resumed {title} from {}", w.source.label()), Instant::now()));
