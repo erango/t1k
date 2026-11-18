@@ -1576,7 +1576,7 @@ impl Workspace {
                 session::GroupSort::Attention => v.sort_by_key(|&i| (self.tabs[i].urgency(), self.tabs[i].created)),
                 session::GroupSort::Updated => v.sort_by_key(|&i| (std::cmp::Reverse(self.tabs[i].updated), self.tabs[i].created)),
                 session::GroupSort::Activity => v.sort_by_key(|&i| std::cmp::Reverse(self.tabs[i].last_active)),
-                session::GroupSort::Opened => v.sort_by_key(|&i| self.tabs[i].created),
+                session::GroupSort::Manual => v.sort_by_key(|&i| self.tabs[i].created),
             }
         }
         out
@@ -1651,6 +1651,32 @@ impl Workspace {
         self.notice = Some((format!("Moved {title} to {}", self.group_label(&to)), Instant::now()));
         self.notice_undo = true;
         self.match_undo = None;
+        cx.notify();
+    }
+
+    /// A row dropped on another row in its own group: put it in that row's place (after it
+    /// when it came from above, before it when from below). The group becomes manually sorted.
+    pub fn arrange_tab(&mut self, id: &str, onto: &str, cx: &mut Context<Self>) {
+        self.dragging_tab = None;
+        let (Some(from), Some(to)) = (self.tabs.iter().position(|t| t.id == id), self.tabs.iter().position(|t| t.id == onto)) else { return };
+        if from == to || self.tabs[from].group != self.tabs[to].group {
+            return;
+        }
+        let group = self.tabs[from].group.clone();
+        // The rows as they show now, then the dragged one moved to the target's place.
+        let rows = self.grouped().into_iter().find(|(g, _)| *g == group).map(|(_, v)| v).unwrap_or_default();
+        let slots: Vec<usize> = rows.iter().map(|&i| self.tabs[i].created).collect();
+        for (i, slot) in rearranged(&rows, &slots, from, to) {
+            self.tabs[i].created = slot;
+        }
+        let was_manual = self.group_sort.get(&group) == Some(&session::GroupSort::Manual);
+        self.group_sort.insert(group.clone(), session::GroupSort::Manual);
+        if !was_manual {
+            self.notice_brief = false;
+            self.notice = Some((format!("{} is now sorted by hand", self.group_label(&group)), Instant::now()));
+            self.notice_undo = false;
+        }
+        self.save();
         cx.notify();
     }
 
@@ -3401,5 +3427,34 @@ impl Workspace {
 impl Drop for Workspace {
     fn drop(&mut self) {
         self.count_active(false);
+    }
+}
+
+/// Rows (tab indices, in the order shown) after moving `from` into `to`'s place, each paired
+/// with the order slot it takes (the group's own slots, lowest first).
+fn rearranged(rows: &[usize], slots: &[usize], from: usize, to: usize) -> Vec<(usize, usize)> {
+    let mut rows = rows.to_vec();
+    let mut slots = slots.to_vec();
+    slots.sort_unstable();
+    if let (Some(a), Some(b)) = (rows.iter().position(|&i| i == from), rows.iter().position(|&i| i == to)) {
+        rows.remove(a);
+        rows.insert(b, from);
+    }
+    rows.into_iter().zip(slots).collect()
+}
+
+#[cfg(test)]
+mod arrange_tests {
+    use super::rearranged;
+
+    #[test]
+    fn a_dropped_row_takes_the_target_place() {
+        // Shown: 4, 7, 2, 9 with slots 10, 3, 5, 8 (any order).
+        let rows = [4, 7, 2, 9];
+        let slots = [10, 3, 5, 8];
+        // Down: 4 onto 2 lands after it.
+        assert_eq!(rearranged(&rows, &slots, 4, 2), vec![(7, 3), (2, 5), (4, 8), (9, 10)]);
+        // Up: 9 onto 7 lands before it.
+        assert_eq!(rearranged(&rows, &slots, 9, 7), vec![(4, 3), (9, 5), (7, 8), (2, 10)]);
     }
 }

@@ -690,7 +690,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
     let row_group = SharedString::from(format!("row-{}", tab.id));
     let confirming = ws.confirm_close.as_deref() == Some(tab.id.as_str());
 
-    let (drag_id, drag_label, drop_group) = (tab.id.clone(), tab.title(), tab.group.clone());
+    let (drag_id, drag_label, drop_group, onto) = (tab.id.clone(), tab.title(), tab.group.clone(), tab.id.clone());
     // The session's /color, shown the way Settings says (canvas v3-ad).
     let scolor = tab.agent.as_ref().and_then(|a| a.color.as_deref()).and_then(|n| crate::session_color::color(n, ws.theme));
     let smode = ws.config.sidebar.session_color.as_str();
@@ -710,7 +710,14 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
             cx.new(|_| GroupGhost { label: drag_label.clone().into(), ui })
         })
         .drag_over::<TabDrag>(move |s, _, _, _| s.bg(ui.accent.opacity(0.12)))
-        .on_drop(cx.listener(move |this, d: &TabDrag, _, cx| this.move_tabs_undoable(std::slice::from_ref(&d.0), &drop_group, cx)))
+        // Onto a row in its own group: put it there; in another group: move it into that group.
+        .on_drop(cx.listener(move |this, d: &TabDrag, _, cx| {
+            if this.tabs.iter().any(|t| t.id == d.0 && t.group == drop_group) {
+                this.arrange_tab(&d.0, &onto, cx);
+            } else {
+                this.move_tabs_undoable(std::slice::from_ref(&d.0), &drop_group, cx);
+            }
+        }))
         // Files dropped on a row go to that tab (canvas v3-aa): accent fill and ring, "Insert path".
         .drag_over::<gpui::ExternalPaths>(move |s, _, _, _| s.bg(ui.accent.opacity(0.12)).border_1().border_color(ui.accent.opacity(0.55)).rounded(px(6.)))
         .on_drag_move::<gpui::ExternalPaths>(cx.listener(move |this, e: &gpui::DragMoveEvent<gpui::ExternalPaths>, _, cx| {

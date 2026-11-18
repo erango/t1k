@@ -1766,7 +1766,7 @@ fn group_menu(ws: &Workspace, key: std::path::PathBuf, at: Point<Pixels>, window
         ("updated", "Last updated", GroupSort::Updated),
         ("attention", "Needs attention", GroupSort::Attention),
         ("activity", "Recently used", GroupSort::Activity),
-        ("opened", "Order opened", GroupSort::Opened),
+        ("manual", "Manual (drag to arrange)", GroupSort::Manual),
     ] {
         let k = key.clone();
         let mark = if sort == mode { "✓ " } else { "   " };

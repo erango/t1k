@@ -187,8 +187,10 @@ pub enum GroupSort {
     Attention,
     /// Most recently used first.
     Activity,
-    /// In the order they were opened.
-    Opened,
+    /// Where you put them: in the order opened until you drag a row (saved as "opened"
+    /// before rows could be dragged).
+    #[serde(alias = "opened")]
+    Manual,
 }
 
 pub fn support_dir() -> Option<PathBuf> {
