@@ -113,24 +113,24 @@ pub fn scan() -> Vec<Found> {
         let t1k = pid == own || path.contains("/T1K.app/") || name == "t1k";
         source_of.insert(pid, if t1k { None } else { Source::of(&path, name) });
     }
+    // Terminal apps start each tab's shell through `login`, which runs as root: it isn't in
+    // `procs`, so the walk up from the shell would stop there. Ask each terminal app for its
+    // children instead, which names those root ones too.
+    let mut parent_of: HashMap<i32, i32> = HashMap::new();
+    for (&pid, s) in &source_of {
+        if s.is_some() {
+            for child in process::children(pid) {
+                if !procs.contains_key(&child) {
+                    parent_of.insert(child, pid);
+                }
+            }
+        }
+    }
     let is_t1k = |pid: i32| pid == own || process::path(pid).is_some_and(|p| p.contains("/T1K.app/")) || names.get(&pid).is_some_and(|n| n == "t1k");
 
     // Walk up from a process to the terminal that owns it.
-    let owner = |mut pid: i32| -> Option<Source> {
-        for _ in 0..32 {
-            if is_t1k(pid) {
-                return None;
-            }
-            if let Some(Some(s)) = source_of.get(&pid) {
-                return Some(*s);
-            }
-            pid = procs.get(&pid)?.ppid;
-            if pid <= 1 {
-                return None;
-            }
-        }
-        None
-    };
+    let parent = |pid: i32| procs.get(&pid).map(|i| i.ppid).or_else(|| parent_of.get(&pid).copied());
+    let owner = |pid: i32| owner(pid, &parent, |p| source_of.get(&p).copied().flatten(), &is_t1k);
 
     // Processes by tty.
     let mut by_tty: HashMap<u32, Vec<&process::Info>> = HashMap::new();
@@ -163,6 +163,23 @@ pub fn scan() -> Vec<Found> {
     }
     out.sort_by(|a, b| (a.source, &a.tty).cmp(&(b.source, &b.tty)));
     out
+}
+
+/// Walk up from a process to the terminal app that owns it; None under T1K or past launchd.
+fn owner(mut pid: i32, parent: impl Fn(i32) -> Option<i32>, source: impl Fn(i32) -> Option<Source>, is_t1k: impl Fn(i32) -> bool) -> Option<Source> {
+    for _ in 0..32 {
+        if is_t1k(pid) {
+            return None;
+        }
+        if let Some(s) = source(pid) {
+            return Some(s);
+        }
+        pid = parent(pid)?;
+        if pid <= 1 {
+            return None;
+        }
+    }
+    None
 }
 
 fn sessions_dir() -> Option<PathBuf> {
@@ -344,6 +361,19 @@ fn tmux() -> Vec<(String, String, (u32, u32))> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_shell_under_a_root_login_belongs_to_its_terminal() {
+        // Ghostty (100) > login (200, root: only known from Ghostty's children) > zsh (300).
+        let readable: HashMap<i32, i32> = [(100, 1), (300, 200)].into();
+        let children_of_apps: HashMap<i32, i32> = [(200, 100)].into();
+        let parent = |p: i32| readable.get(&p).or_else(|| children_of_apps.get(&p)).copied();
+        let source = |p: i32| (p == 100).then_some(Source::Ghostty);
+        assert_eq!(owner(300, parent, source, |_| false), Some(Source::Ghostty));
+        // Without the app's children, the walk stops at login.
+        assert_eq!(owner(300, |p| readable.get(&p).copied(), source, |_| false), None);
+        assert_eq!(owner(300, parent, source, |p| p == 200), None);
+    }
 
     #[test]
     fn sources() {

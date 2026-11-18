@@ -133,6 +133,18 @@ pub fn all_pids() -> Vec<i32> {
     buf
 }
 
+/// A process's children, root-owned ones included (`login` under a terminal app, which
+/// `info` can't read).
+#[cfg(target_os = "macos")]
+pub fn children(pid: i32) -> Vec<i32> {
+    const PROC_PPID_ONLY: u32 = 6;
+    let mut buf = vec![0i32; 1024];
+    let n = unsafe { libc::proc_listpids(PROC_PPID_ONLY, pid as u32, buf.as_mut_ptr() as *mut libc::c_void, (buf.len() * 4) as i32) };
+    buf.truncate((n.max(0) / 4) as usize);
+    buf.retain(|&p| p > 0);
+    buf
+}
+
 /// Full path of a process's executable.
 #[cfg(target_os = "macos")]
 pub fn path(pid: i32) -> Option<String> {
