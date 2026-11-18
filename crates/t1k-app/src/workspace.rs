@@ -1,7 +1,7 @@
 //! Workspace: the tabs in a window, their project groups, and the active theme.
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use gpui::{
@@ -259,6 +259,12 @@ pub struct Workspace {
     pub hover_row: Option<String>,
     /// The tab being dragged in the sidebar (cleared on drop; ignored once no drag is active).
     pub dragging_tab: Option<String>,
+    /// Where the dragged tab would land among the rows (canvas v3-bb): beside this tab, after
+    /// it when true. None over its own place, or over a group that sorts itself.
+    pub tab_drop: Option<(String, bool)>,
+    /// The group header the dragged tab is over, and since when (a folded group opens after
+    /// `SPRING`).
+    pub header_drop: Option<(PathBuf, Instant)>,
     /// When the last tab needing you was handled: "All caught up" shows for a few seconds,
     /// then fades out (it's noise when nothing is going on).
     pub caught_up_at: Option<Instant>,
@@ -558,6 +564,8 @@ impl Workspace {
             notice_tab: None,
             hover_row: None,
             dragging_tab: None,
+            tab_drop: None,
+            header_drop: None,
             caught_up_at: None,
             had_needs: false,
             caught_up_task: None,
@@ -1654,24 +1662,135 @@ impl Workspace {
         cx.notify();
     }
 
-    /// A row dropped on another row in its own group: put it in that row's place (after it
-    /// when it came from above, before it when from below). The group becomes manually sorted.
-    pub fn arrange_tab(&mut self, id: &str, onto: &str, cx: &mut Context<Self>) {
-        self.dragging_tab = None;
-        let (Some(from), Some(to)) = (self.tabs.iter().position(|t| t.id == id), self.tabs.iter().position(|t| t.id == onto)) else { return };
-        if from == to || self.tabs[from].group != self.tabs[to].group {
+    /// Rows of `group` in the order shown.
+    fn group_rows(&self, group: &Path) -> Vec<usize> {
+        self.grouped().into_iter().find(|(g, _)| g == group).map(|(_, v)| v).unwrap_or_default()
+    }
+
+    fn sorts_by_hand(&self, group: &Path) -> bool {
+        self.group_sort.get(group) == Some(&session::GroupSort::Manual)
+    }
+
+    /// A drag moved over row `onto` (`inside` false once it has left): where the dragged tab
+    /// would land, for the line. Rows take a place in their own group, or in a group sorted by
+    /// hand; a group that sorts itself shows nothing on its rows.
+    pub fn drag_over_row(&mut self, onto: &str, inside: bool, after: bool, cx: &mut Context<Self>) {
+        if !inside {
+            if self.tab_drop.as_ref().is_some_and(|(o, _)| o == onto) {
+                self.tab_drop = None;
+                cx.notify();
+            }
             return;
         }
-        let group = self.tabs[from].group.clone();
-        // The rows as they show now, then the dragged one moved to the target's place.
-        let rows = self.grouped().into_iter().find(|(g, _)| *g == group).map(|(_, v)| v).unwrap_or_default();
-        let slots: Vec<usize> = rows.iter().map(|&i| self.tabs[i].created).collect();
-        for (i, slot) in rearranged(&rows, &slots, from, to) {
+        let next = self.drop_slot(onto, after).map(|after| (onto.to_string(), after));
+        if next != self.tab_drop || self.header_drop.is_some() {
+            self.tab_drop = next;
+            self.header_drop = None;
+            cx.notify();
+        }
+    }
+
+    /// Whether the dragged tab takes a place beside `onto` (Some(after)), or None: a
+    /// self-sorting group, or a drop that leaves it where it is.
+    fn drop_slot(&self, onto: &str, after: bool) -> Option<bool> {
+        let id = self.dragging_tab.as_deref()?;
+        let from = self.tabs.iter().position(|t| t.id == id)?;
+        let to = self.tabs.iter().position(|t| t.id == onto)?;
+        let group = &self.tabs[to].group;
+        let own = self.tabs[from].group == *group;
+        if !own && !self.sorts_by_hand(group) {
+            return None;
+        }
+        let rows = self.group_rows(group);
+        (placed(&rows, from, to, after) != rows).then_some(after)
+    }
+
+    /// A drag moved over group `key`'s header (`inside` false once it has left). A folded group
+    /// opens if the drag stays `SPRING`.
+    pub fn drag_over_header(&mut self, key: &Path, inside: bool, folded: bool, cx: &mut Context<Self>) {
+        let here = self.header_drop.as_ref().is_some_and(|(k, _)| k == key);
+        if !inside {
+            if here {
+                self.header_drop = None;
+                cx.notify();
+            }
+            return;
+        }
+        if here {
+            return;
+        }
+        let at = Instant::now();
+        self.header_drop = Some((key.to_path_buf(), at));
+        self.tab_drop = None;
+        cx.notify();
+        if folded {
+            let key = key.to_path_buf();
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(SPRING).await;
+                let _ = this.update(cx, |ws, cx| {
+                    if cx.has_active_drag() && ws.header_drop.as_ref() == Some(&(key.clone(), at)) {
+                        ws.collapsed.remove(&key);
+                        ws.show_quiet.insert(key);
+                        cx.notify();
+                    }
+                });
+            })
+            .detach();
+        }
+    }
+
+    fn end_tab_drag(&mut self) {
+        self.dragging_tab = None;
+        self.tab_drop = None;
+        self.header_drop = None;
+    }
+
+    /// A tab dropped on row `onto`: into the place the line showed; with no line, into that
+    /// row's group (a group that sorts itself) or nowhere (its own place).
+    pub fn drop_tab_on_row(&mut self, id: &str, onto: &str, cx: &mut Context<Self>) {
+        let slot = self.tab_drop.take().filter(|(o, _)| o == onto).map(|(_, after)| after);
+        self.end_tab_drag();
+        let (Some(from), Some(to)) = (self.tabs.iter().position(|t| t.id == id), self.tabs.iter().position(|t| t.id == onto)) else { return };
+        let group = self.tabs[to].group.clone();
+        match slot {
+            Some(after) => self.place_tab(from, to, after, cx),
+            None if self.tabs[from].group != group => self.move_tabs_undoable(&[id.to_string()], &group, cx),
+            None => cx.notify(),
+        }
+    }
+
+    /// A tab dropped on group `key`'s header: into the group, at the end when sorted by hand.
+    pub fn drop_tab_on_header(&mut self, id: &str, key: &Path, cx: &mut Context<Self>) {
+        self.end_tab_drag();
+        let Some(ix) = self.tabs.iter().position(|t| t.id == id) else { return };
+        if self.tabs[ix].group != key {
+            self.move_tabs_undoable(&[id.to_string()], &key.to_path_buf(), cx);
+        }
+        if self.sorts_by_hand(key) && self.group_rows(key).last() != Some(&ix) {
+            self.tabs[ix].created = self.next_created;
+            self.next_created += 1;
+            self.save();
+        }
+        cx.notify();
+    }
+
+    /// Put tab `from` beside tab `to` (after it when `after`), bringing it into `to`'s group
+    /// first. Rearranging a group that sorts itself turns it to sorting by hand, from the
+    /// order it showed.
+    fn place_tab(&mut self, from: usize, to: usize, after: bool, cx: &mut Context<Self>) {
+        let group = self.tabs[to].group.clone();
+        if self.tabs[from].group != group {
+            let id = self.tabs[from].id.clone();
+            self.move_tabs_undoable(&[id], &group, cx);
+        }
+        let rows = self.group_rows(&group);
+        let mut slots: Vec<usize> = rows.iter().map(|&i| self.tabs[i].created).collect();
+        slots.sort_unstable();
+        for (i, slot) in placed(&rows, from, to, after).into_iter().zip(slots) {
             self.tabs[i].created = slot;
         }
-        let was_manual = self.group_sort.get(&group) == Some(&session::GroupSort::Manual);
-        self.group_sort.insert(group.clone(), session::GroupSort::Manual);
-        if !was_manual {
+        if !self.sorts_by_hand(&group) {
+            self.group_sort.insert(group.clone(), session::GroupSort::Manual);
             self.notice_brief = false;
             self.notice = Some((format!("{} is now sorted by hand", self.group_label(&group)), Instant::now()));
             self.notice_undo = false;
@@ -3430,31 +3549,34 @@ impl Drop for Workspace {
     }
 }
 
-/// Rows (tab indices, in the order shown) after moving `from` into `to`'s place, each paired
-/// with the order slot it takes (the group's own slots, lowest first).
-fn rearranged(rows: &[usize], slots: &[usize], from: usize, to: usize) -> Vec<(usize, usize)> {
-    let mut rows = rows.to_vec();
-    let mut slots = slots.to_vec();
-    slots.sort_unstable();
-    if let (Some(a), Some(b)) = (rows.iter().position(|&i| i == from), rows.iter().position(|&i| i == to)) {
-        rows.remove(a);
-        rows.insert(b, from);
-    }
-    rows.into_iter().zip(slots).collect()
+/// How long a dragged tab rests on a folded group's header before the group opens.
+const SPRING: Duration = Duration::from_millis(700);
+
+/// Rows (tab indices) after putting `from` beside `to`, after it when `after`; `from` may
+/// come from another group.
+fn placed(rows: &[usize], from: usize, to: usize, after: bool) -> Vec<usize> {
+    let mut rows: Vec<usize> = rows.iter().copied().filter(|&i| i != from).collect();
+    let at = rows.iter().position(|&i| i == to).map_or(rows.len(), |p| p + usize::from(after));
+    rows.insert(at, from);
+    rows
 }
 
 #[cfg(test)]
 mod arrange_tests {
-    use super::rearranged;
+    use super::placed;
 
     #[test]
-    fn a_dropped_row_takes_the_target_place() {
-        // Shown: 4, 7, 2, 9 with slots 10, 3, 5, 8 (any order).
+    fn a_dropped_row_lands_where_the_line_shows() {
         let rows = [4, 7, 2, 9];
-        let slots = [10, 3, 5, 8];
-        // Down: 4 onto 2 lands after it.
-        assert_eq!(rearranged(&rows, &slots, 4, 2), vec![(7, 3), (2, 5), (4, 8), (9, 10)]);
-        // Up: 9 onto 7 lands before it.
-        assert_eq!(rearranged(&rows, &slots, 9, 7), vec![(4, 3), (9, 5), (7, 8), (2, 10)]);
+        // Below 2, above 9: the same place.
+        assert_eq!(placed(&rows, 4, 2, true), vec![7, 2, 4, 9]);
+        assert_eq!(placed(&rows, 4, 9, false), vec![7, 2, 4, 9]);
+        // Above the first row.
+        assert_eq!(placed(&rows, 9, 4, false), vec![9, 4, 7, 2]);
+        // Its own place (above the next row, below the previous one): nothing moves.
+        assert_eq!(placed(&rows, 7, 2, false), rows);
+        assert_eq!(placed(&rows, 7, 4, true), rows);
+        // From another group.
+        assert_eq!(placed(&rows, 5, 7, true), vec![4, 7, 5, 2, 9]);
     }
 }

@@ -338,6 +338,7 @@ fn group_header(ws: &Workspace, key: &std::path::Path, tabs: &[usize], sticky: b
     let click_key = key.clone();
     let (drag_key, drop_key) = (key.clone(), key.clone());
     let ghost_label = label.clone();
+    let drop_hint = header_drop_hint(ws, &key, tabs, folded, cx);
     div()
         .id(SharedString::from(format!("group-{}{}", if sticky { "s-" } else { "" }, key.display())))
         // Drag a header onto another group's header to move all its tabs there; onto the gap
@@ -345,7 +346,13 @@ fn group_header(ws: &Workspace, key: &std::path::Path, tabs: &[usize], sticky: b
         // header join that group.
         .on_drag(GroupDrag(drag_key), move |_, _, _, cx| cx.new(|_| GroupGhost { label: ghost_label.clone().into(), ui }))
         .drag_over::<GroupDrag>(move |s, _, _, _| s.bg(ui.accent.opacity(0.18)).rounded(px(6.)))
-        .drag_over::<TabDrag>(move |s, _, _, _| s.bg(ui.accent.opacity(0.18)).rounded(px(6.)))
+        // A dragged tab over the header: the header fills ("into this group") with a word on
+        // what happens (canvas v3-bb); a folded group opens after a moment.
+        .on_drag_move::<TabDrag>(cx.listener({
+            let key = key.clone();
+            move |this, e: &gpui::DragMoveEvent<TabDrag>, _, cx| this.drag_over_header(&key, e.bounds.contains(&e.event.position), folded, cx)
+        }))
+        .when(drop_hint.is_some(), |d| d.bg(ui.accent.opacity(0.14)))
         .on_drop(cx.listener({
             let to = drop_key.clone();
             move |this, d: &GroupDrag, _, cx| {
@@ -357,7 +364,7 @@ fn group_header(ws: &Workspace, key: &std::path::Path, tabs: &[usize], sticky: b
         }))
         .on_drop(cx.listener({
             let to = drop_key.clone();
-            move |this, d: &TabDrag, _, cx| this.move_tabs_undoable(std::slice::from_ref(&d.0), &to, cx)
+            move |this, d: &TabDrag, _, cx| this.drop_tab_on_header(&d.0, &to, cx)
         }))
         .when(!sticky, |d| {
             let to = drop_key.clone();
@@ -435,7 +442,9 @@ fn group_header(ws: &Workspace, key: &std::path::Path, tabs: &[usize], sticky: b
         .child(crate::icons::caret(ui.text_tertiary, !folded))
         .child(div().flex_1())
         .map(|d| {
-            if folded {
+            if let Some(hint) = drop_hint {
+                d.child(div().flex_none().text_size(px(10.5 * k)).text_color(ui.text_tertiary).child(hint))
+            } else if folded {
                 // One line: loud part first in amber, then "N quiet ›".
                 let (loud, quiet) = tally.summary();
                 d.child(
@@ -511,6 +520,40 @@ fn group_header(ws: &Workspace, key: &std::path::Path, tabs: &[usize], sticky: b
                 )
         })
         .into_any_element()
+}
+
+/// What dropping the dragged tab on group `key`'s header does, while it's over it: None when
+/// nothing would happen (its own group, sorting itself), and no fill then.
+fn header_drop_hint(ws: &Workspace, key: &std::path::Path, tabs: &[usize], folded: bool, cx: &gpui::App) -> Option<&'static str> {
+    ws.header_drop.as_ref().filter(|(k, _)| k == key && cx.has_active_drag())?;
+    let id = ws.dragging_tab.as_deref()?;
+    let own = tabs.iter().any(|&i| ws.tabs[i].id == id);
+    if folded {
+        return Some("opens in 0.7s");
+    }
+    match ws.group_sort.get(key).copied().unwrap_or_default() {
+        crate::session::GroupSort::Manual => (tabs.last().is_none_or(|&i| ws.tabs[i].id != id)).then_some("to the end"),
+        _ if own => None,
+        crate::session::GroupSort::Updated => Some("sorted by last update"),
+        crate::session::GroupSort::Attention => Some("sorted by urgency"),
+        crate::session::GroupSort::Activity => Some("sorted by recent use"),
+    }
+}
+
+/// Where a dragged tab will land: a ring and a 2 px line in the gap above (or below) a row.
+/// `shift` lines it up with the other rows when this one is the selected, further-in row.
+fn insert_line(ui: UiColors, after: bool, shift: f32) -> Div {
+    let y = px(-(ROW_GAP / 2.) - 4.);
+    div()
+        .absolute()
+        .left(px(shift + 4.))
+        .right_0()
+        .h(px(8.))
+        .map(|d| if after { d.bottom(y) } else { d.top(y) })
+        .flex()
+        .items_center()
+        .child(div().size(px(8.)).flex_none().rounded(px(4.)).border_2().border_color(ui.accent).bg(ui.bg_sidebar))
+        .child(div().flex_1().h(px(2.)).rounded(px(1.)).bg(ui.accent))
 }
 
 /// A boxless 24 px icon button for the title strip.
@@ -690,7 +733,8 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
     let row_group = SharedString::from(format!("row-{}", tab.id));
     let confirming = ws.confirm_close.as_deref() == Some(tab.id.as_str());
 
-    let (drag_id, drag_label, drop_group, onto) = (tab.id.clone(), tab.title(), tab.group.clone(), tab.id.clone());
+    let (drag_id, drag_label, onto) = (tab.id.clone(), tab.title(), tab.id.clone());
+    let drop_line = ws.tab_drop.as_ref().filter(|(o, _)| *o == tab.id && ws.dragging_tab.is_some() && cx.has_active_drag()).map(|(_, after)| *after);
     // The session's /color, shown the way Settings says (canvas v3-ad).
     let scolor = tab.agent.as_ref().and_then(|a| a.color.as_deref()).and_then(|n| crate::session_color::color(n, ws.theme));
     let smode = ws.config.sidebar.session_color.as_str();
@@ -705,19 +749,26 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
             let id = d.0.clone();
             let _ = ws_handle.update(cx, |ws, cx| {
                 ws.dragging_tab = Some(id);
+                ws.tab_drop = None;
+                ws.header_drop = None;
                 cx.notify();
             });
             cx.new(|_| GroupGhost { label: drag_label.clone().into(), ui })
         })
-        .drag_over::<TabDrag>(move |s, _, _, _| s.bg(ui.accent.opacity(0.12)))
-        // Onto a row in its own group: put it there; in another group: move it into that group.
-        .on_drop(cx.listener(move |this, d: &TabDrag, _, cx| {
-            if this.tabs.iter().any(|t| t.id == d.0 && t.group == drop_group) {
-                this.arrange_tab(&d.0, &onto, cx);
-            } else {
-                this.move_tabs_undoable(std::slice::from_ref(&d.0), &drop_group, cx);
+        // A line between rows shows where the tab will land (canvas v3-bb): above this row from
+        // its upper half, below it from its lower half. No fill, so nothing reads as "into".
+        .on_drag_move::<TabDrag>(cx.listener({
+            let onto = onto.clone();
+            move |this, e: &gpui::DragMoveEvent<TabDrag>, _, cx| {
+                // The gap between rows counts as both rows, so the line doesn't blink there.
+                let (b, p) = (e.bounds, e.event.position);
+                let inside = p.x >= b.left() && p.x <= b.right() && p.y >= b.top() - px(ROW_GAP) && p.y <= b.bottom() + px(ROW_GAP);
+                let after = p.y > b.center().y;
+                this.drag_over_row(&onto, inside, after, cx);
             }
         }))
+        .on_drop(cx.listener(move |this, d: &TabDrag, _, cx| this.drop_tab_on_row(&d.0, &onto, cx)))
+        .when_some(drop_line, |d, after| d.child(insert_line(ui, after, ROW_LEFT - row_left)))
         // Files dropped on a row go to that tab (canvas v3-aa): accent fill and ring, "Insert path".
         .drag_over::<gpui::ExternalPaths>(move |s, _, _, _| s.bg(ui.accent.opacity(0.12)).border_1().border_color(ui.accent.opacity(0.55)).rounded(px(6.)))
         .on_drag_move::<gpui::ExternalPaths>(cx.listener(move |this, e: &gpui::DragMoveEvent<gpui::ExternalPaths>, _, cx| {

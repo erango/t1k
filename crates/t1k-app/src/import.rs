@@ -130,7 +130,7 @@ pub fn scan() -> Vec<Found> {
 
     // Walk up from a process to the terminal that owns it.
     let parent = |pid: i32| procs.get(&pid).map(|i| i.ppid).or_else(|| parent_of.get(&pid).copied());
-    let owner = |pid: i32| owner(pid, &parent, |p| source_of.get(&p).copied().flatten(), &is_t1k);
+    let owner = |pid: i32| owner(pid, parent, |p| source_of.get(&p).copied().flatten(), is_t1k);
 
     // Processes by tty.
     let mut by_tty: HashMap<u32, Vec<&process::Info>> = HashMap::new();
