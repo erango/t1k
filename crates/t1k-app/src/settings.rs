@@ -846,28 +846,43 @@ fn render_inner(ws: &Workspace, section: Section, window: &mut Window, cx: &mut 
         Vec::new()
     };
     let mut nav = div().w(px(220.)).flex_none().rounded_l(px(11.)).px(px(10.)).py(px(12.)).flex().flex_col().gap(px(2.)).bg(ui.bg_sidebar).border_r_1().border_color(ui.border);
+    // Typing goes to this field whenever the font picker isn't open, so it shows a caret and
+    // an accent border like a focused field; clicking it takes the typing back from the picker.
+    let focused = !ws.fonts.open;
+    let caret = || div().w(px(1.5)).h(px(14.)).flex_none().bg(ui.accent);
     nav = nav.child(
         div()
+            .id("settings-search")
             .h(px(30.))
             .mb(px(10.))
             .px(px(10.))
             .rounded(px(7.))
             .bg(ui.bg_raised)
             .border_1()
-            .border_color(if searching { ui.accent } else { ui.border })
+            .border_color(if focused { ui.accent } else { ui.border })
+            .cursor_text()
             .flex()
             .items_center()
             .gap(px(8.))
             .text_size(px(12.5))
+            .on_click(cx.listener(|this, _, _, cx| {
+                if this.fonts.open {
+                    this.fonts.close();
+                    cx.notify();
+                }
+            }))
             .child(crate::icons::search(ui.text_tertiary))
             .child(
                 div()
                     .flex_1()
-                    .truncate()
-                    .text_color(if searching { ui.text_primary } else { ui.text_tertiary })
-                    .child(if searching { format!("{query}▏") } else { "Search settings".to_string() }),
-            )
-            .child(div().text_size(px(11.)).font_family("JetBrains Mono").text_color(ui.text_disabled).child("type")),
+                    .min_w_0()
+                    .flex()
+                    .items_center()
+                    .overflow_hidden()
+                    .when(searching, |d| d.child(div().truncate().text_color(ui.text_primary).child(query.clone())))
+                    .when(focused, |d| d.child(caret()))
+                    .when(!searching, |d| d.child(div().ml(px(1.)).truncate().text_color(ui.text_tertiary).child("Search settings"))),
+            ),
     );
     for s in Section::ALL {
         let on = s == section && !searching;
