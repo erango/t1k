@@ -45,6 +45,8 @@ pub fn to_esc(k: &Keystroke, mode: TermMode, option_as_meta: bool) -> Option<Vec
         match k.key.as_str() {
             "left" => return Some(b"\x1bb".to_vec()),
             "right" => return Some(b"\x1bf".to_vec()),
+            // ⌥⌫ deletes a word (meta-backspace), in kitty mode too, as ⌥← / ⌥→ do.
+            "backspace" => return Some(b"\x1b\x7f".to_vec()),
             _ => {}
         }
     }
@@ -226,8 +228,10 @@ fn kitty(k: &Keystroke, mode: TermMode, option_as_meta: bool, ev: Event) -> Opti
     let alternates = mode.contains(TermMode::REPORT_ALTERNATE_KEYS);
     let with_text = mode.contains(TermMode::REPORT_ASSOCIATED_TEXT);
     let m = &k.modifiers;
-    // ⌥ is a modifier only when it's Meta; otherwise it types characters (é, ∑).
-    let alt = m.alt && option_as_meta;
+    // ⌥ on a key that types text is a modifier only when it's Meta; otherwise it types
+    // characters (é, ∑). On named keys (⏎, ↑, F-keys) it types nothing, so it's always ⌥.
+    let named = k.key.chars().count() > 1 && k.key != "space";
+    let alt = m.alt && (option_as_meta || named);
     let mods = 1 + m.shift as u32 + 2 * alt as u32 + 4 * m.control as u32;
     // Caps lock rides along on CSI u keys, but not on keys that type text unless every key is
     // wanted (so it doesn't break programs reading text keys), nor on the legacy-form keys
@@ -392,6 +396,10 @@ mod tests {
         assert_eq!(k("enter").unwrap(), "\r");
         assert_eq!(k("ctrl-c").unwrap(), "\x1b[99;5u");
         assert_eq!(k("alt-x").unwrap(), "\x1b[120;3u");
+        // ⌥ on named keys counts without Option as Meta; ⌥⌫ is meta-backspace, as ⌥← is meta-b.
+        let named = |s: &str| String::from_utf8(to_esc(&ks(s), TermMode::DISAMBIGUATE_ESC_CODES, false).unwrap()).unwrap();
+        assert_eq!(named("alt-backspace"), "\x1b\x7f");
+        assert_eq!(named("alt-enter"), "\x1b[13;3u");
         assert_eq!(k("up").unwrap(), "\x1b[A");
         assert_eq!(k("ctrl-up").unwrap(), "\x1b[1;5A");
         assert_eq!(k("shift-delete").unwrap(), "\x1b[3;2~");
