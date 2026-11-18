@@ -3,6 +3,16 @@
   <channel>
     <title>T1K</title>
     <item>
+      <title>T1K 0.1.12</title>
+      <pubDate>Thu, 19 Nov 2026 00:13:07 +0200</pubDate>
+      <sparkle:version>0.1.12</sparkle:version>
+      <sparkle:shortVersionString>0.1.12</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/erango/t1k/releases/tag/v0.1.12</sparkle:fullReleaseNotesLink>
+      <description><![CDATA[<ul><li>Tabs brought over from other terminals resume their Claude session, also when Claude Code was installed with npm. Older Claude Code without session files resumes the folder&#x27;s latest session.</li></ul>]]></description>
+      <enclosure url="https://github.com/erango/t1k/releases/download/v0.1.12/T1K-0.1.12.zip" type="application/octet-stream" sparkle:edSignature="h17JaDVBPFMHw3LW5LWDiUJcnv5Bcj6TpZcPccMzGLSL15Rug+eV8TKvlkcCEIK5ozRMRQmZbrLpInEorJsSAw==" length="13125161" />
+    </item>
+    <item>
       <title>T1K 0.1.11</title>
       <pubDate>Wed, 18 Nov 2026 15:44:40 +0200</pubDate>
       <sparkle:version>0.1.11</sparkle:version>
