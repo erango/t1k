@@ -264,7 +264,7 @@ pub fn render(ws: &Workspace, query: &str, selected: usize, dark: bool, window: 
     };
 
     // Every row, in a list you can scroll; keys scroll it to the selection, clicks leave it be.
-    let mut list = div().id("theme-list").size_full().overflow_y_scroll().track_scroll(&ws.theme_scroll).flex().flex_col().gap(px(2.));
+    let mut list = div().id("theme-list").flex_1().min_h_0().overflow_y_scroll().track_scroll(&ws.theme_scroll).flex().flex_col().gap(px(2.));
     let mut child = 0usize;
     let mut selected_child = None;
     let mut last_builtin = None;
@@ -463,7 +463,7 @@ pub fn render(ws: &Workspace, query: &str, selected: usize, dark: bool, window: 
                 .flex()
                 .flex_col()
                 .child(slot_note)
-                .child(div().flex_1().min_h_0().child(list))
+                .child(list)
                 .child(drop_zone)
                 .child(toggle_row)
                 .child(import_btn),
