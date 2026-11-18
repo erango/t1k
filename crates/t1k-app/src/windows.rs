@@ -232,6 +232,17 @@ fn restored_bounds(s: &Session, cx: &App) -> Option<WindowBounds> {
     })
 }
 
+/// The first window's size: most of the screen (room for the sidebar, a terminal and the
+/// welcome card), within 1100×720 and 1600×1050.
+fn first_size(cx: &App) -> gpui::Size<gpui::Pixels> {
+    let Some(d) = cx.primary_display() else { return size(px(1100.), px(720.)) };
+    let s = d.bounds().size;
+    let w = (f32::from(s.width) * 0.8).clamp(1100., 1600.).min(f32::from(s.width));
+    // Leave the menu bar and Dock.
+    let h = (f32::from(s.height) * 0.85 - 40.).clamp(720., 1050.).min(f32::from(s.height) - 60.);
+    size(px(w), px(h))
+}
+
 /// Open a window on `saved` (its tabs, groups and frame). `at`: its top-left corner, for a
 /// tab dragged out; else the saved frame, else a little down and right of the last window.
 pub fn open(saved: Session, at: Option<gpui::Point<gpui::Pixels>>, focus: bool, cx: &mut App) -> Option<WindowHandle<Workspace>> {
@@ -247,7 +258,7 @@ pub fn open(saved: Session, at: Option<gpui::Point<gpui::Pixels>>, focus: bool, 
         let from = cx.active_window().and_then(|w| w.update(cx, |_, window, _| window.bounds()).ok());
         match from {
             Some(b) => WindowBounds::Windowed(Bounds::new(gpui::point(b.origin.x + px(28.), b.origin.y + px(28.)), b.size)),
-            None => WindowBounds::Windowed(Bounds::centered(None, default, cx)),
+            None => WindowBounds::Windowed(Bounds::centered(None, first_size(cx), cx)),
         }
     };
     let handle = cx

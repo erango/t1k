@@ -90,7 +90,7 @@ pub fn about(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
 }
 
 /// First launch: what T1K is and the three things to do first.
-pub fn welcome(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
+pub fn welcome(ws: &Workspace, window: &mut gpui::Window, cx: &mut Context<Workspace>) -> AnyElement {
     let ui = ws.ui;
     let step = |n: &'static str, title: &'static str, body: &'static str| {
         div()
@@ -111,8 +111,15 @@ pub fn welcome(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
     // Setup's Look step makes the same match offer, so the card shows one or the other (both
     // made it taller than the window).
     let setup = crate::setup::welcome_section(ws, cx);
+    // On a short window the card sits higher and scrolls, so its buttons are never cut off.
+    let vh = f32::from(window.viewport_size().height);
+    let top = if vh < 900. { 40. } else { 110. };
     card(ws)
+        .id("welcome")
         .w(px(500.))
+        .mt(px(top))
+        .max_h(px(vh - top - 24.))
+        .overflow_y_scroll()
         .child(lockup(300.))
         .child(div().text_size(px(14.)).text_color(ui.text_secondary).child("Run many coding agents. See which one needs you."))
         .child(

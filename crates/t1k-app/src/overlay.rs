@@ -941,7 +941,7 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
             Some(scrim(ws, true, cx).bg(gpui::black().opacity(0.35)).flex().justify_center().items_start().child(c).into_any_element())
         }
         Overlay::Welcome => {
-            let c = crate::brand::welcome(ws, cx);
+            let c = crate::brand::welcome(ws, window, cx);
             Some(scrim(ws, false, cx).bg(gpui::black().opacity(0.45)).flex().justify_center().items_start().child(c).into_any_element())
         }
         Overlay::Update => {
