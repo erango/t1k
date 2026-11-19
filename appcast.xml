@@ -3,6 +3,16 @@
   <channel>
     <title>T1K</title>
     <item>
+      <title>T1K 0.1.13</title>
+      <pubDate>Thu, 19 Nov 2026 02:10:56 +0200</pubDate>
+      <sparkle:version>0.1.13</sparkle:version>
+      <sparkle:shortVersionString>0.1.13</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/erango/t1k/releases/tag/v0.1.13</sparkle:fullReleaseNotesLink>
+      <description><![CDATA[<ul><li>Arrange tabs by hand: pick &quot;Manual (drag to arrange)&quot; in a group&#x27;s sort menu, or just drag a row within its group.</li><li>While you drag a tab, a line shows where it will land, and a group&#x27;s header says what a drop there does. A folded group opens if you rest on it.</li><li>The first window fits your screen, and the welcome card scrolls when the window is short.</li><li>The Settings search field shows a caret, so it&#x27;s clear typing goes there.</li></ul>]]></description>
+      <enclosure url="https://github.com/erango/t1k/releases/download/v0.1.13/T1K-0.1.13.zip" type="application/octet-stream" sparkle:edSignature="zwd0B+6d/ltMFK+f+qsKFrStTWDSv1ypyjCRw2Fkm0TX3EAhdYld8BEgKlJP5PYzgKdcedfkQH0+WpfsChk5DA==" length="13214640" />
+    </item>
+    <item>
       <title>T1K 0.1.12</title>
       <pubDate>Thu, 19 Nov 2026 00:13:07 +0200</pubDate>
       <sparkle:version>0.1.12</sparkle:version>
