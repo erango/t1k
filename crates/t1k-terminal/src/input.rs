@@ -103,8 +103,10 @@ pub fn to_esc(k: &Keystroke, mode: TermMode, option_as_meta: bool) -> Option<Vec
         "f10" => tilde(21),
         "f11" => tilde(23),
         "f12" => tilde(24),
+        // ⇧⏎ (and ⌥⏎) send ESC CR outside the kitty protocol: legacy has no shifted enter, and
+        // programs that take a newline from it (Claude Code, zsh) read meta-enter as one.
         "enter" => {
-            if alt { b"\x1b\r".to_vec() } else { b"\r".to_vec() }
+            if alt || shift { b"\x1b\r".to_vec() } else { b"\r".to_vec() }
         }
         "backspace" => {
             let b: &[u8] = if ctrl { b"\x08" } else { b"\x7f" };
@@ -394,6 +396,7 @@ mod tests {
         assert_eq!(k("escape").unwrap(), "\x1b[27u");
         assert_eq!(k("shift-enter").unwrap(), "\x1b[13;2u");
         assert_eq!(k("enter").unwrap(), "\r");
+        assert_eq!(to_esc(&ks("shift-enter"), TermMode::empty(), false).unwrap(), b"\x1b\r");
         assert_eq!(k("ctrl-c").unwrap(), "\x1b[99;5u");
         assert_eq!(k("alt-x").unwrap(), "\x1b[120;3u");
         // ⌥ on named keys counts without Option as Meta; ⌥⌫ is meta-backspace, as ⌥← is meta-b.
