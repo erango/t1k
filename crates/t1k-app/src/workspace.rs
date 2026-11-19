@@ -2547,6 +2547,12 @@ impl Workspace {
                 crate::platform::notify_tab(&tab.id, &format!("T1K · {what}"), &tab.title(), &body, kind);
             }
         }
+        // Write down which session this tab holds and whether it's live as soon as that
+        // changes, so a crash or force quit still resumes it next launch.
+        let ended = |s: &Option<Status>| matches!(s, Some(Status::Ended));
+        if new_session || ended(&before) != ended(&after) {
+            self.save();
+        }
         true
     }
 

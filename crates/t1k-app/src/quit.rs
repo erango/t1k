@@ -15,6 +15,9 @@ use crate::workspace::Workspace;
 const SHELLS: &[&str] = &["zsh", "bash", "fish", "sh", "login", "nu", "xonsh"];
 /// How long programs get to exit (after Quit anyway, or Stop) before we offer force.
 const GRACE: Duration = Duration::from_secs(3);
+/// How long Claude gets to exit after its second Ctrl-C before it's taken to be asking
+/// about background tasks (and gets a hangup instead).
+const CLAUDE_ASKS: Duration = Duration::from_millis(1200);
 
 /// One running tab, as the dialog lists it.
 pub struct Running {
@@ -104,11 +107,25 @@ impl Workspace {
                         t.view.read(cx).terminal.write(b"\x03".to_vec());
                     }
                 });
+                cx.background_executor().timer(CLAUDE_ASKS).await;
+                let _ = this.update(cx, |ws, cx| ws.hang_up_claude(&HashSet::from([id]), cx));
             })
             .detach();
         }
         self.tick_quit_dialog(cx);
         cx.notify();
+    }
+
+    /// Hang up the Claude sessions in `ids` that are still running (stuck on Claude's "exit
+    /// with background tasks running?" question).
+    fn hang_up_claude(&self, ids: &HashSet<String>, cx: &gpui::App) {
+        for (i, name) in self.running_programs(cx) {
+            let t = &self.tabs[i];
+            // Still Claude in front, not something started since.
+            if ids.contains(&t.id) && self.is_claude(i) && name.contains("claude") {
+                t.view.read(cx).terminal.hangup_foreground();
+            }
+        }
     }
 
     pub fn kill_running(&mut self, tab: usize, cx: &mut Context<Self>) {
@@ -191,7 +208,16 @@ impl Workspace {
             });
             // Quit as soon as everything has exited; past the grace period, wait for Force
             // quit (the dialog says what's still running).
+            let asked = Instant::now();
+            let mut hung_up = false;
             loop {
+                // Claude still up after its two Ctrl-Cs is asking whether to exit with
+                // background tasks running: answer yes with a hangup, as closing its window
+                // would. Its transcript is already on disk, so it resumes either way.
+                if !hung_up && asked.elapsed() >= CLAUDE_ASKS {
+                    hung_up = true;
+                    let _ = this.update(cx, |ws, cx| ws.hang_up_claude(&live, cx));
+                }
                 cx.background_executor().timer(Duration::from_millis(100)).await;
                 // Backed out of (Cancel): stop waiting, quit nothing.
                 let backed_out = this.update(cx, |ws, _| ws.quitting.is_none()).unwrap_or(true);
