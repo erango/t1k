@@ -3,6 +3,16 @@
   <channel>
     <title>T1K</title>
     <item>
+      <title>T1K 0.1.14</title>
+      <pubDate>Thu, 19 Nov 2026 11:44:11 +0200</pubDate>
+      <sparkle:version>0.1.14</sparkle:version>
+      <sparkle:shortVersionString>0.1.14</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/erango/t1k/releases/tag/v0.1.14</sparkle:fullReleaseNotesLink>
+      <description><![CDATA[<ul><li>Shift+Enter starts a new line in Claude Code&#x27;s input instead of sending it.</li></ul>]]></description>
+      <enclosure url="https://github.com/erango/t1k/releases/download/v0.1.14/T1K-0.1.14.zip" type="application/octet-stream" sparkle:edSignature="9gM+i18KOs6OdE4oSiAtRN5973hqKaHMCRo9yWpmypJFr/tLhj4Y5DWdQe1pmqpzmmtRCZhkH0l+I0M6v0cXBw==" length="13211521" />
+    </item>
+    <item>
       <title>T1K 0.1.13</title>
       <pubDate>Thu, 19 Nov 2026 02:10:56 +0200</pubDate>
       <sparkle:version>0.1.13</sparkle:version>
