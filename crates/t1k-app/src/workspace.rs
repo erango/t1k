@@ -463,6 +463,9 @@ pub struct Workspace {
     dock_icon: Option<(String, bool)>,
     /// Last `updater::rev()` drawn.
     update_rev: u64,
+    /// The window is on the Mac's own screen: the terminal uses `font.size` there and
+    /// `font.external_size` on other displays.
+    builtin_screen: bool,
     /// GitHub `owner/repo` per project group, for `#123` links (None: no GitHub remote).
     repos: HashMap<PathBuf, Option<String>>,
     _poll: Task<()>,
@@ -700,6 +703,7 @@ impl Workspace {
             badge: None,
             dock_icon: None,
             update_rev: 0,
+            builtin_screen: crate::platform::on_builtin_screen(window, cx),
             repos: HashMap::new(),
             _poll: poll,
             _fast: fast,
@@ -721,7 +725,16 @@ impl Workspace {
         crate::secure_input::apply(this.config.terminal.secure_input, window.is_window_active());
         crate::sound::set_theme(&this.config.notify.sound);
         // Remember where the window is; saved with the session (debounced through `poll`).
-        cx.observe_window_bounds(window, |this, window, _| this.window_frame = Some(frame_of(window))).detach();
+        cx.observe_window_bounds(window, |this, window, cx| {
+            this.window_frame = Some(frame_of(window));
+            // Moved to another kind of screen: its font size.
+            let builtin = crate::platform::on_builtin_screen(window, cx);
+            if builtin != this.builtin_screen {
+                this.builtin_screen = builtin;
+                this.restyle_terminals(cx);
+            }
+        })
+        .detach();
         // The close button closes this window (with one window, that quits T1K), so it asks
         // the same question about what's still running in it.
         let handle = cx.entity().downgrade();
@@ -3074,12 +3087,36 @@ impl Workspace {
         (mode, dark, light)
     }
 
-    /// ⌘+ / ⌘− / ⌘0: written to config.toml, so it sticks and the reload applies it everywhere.
+    /// The terminal font size for the screen this window is on.
+    pub fn font_size(&self) -> f32 {
+        let f = &self.config.terminal.font;
+        if self.builtin_screen { f.size } else { f.external_size }
+    }
+
+    /// ⌘+ / ⌘− / ⌘0 change the size for the screen this window is on: written to config.toml,
+    /// so it sticks and the reload applies it everywhere.
     fn set_font_size(&mut self, size: f32) {
         let size = size.clamp(8., 32.).round();
-        if size != self.config.terminal.font.size {
-            crate::config::set_value(&["terminal", "font", "size"], toml_edit::Value::from(size as i64));
+        if size != self.font_size() {
+            let key = if self.builtin_screen { "size" } else { "external_size" };
+            crate::config::set_value(&["terminal", "font", key], toml_edit::Value::from(size as i64));
         }
+    }
+
+    fn default_font_size(&self) -> f32 {
+        let d = crate::config::FontCfg::default();
+        if self.builtin_screen { d.size } else { d.external_size }
+    }
+
+    fn restyle_terminals(&mut self, cx: &mut Context<Self>) {
+        let style = self.terminal_style();
+        for view in self.terminal_views(cx) {
+            view.update(cx, |v, cx| {
+                v.style = style.clone();
+                cx.notify();
+            });
+        }
+        cx.notify();
     }
 
     /// Whether the window is see-through (canvas v3-ar).
@@ -3102,7 +3139,7 @@ impl Workspace {
         TerminalStyle {
             font_family: t.font.family.clone().into(),
             font_fallbacks: t.font.fallbacks.clone(),
-            font_size: px(t.font.size.clamp(6., 72.)),
+            font_size: px(self.font_size().clamp(6., 72.)),
             line_height: t.font.line_height.clamp(0.8, 3.),
             // One number in config; the sides get proportionally more (design: 14 × 20).
             padding: px(t.padding.clamp(0., 64.)),
@@ -3126,13 +3163,7 @@ impl Workspace {
         crate::secure_input::apply(self.config.terminal.secure_input, window.is_window_active());
         crate::quick::configure(&self.config.quick, cx);
         self.apply_theme(window, cx);
-        let style = self.terminal_style();
-        for view in self.terminal_views(cx) {
-            view.update(cx, |v, cx| {
-                v.style = style.clone();
-                cx.notify();
-            });
-        }
+        self.restyle_terminals(cx);
         crate::keymap::install(cx, &self.config.keys);
         crate::menus::install(cx);
         self.debug_dump();
@@ -3393,9 +3424,9 @@ impl Render for Workspace {
                 }
             }))
             .on_action(cx.listener(|this, _: &GoForward, window, cx| this.navigate(false, window, cx)))
-            .on_action(cx.listener(|this, _: &IncreaseFontSize, _, _| this.set_font_size(this.config.terminal.font.size + 1.)))
-            .on_action(cx.listener(|this, _: &DecreaseFontSize, _, _| this.set_font_size(this.config.terminal.font.size - 1.)))
-            .on_action(cx.listener(|this, _: &ResetFontSize, _, _| this.set_font_size(crate::config::FontCfg::default().size)))
+            .on_action(cx.listener(|this, _: &IncreaseFontSize, _, _| this.set_font_size(this.font_size() + 1.)))
+            .on_action(cx.listener(|this, _: &DecreaseFontSize, _, _| this.set_font_size(this.font_size() - 1.)))
+            .on_action(cx.listener(|this, _: &ResetFontSize, _, _| this.set_font_size(this.default_font_size())))
             .on_action(cx.listener(Self::follow_system))
             .on_action(cx.listener(Self::select_theme))
             .on_action(cx.listener(|this, _: &ShowThemePicker, window, cx| this.open_theme_picker(window, cx)))

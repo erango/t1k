@@ -1,5 +1,23 @@
 //! Small macOS integrations: Dock badge, notifications, PATH for helper tools.
 
+/// Whether `window` is on the Mac's own screen (a laptop's), not an external display. True
+/// when it can't tell.
+pub fn on_builtin_screen(window: &gpui::Window, cx: &gpui::App) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        #[link(name = "CoreGraphics", kind = "framework")]
+        extern "C" {
+            fn CGDisplayIsBuiltin(display: u32) -> u32;
+        }
+        window.display(cx).is_none_or(|d| unsafe { CGDisplayIsBuiltin(u32::from(d.id())) } != 0)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (window, cx);
+        true
+    }
+}
+
 /// Show `n` on the Dock icon (hidden at 0). Must run on the main thread.
 #[cfg(target_os = "macos")]
 pub fn set_dock_badge(n: usize) {

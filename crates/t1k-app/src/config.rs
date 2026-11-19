@@ -499,7 +499,10 @@ pub struct TerminalCfg {
 #[serde(default)]
 pub struct FontCfg {
     pub family: String,
+    /// On the Mac's own screen.
     pub size: f32,
+    /// On other displays (external monitors), usually further away.
+    pub external_size: f32,
     pub line_height: f32,
     pub fallbacks: Vec<String>,
 }
@@ -577,6 +580,7 @@ impl Default for FontCfg {
         Self {
             family: "JetBrains Mono".into(),
             size: 13.,
+            external_size: 14.,
             line_height: 1.45,
             fallbacks: ["Symbols Nerd Font Mono", "MesloLGS NF", "Meslo LG L DZ for Powerline", "Menlo", "Apple Color Emoji"]
                 .map(String::from)

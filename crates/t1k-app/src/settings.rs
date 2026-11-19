@@ -460,8 +460,10 @@ fn entries(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> 
         e(Tabs, "Links", "Ticket links", "Where keys like ENG-42 open; empty learns it from sessions", "links.tickets", "jira linear tracker",
             text(&c.links.tickets)),
         e(Terminal, "Font", "Family", "Any monospace font on this Mac, or get one", "terminal.font.family", "font typeface monospace install download get more nerd icons", fonts),
-        e(Terminal, "Font", "Size", "⌘+ / ⌘− / ⌘0", "terminal.font.size", "font size zoom",
+        e(Terminal, "Font", "Size on the Mac's screen", "⌘+ / ⌘− / ⌘0 change the size for the screen the window is on", "terminal.font.size", "font size zoom builtin laptop retina display",
             stepper(ui, "size", c.terminal.font.size as f64, 1., (8., 32.), &["terminal", "font", "size"], |v| format!("{v:.0} px"), cx).into_any_element()),
+        e(Terminal, "Font", "Size on other displays", "External monitors", "terminal.font.external_size", "font size zoom external monitor display screen",
+            stepper(ui, "size-ext", c.terminal.font.external_size as f64, 1., (8., 32.), &["terminal", "font", "external_size"], |v| format!("{v:.0} px"), cx).into_any_element()),
         e(Terminal, "Font", "Line height", "", "terminal.font.line_height", "spacing",
             stepper(ui, "lh", c.terminal.font.line_height as f64, 0.05, (1., 2.), &["terminal", "font", "line_height"], |v| format!("{v:.2}"), cx).into_any_element()),
         e(Terminal, "Behavior", "Padding", "Above and below; the sides get about 1.4×", "terminal.padding", "margin",
@@ -814,7 +816,7 @@ fn terminal_preview(ws: &Workspace) -> impl IntoElement {
         .border_1()
         .border_color(ui.border)
         .font_family(SharedString::from(c.terminal.font.family.clone()))
-        .text_size(px(c.terminal.font.size))
+        .text_size(px(ws.font_size()))
         .line_height(gpui::relative(c.terminal.font.line_height))
         .text_color(ui.text_primary)
         .child("fn main() { println!(\"0O 1lI {} => != ->\"); }")

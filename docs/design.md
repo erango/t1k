@@ -306,7 +306,7 @@ appearance = "system"          # "system" | "dark" | "light"
 [tabs]      recent_after_min, new_tab_cwd, title_sources = ["manual","ai_title","osc_title","process"], auto_unread
 [reminders] presets, snooze
 [terminal]  padding, scrollback, option_as_meta, copy_on_select, bell
-[terminal.font]   family, size, line_height, letter_spacing, ligatures, fallbacks
+[terminal.font]   family, size (Mac screen), external_size, line_height, letter_spacing, ligatures, fallbacks
 [terminal.cursor] style, blink
 [shell]     program, args, login, cwd, term
 [shell.env]
