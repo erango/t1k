@@ -3,6 +3,16 @@
   <channel>
     <title>T1K</title>
     <item>
+      <title>T1K 0.1.15</title>
+      <pubDate>Fri, 20 Nov 2026 01:18:18 +0200</pubDate>
+      <sparkle:version>0.1.15</sparkle:version>
+      <sparkle:shortVersionString>0.1.15</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/erango/t1k/releases/tag/v0.1.15</sparkle:fullReleaseNotesLink>
+      <description><![CDATA[<ul><li>Separate font sizes for the Mac&#x27;s screen (13 px) and other displays (14 px). Windows switch as they move between screens, and ⌘+ / ⌘− / ⌘0 change the size for the screen you&#x27;re on.</li><li>Quitting no longer gets stuck when Claude asks about background tasks: a session still running after its two Ctrl-Cs is hung up, and resumes next launch.</li><li>Each tab&#x27;s Claude session is saved as soon as it starts or ends, so a crash or force quit still resumes it.</li><li>After a crash or force quit, tabs whose session didn&#x27;t resume get `claude --resume &lt;id&gt;` typed at the prompt, ready for one Enter.</li><li>Bare domains like sanity.io/manage and email addresses are clickable links.</li></ul>]]></description>
+      <enclosure url="https://github.com/erango/t1k/releases/download/v0.1.15/T1K-0.1.15.zip" type="application/octet-stream" sparkle:edSignature="jSw1YSNMnOu7cTMUAWS1r4OaEUvf20XFHEMMVslGZdlLWblN3iMQdfAoQ3C66LsOCyX1IBV2JLHp+ifDNx6rCQ==" length="13524790" />
+    </item>
+    <item>
       <title>T1K 0.1.14</title>
       <pubDate>Thu, 19 Nov 2026 11:44:11 +0200</pubDate>
       <sparkle:version>0.1.14</sparkle:version>
