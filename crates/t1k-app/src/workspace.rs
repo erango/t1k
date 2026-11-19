@@ -811,6 +811,12 @@ impl Workspace {
                         tab.view.read(cx).terminal.write(format!("claude --resume {sid}\r").into_bytes());
                         resuming.insert(tab.id.clone());
                     }
+                } else if session::last_run_crashed() && tab.draft.is_none() && !missing {
+                    // T1K didn't quit cleanly, so whether this session was still going is
+                    // unknown: type its resume command at the prompt, for one Enter.
+                    if let Some(sid) = &t.last_session {
+                        tab.draft = Some((format!("claude --resume {sid}"), Instant::now(), None));
+                    }
                 }
                 tab.last_session = t.last_session;
                 tab.icon = t.icon;

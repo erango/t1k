@@ -222,6 +222,33 @@ pub fn save(s: &Session) {
     }
 }
 
+/// Whether the last run ended without quitting (crash, force quit, power loss), read once at
+/// launch from a marker that lives while T1K runs and goes away when it quits.
+static UNCLEAN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+fn marker() -> Option<PathBuf> {
+    Some(support_dir()?.join("running"))
+}
+
+/// At launch: note whether the last run quit cleanly, then mark this one as running.
+pub fn mark_running() {
+    let Some(m) = marker() else { return };
+    let _ = UNCLEAN.set(m.exists());
+    let _ = std::fs::create_dir_all(m.parent().unwrap_or(&m));
+    let _ = std::fs::write(&m, std::process::id().to_string());
+}
+
+/// T1K is quitting on purpose.
+pub fn mark_quit() {
+    if let Some(m) = marker() {
+        let _ = std::fs::remove_file(m);
+    }
+}
+
+pub fn last_run_crashed() -> bool {
+    UNCLEAN.get().copied().unwrap_or(false)
+}
+
 /// Find a Claude session's transcript: ~/.claude/projects/<any>/<session_id>.jsonl.
 pub fn find_transcript(session_id: &str) -> Option<PathBuf> {
     if session_id.is_empty() || session_id.contains('/') {

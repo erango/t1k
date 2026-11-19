@@ -363,6 +363,7 @@ pub fn quit(cx: &mut gpui::App) {
     // Windows closing from here on aren't being closed by the person: they stay saved.
     crate::windows::set_quitting();
     ALLOW_QUIT.store(true, std::sync::atomic::Ordering::SeqCst);
+    crate::session::mark_quit();
     cx.quit();
 }
 

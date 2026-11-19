@@ -85,6 +85,7 @@ fn main() {
         Ok("panic") => panic!("test panic in `private text`"),
         _ => {}
     }
+    session::mark_running();
     let app = Application::new();
     // Clicking the Dock icon brings forward the window holding the tab that has waited longest
     // (canvas v3-aq); macOS has already brought the app forward.
