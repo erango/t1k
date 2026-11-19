@@ -20,7 +20,7 @@ use gpui::{
 };
 
 use crate::input::{key_up, modifier_keys, set_caps_lock, to_esc_held};
-use crate::links::{find_path_candidates, find_pr_refs, find_tickets, find_urls, Link, LinkRules};
+use crate::links::{find_bare_urls, find_emails, find_path_candidates, find_pr_refs, find_tickets, find_urls, Link, LinkRules};
 use crate::palette::{dim, Palette};
 use crate::scrollbar::{Fade, Metrics, BUTTON_DELAY, IDLE};
 use crate::terminal::{GridSize, SpawnOptions, Terminal};
@@ -1538,6 +1538,14 @@ fn detect_links(
                     add(c.start, c.end, Link::File { path, line: c.line, col: c.col }, &mut links, &mut map);
                 }
             }
+        }
+        // Scheme-less links ("sanity.io/manage") after files, so a real file named like a
+        // domain stays a file.
+        for (a, b, url) in find_emails(&chars) {
+            add(a, b, Link::Url(url), &mut links, &mut map);
+        }
+        for (a, b, url) in find_bare_urls(&chars) {
+            add(a, b, Link::Url(url), &mut links, &mut map);
         }
         if rules.prs && !is_prompt {
             for (a, b, n) in find_pr_refs(&chars) {

@@ -82,6 +82,110 @@ pub fn find_urls(chars: &[char]) -> Vec<(usize, usize)> {
     out
 }
 
+/// Real top-level domains that are also file extensions people print (`main.rs`,
+/// `README.md`, `install.sh`): never a bare link.
+const FILE_LIKE_TLDS: &[&str] = &["rs", "md", "sh", "py", "pl", "pm", "zip", "mov", "cc", "so"];
+
+/// Whether `host` ends in a real public suffix (per the Public Suffix List) that isn't
+/// file-like, and has a name before it (`sanity.io`, not `io`).
+fn real_domain(host: &str) -> bool {
+    let host = host.to_ascii_lowercase();
+    let tld = host.rsplit('.').next().unwrap_or("");
+    if FILE_LIKE_TLDS.contains(&tld) || tld.chars().all(|c| c.is_ascii_digit()) {
+        return false;
+    }
+    psl::suffix(host.as_bytes()).is_some_and(|s| s.is_known() && s.as_bytes().len() < host.len())
+}
+
+/// Links written without a scheme, like `sanity.io/manage` or `docs.github.com`: `[start, end)`
+/// and the URL to open (with `https://`). The domain must end in a known TLD, and not be part
+/// of a word, an email address or a longer path.
+pub fn find_bare_urls(chars: &[char]) -> Vec<(usize, usize, String)> {
+    let mut out = Vec::new();
+    let label = |c: char| c.is_ascii_alphanumeric() || c == '-';
+    let mut i = 0;
+    while i < chars.len() {
+        let before = i.checked_sub(1).map(|j| chars[j]);
+        if !label(chars[i]) || before.is_some_and(|c| label(c) || matches!(c, '.' | '@' | '/' | ':' | '_' | '#' | '~')) {
+            i += 1;
+            continue;
+        }
+        // The host: labels separated by dots.
+        let start = i;
+        let mut end = i;
+        let mut last_label = start;
+        let mut dots = 0;
+        while end < chars.len() {
+            if label(chars[end]) {
+                end += 1;
+            } else if chars[end] == '.' && end + 1 < chars.len() && label(chars[end + 1]) && end > start && chars[end - 1] != '.' {
+                dots += 1;
+                end += 1;
+                last_label = end;
+            } else {
+                break;
+            }
+        }
+        let _ = last_label;
+        let host: String = chars[start..end].iter().collect();
+        let next = chars.get(end).copied();
+        let ok_host = dots > 0 && real_domain(&host) && !next.is_some_and(|c| c == '@' || c == '_');
+        if !ok_host {
+            i = end.max(i + 1);
+            continue;
+        }
+        // An optional path, up to whatever ends a URL.
+        if next == Some('/') {
+            while end < chars.len() && !is_terminator(chars[end]) {
+                end += 1;
+            }
+        } else if next.is_some_and(|c| !is_terminator(c) && !matches!(c, '.' | ',' | ';' | ':' | '!' | '?' | ')' | ']' | '*')) {
+            // Glued to more text ("a.com=b"): not a link.
+            i = end.max(i + 1);
+            continue;
+        }
+        let end = trim_trailing(chars, start, end);
+        out.push((start, end, format!("https://{}", chars[start..end].iter().collect::<String>())));
+        i = end.max(i + 1);
+    }
+    out
+}
+
+/// Email addresses (`name@example.com`): `[start, end)` and a `mailto:` URL.
+pub fn find_emails(chars: &[char]) -> Vec<(usize, usize, String)> {
+    let local = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '%' | '+' | '-');
+    let host = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '-');
+    let mut out = Vec::new();
+    for (at, _) in chars.iter().enumerate().filter(|(_, &c)| c == '@') {
+        let mut a = at;
+        while a > 0 && local(chars[a - 1]) {
+            a -= 1;
+        }
+        // No leading dot in the name ("...see.me@x.com" keeps "see.me").
+        while a < at && chars[a] == '.' {
+            a += 1;
+        }
+        let mut b = at + 1;
+        while b < chars.len() && host(chars[b]) {
+            b += 1;
+        }
+        // A sentence-ending dot isn't part of the domain.
+        while b > at + 1 && matches!(chars[b - 1], '.' | '-') {
+            b -= 1;
+        }
+        if a == at || b == at + 1 || out.last().is_some_and(|&(_, e, _)| e > a) {
+            continue;
+        }
+        let domain: String = chars[at + 1..b].iter().collect();
+        // "git@github.com:owner/repo" is a git remote, not an address.
+        let remote = chars.get(b) == Some(&':') && chars.get(b + 1).is_some_and(|c| !c.is_whitespace());
+        if domain.contains('.') && real_domain(&domain) && !remote {
+            out.push((a, b, format!("mailto:{}", chars[a..b].iter().collect::<String>())));
+        }
+    }
+    out
+}
+
 /// Drop trailing punctuation and unbalanced closing brackets, e.g. "(see https://x.com/a)."
 fn trim_trailing(chars: &[char], start: usize, mut end: usize) -> usize {
     loop {
@@ -304,5 +408,27 @@ mod tests {
     fn box_border_and_bare_scheme() {
         assert_eq!(urls("│ https://x.dev/a │"), ["https://x.dev/a"]);
         assert!(urls("https:// nothing").is_empty());
+    }
+
+    #[test]
+    fn bare_domains() {
+        let b = |s: &str| find_bare_urls(&chars(s)).into_iter().map(|(_, _, u)| u).collect::<Vec<_>>();
+        assert_eq!(b("open sanity.io/manage, then"), ["https://sanity.io/manage"]);
+        assert_eq!(b("see docs.github.com."), ["https://docs.github.com"]);
+        assert_eq!(b("(vercel.com/dashboard)"), ["https://vercel.com/dashboard"]);
+        assert!(b("edit src/main.rs and README.md, run install.sh").is_empty());
+        assert!(b("mail me at a@b.com").is_empty());
+        assert!(b("v2.1.317 and 3.14").is_empty());
+        assert!(b("crates/x/foo.io/bar").is_empty());
+        assert_eq!(b("deploy to my-app.vercel.app"), ["https://my-app.vercel.app"]);
+        assert!(b("not.arealtld and foo.notatld").is_empty());
+    }
+
+    #[test]
+    fn emails() {
+        let e = |s: &str| find_emails(&chars(s)).into_iter().map(|(_, _, u)| u).collect::<Vec<_>>();
+        assert_eq!(e("(yaron.frost@gmail.com)"), ["mailto:yaron.frost@gmail.com"]);
+        assert_eq!(e("write a.b+tag@mail.example.co.uk."), ["mailto:a.b+tag@mail.example.co.uk"]);
+        assert!(e("git@github.com:erango/t1k.git and @user and foo@bar").is_empty());
     }
 }
