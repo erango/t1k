@@ -442,6 +442,8 @@ pub struct Workspace {
     /// `T1K_DEBUG_CONTEXT`: a transcript shown as the active tab's context.
     pub ctx_debug: Option<PathBuf>,
     pub overlay_focus: FocusHandle,
+    /// The outputs panel, while a section heading takes the arrow keys (canvas v3-bd).
+    pub panel_focus: FocusHandle,
     pub config: Config,
     watcher: config::Watcher,
     socket: Option<PathBuf>,
@@ -681,6 +683,7 @@ impl Workspace {
                 open: saved.outputs_open,
                 // T1K_DEBUG_PANEL_WIDTH: as if dragged that wide (screenshots).
                 width: std::env::var("T1K_DEBUG_PANEL_WIDTH").ok().and_then(|w| w.parse().ok()).or(saved.panel_width).unwrap_or(crate::outputs_panel::MIN_W),
+                folded: saved.outputs_folded.iter().cloned().collect(),
                 tab: if saved.panel_context { crate::context_ui::PanelTab::Context } else { Default::default() },
                 ..Default::default()
             },
@@ -690,6 +693,7 @@ impl Workspace {
             },
             ctx_debug: std::env::var("T1K_DEBUG_CONTEXT").ok().map(|v| PathBuf::from(v.split(':').next().unwrap_or_default())),
             overlay_focus: cx.focus_handle(),
+            panel_focus: cx.focus_handle(),
             config,
             watcher,
             socket,
@@ -753,6 +757,12 @@ impl Workspace {
                 })
                 .unwrap_or(true)
         });
+        // Leaving the outputs panel drops its heading cursor.
+        cx.on_focus_out(&this.panel_focus, window, |ws, _, _, cx| {
+            ws.panel.cursor = None;
+            cx.notify();
+        })
+        .detach();
         cx.on_app_quit(|this, cx| {
             this.read_drafts(cx);
             this.save_scrollback(cx);
@@ -2816,6 +2826,7 @@ impl Workspace {
             outputs_open: self.panel.open,
             panel_width: (self.panel.width > crate::outputs_panel::MIN_W).then_some(self.panel.width),
             panel_context: self.panel.tab == crate::context_ui::PanelTab::Context,
+            outputs_folded: { let mut v: Vec<String> = self.panel.folded.iter().cloned().collect(); v.sort(); v },
             // Tool groups come and go with MCP servers; the ten sections are what's kept.
             context_toggled: {
                 let mut v: Vec<String> = self.ctx.toggled.iter().filter(|k| !k.contains(':')).cloned().collect();

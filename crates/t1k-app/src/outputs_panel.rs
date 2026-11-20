@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::process::Command;
 use std::time::{Duration, Instant, SystemTime};
 
-use gpui::{div, prelude::*, px, AnyElement, ClipboardItem, Context, Div, FontWeight, Hsla, SharedString};
+use gpui::{div, prelude::*, px, AnyElement, ClipboardItem, Context, Div, FontWeight, Hsla, KeyDownEvent, SharedString, Window};
 use t1k_agent::outputs::{Kind, Output};
 use t1k_themes::UiColors;
 
@@ -106,6 +106,12 @@ pub struct PanelState {
     pub links_open: bool,
     /// Sections showing everything, past the limit (by section label).
     pub expanded: HashSet<&'static str>,
+    /// Sections folded to their heading (canvas v3-bd), by label; kept across launches.
+    pub folded: HashSet<String>,
+    /// The section heading the arrow keys act on, while the panel has keyboard focus.
+    pub cursor: Option<&'static str>,
+    /// Section headings in the order last drawn (for ↑↓).
+    pub(crate) shown_sections: std::cell::RefCell<Vec<&'static str>>,
     /// FILES lists the files that are gone from disk (canvas v3-at A).
     pub show_deleted: bool,
     pub prs: HashMap<String, Option<PrInfo>>,
@@ -115,6 +121,43 @@ pub struct PanelState {
     pub(crate) refreshing: bool,
     /// PR info faked by `T1K_DEBUG_PRS`: gh is never asked, so it isn't overwritten.
     pub(crate) fake: bool,
+}
+
+impl Workspace {
+    pub fn toggle_section(&mut self, label: &'static str, cx: &mut Context<Self>) {
+        if !self.panel.folded.remove(label) {
+            self.panel.folded.insert(label.to_string());
+        }
+        self.save();
+        cx.notify();
+    }
+
+    /// Keys while a section heading has focus: ↑↓ move between headings, ← folds, → unfolds,
+    /// space or ↵ toggles, esc goes back to the terminal.
+    fn section_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let shown = self.panel.shown_sections.borrow().clone();
+        let Some(cur) = self.panel.cursor.filter(|c| shown.contains(c)).or_else(|| shown.first().copied()) else { return };
+        let at = shown.iter().position(|s| *s == cur).unwrap_or(0);
+        let m = &ev.keystroke.modifiers;
+        if m.platform || m.control || m.alt {
+            return;
+        }
+        match ev.keystroke.key.as_str() {
+            "up" => self.panel.cursor = Some(shown[at.saturating_sub(1)]),
+            "down" => self.panel.cursor = Some(shown[(at + 1).min(shown.len() - 1)]),
+            "left" if !self.panel.folded.contains(cur) => self.toggle_section(cur, cx),
+            "right" if self.panel.folded.contains(cur) => self.toggle_section(cur, cx),
+            "space" | "enter" => self.toggle_section(cur, cx),
+            "escape" => {
+                self.panel.cursor = None;
+                self.refocus_terminal(window, cx);
+            }
+            "left" | "right" => {}
+            _ => return,
+        }
+        cx.stop_propagation();
+        cx.notify();
+    }
 }
 
 const PR_TTL: Duration = Duration::from_secs(300);
@@ -604,6 +647,8 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
 
     let mut list = div()
         .id("outputs-list")
+        .track_focus(&ws.panel_focus)
+        .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| this.section_key(ev, window, cx)))
         .size_full()
         .overflow_y_scroll()
         .track_scroll(&ws.outputs_scroll)
@@ -624,6 +669,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
     // sections make a rainbow: its heading, and its rows' icons.
     let dark = ws.theme.is_dark();
     let mut hue_n = 0u8;
+    ws.panel.shown_sections.borrow_mut().clear();
     for (label, kinds) in sections {
         let in_section: Vec<&&(usize, Output)> = items.iter().filter(|(_, o)| kinds.contains(&o.kind)).collect();
         if in_section.is_empty() {
@@ -654,6 +700,13 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
         // For the PR heading: the oldest status fetch among them.
         let oldest_fetch = in_section.iter().filter_map(|x| ws.panel.prs.get(&x.1.target).and_then(|i| i.as_ref()).map(|i| i.fetched)).min();
         let (pinned, rest): (Vec<_>, Vec<_>) = in_section.into_iter().partition(|x| x.1.kind == Kind::Pr && !is_finished(&x.1));
+        // Folded (canvas v3-bd): the heading alone; PRs say how many are open and done.
+        let folded = ws.panel.folded.contains(label);
+        let pr_summary = (folded && label == "PULL REQUESTS").then(|| match (pinned.len(), rest.len()) {
+            (o, 0) => format!("{o} open"),
+            (0, m) => format!("{m} merged"),
+            (o, m) => format!("{o} open · {m} merged"),
+        });
         let room = limit.saturating_sub(pinned.len());
         let folds = rest.len() > room + 1;
         let hidden = if folds && !expanded { rest.len() - room } else { 0 };
@@ -663,25 +716,29 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             let more = if label == "PULL REQUESTS" { format!("+{hidden} merged or closed") } else { format!("+{hidden} more") };
             rows.push(Row::Fold { open: expanded, text: if expanded { "Show fewer".into() } else { more } });
         }
-        if !deleted.is_empty() {
+        if folded {
+            rows.clear();
+        } else if !deleted.is_empty() {
             rows.push(Row::Deleted { n: deleted.len(), open: ws.panel.show_deleted });
             if ws.panel.show_deleted {
                 rows.extend(deleted.into_iter().map(|x| Row::Out(x, true)));
             }
         }
         hue_n += 1;
+        ws.panel.shown_sections.borrow_mut().push(label);
         let tone = crate::groups::rainbow(hue_n, dark);
+        let at_cursor = ws.panel.cursor == Some(label);
         // PRs: when their status was fetched, and a refresh for all of them.
         let pr_head = (label == "PULL REQUESTS").then(|| {
             let oldest = oldest_fetch;
             let refreshing = ws.panel.refreshing;
             let waiting = ws.panel.refreshed_at.is_some_and(|t| t.elapsed() < REFRESH_EVERY);
-            let when = match (refreshing, oldest) {
+            let when = if let Some(s) = pr_summary.clone() { s } else { match (refreshing, oldest) {
                 (true, _) => "refreshing…".to_string(),
                 (_, Some(t)) if t.elapsed().as_secs() < 60 => "updated just now".to_string(),
                 (_, Some(t)) => format!("updated {} ago", crate::usage::span(t.elapsed().as_secs() as i64)),
                 (_, None) => "not fetched yet".to_string(),
-            };
+            } };
             div()
                 .flex_1()
                 .flex()
@@ -702,21 +759,39 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                         .when(refreshing || waiting, |d| d.opacity(0.4))
                         .when(!(refreshing || waiting), |d| d.cursor_pointer().hover(move |d| d.bg(ui.bg_hover).text_color(ui.text_primary)))
                         .tooltip(crate::tooltip::text(ui, "Refresh every PR's status"))
-                        .on_click(cx.listener(|this, _, _, cx| this.refresh_prs_now(cx)))
+                        // Refreshes only: the heading around it folds.
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.refresh_prs_now(cx);
+                        }))
                         .child("↻"),
                 )
         });
         list = list.child(
             div()
+                .id(SharedString::from(format!("section-{label}")))
+                .flex_none()
                 .h(px(24.))
                 .mt(px(6.))
                 .px(px(10.))
+                .rounded(px(6.))
                 .flex()
                 .items_center()
                 .gap(px(6.))
+                .cursor_pointer()
+                .hover(move |d| d.bg(ui.bg_selected))
+                .when(at_cursor, |d| d.bg(ui.bg_selected))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    // Keep focus here for ←→ (the workspace would hand it back to the terminal).
+                    cx.stop_propagation();
+                    this.toggle_section(label, cx);
+                    this.panel.cursor = Some(label);
+                    window.focus(&this.panel_focus);
+                }))
                 .text_size(px(10.5 * k))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(tone)
+                .child(crate::icons::caret(ui.text_disabled, !folded))
                 .child(label)
                 // Same font as the label, so the count sits on its line.
                 .child(div().text_color(ui.text_disabled).child(total.to_string()))
