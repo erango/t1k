@@ -3,6 +3,16 @@
   <channel>
     <title>T1K</title>
     <item>
+      <title>T1K 0.1.16</title>
+      <pubDate>Fri, 20 Nov 2026 13:17:49 +0200</pubDate>
+      <sparkle:version>0.1.16</sparkle:version>
+      <sparkle:shortVersionString>0.1.16</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/erango/t1k/releases/tag/v0.1.16</sparkle:fullReleaseNotesLink>
+      <description><![CDATA[<ul><li>Outputs sections fold to their heading with a click, and stay folded across tabs and launches. A folded PR section shows how many are open and merged.</li><li>After clicking a section heading, ↑↓ move between headings, ← folds, → unfolds, and Esc goes back to the terminal.</li><li>Working spinners turn smoothly again, at 60 frames a second. They still hold still while T1K is behind other windows.</li></ul>]]></description>
+      <enclosure url="https://github.com/erango/t1k/releases/download/v0.1.16/T1K-0.1.16.zip" type="application/octet-stream" sparkle:edSignature="cWtZl8CZinyZoQ09eMm8aMlMqODkxnMIgsg1FYrzrFrTH2RqVlPhlmjEuyv+KObHwiLN4ks2Fhb3FtDTND/OBQ==" length="13474916" />
+    </item>
+    <item>
       <title>T1K 0.1.15</title>
       <pubDate>Fri, 20 Nov 2026 01:18:18 +0200</pubDate>
       <sparkle:version>0.1.15</sparkle:version>
