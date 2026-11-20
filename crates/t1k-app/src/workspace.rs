@@ -222,6 +222,9 @@ impl Tab {
     }
 }
 
+/// One spinner frame (60 a second).
+const SPIN_FRAME: Duration = Duration::from_micros(16_667);
+
 pub struct Workspace {
     pub tabs: Vec<Tab>,
     /// Index into `tabs`.
@@ -524,16 +527,19 @@ impl Workspace {
 
         // Agent socket: one for the app; each window takes the messages for its own tabs.
         let socket = crate::windows::socket();
-        // Fast loop: every 100 ms, drain agent messages and do the housekeeping in `tick`.
-        // Working spinners advance with it (about 10 frames a second), and only while the
-        // window is in front: each frame redraws the whole window, and at 30 a second a few
-        // working tabs kept T1K busy even in the background. Behind other windows they hold
-        // still (the row still says Working).
+        // Fast loop, at 60 frames a second: working spinners turn smoothly, but only while the
+        // window is in front (each frame redraws the whole window; behind other windows they
+        // hold still and the row still says Working). Every sixth pass (100 ms) drains agent
+        // messages and does the housekeeping in `tick`.
         let fast = cx.spawn_in(window, async move |this, cx| {
+            let mut n: u32 = 0;
             loop {
-                cx.background_executor().timer(Duration::from_millis(100)).await;
+                cx.background_executor().timer(SPIN_FRAME).await;
+                n = n.wrapping_add(1);
                 let alive = this.update_in(cx, |ws, window, cx| {
-                    ws.tick(window, cx);
+                    if n.is_multiple_of(6) {
+                        ws.tick(window, cx);
+                    }
                     if !ws.window_inactive && ws.sidebar_open && ws.tabs.iter().any(|t| t.status() == Some(&Status::Working)) {
                         cx.notify();
                     }
