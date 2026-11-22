@@ -3,6 +3,16 @@
   <channel>
     <title>T1K</title>
     <item>
+      <title>T1K 0.1.19</title>
+      <pubDate>Mon, 23 Nov 2026 01:38:59 +0200</pubDate>
+      <sparkle:version>0.1.19</sparkle:version>
+      <sparkle:shortVersionString>0.1.19</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/erango/t1k/releases/tag/v0.1.19</sparkle:fullReleaseNotesLink>
+      <description><![CDATA[<ul><li>Shift-click extends a terminal selection instead of starting a new one, and with copy on select the clipboard follows the selection as shift-click or shift-arrows change it.</li></ul>]]></description>
+      <enclosure url="https://github.com/erango/t1k/releases/download/v0.1.19/T1K-0.1.19.zip" type="application/octet-stream" sparkle:edSignature="KRpOUmsgRjOvfch59Bhw8QGKuLQ8gNRaeisYPZ397tWOj8emWE2YYpygWb6zLONFRAmwOCvacZmJRkglPSUZBw==" length="13488594" />
+    </item>
+    <item>
       <title>T1K 0.1.18</title>
       <pubDate>Mon, 23 Nov 2026 00:26:00 +0200</pubDate>
       <sparkle:version>0.1.18</sparkle:version>
