@@ -3,6 +3,16 @@
   <channel>
     <title>T1K</title>
     <item>
+      <title>T1K 0.1.17</title>
+      <pubDate>Mon, 23 Nov 2026 00:24:16 +0200</pubDate>
+      <sparkle:version>0.1.17</sparkle:version>
+      <sparkle:shortVersionString>0.1.17</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/erango/t1k/releases/tag/v0.1.17</sparkle:fullReleaseNotesLink>
+      <description><![CDATA[<ul><li>The watching ring is bigger and easier to see: larger dots, with the moving dot brighter and a little larger than the rest.</li></ul>]]></description>
+      <enclosure url="https://github.com/erango/t1k/releases/download/v0.1.17/T1K-0.1.17.zip" type="application/octet-stream" sparkle:edSignature="b0ZYpa4sIL+JtYDGIqAogU91FjP3RaiVmZqIUfuSYsSkMltUxXhPPpWjzifrreNHv3+OvYaF7RSParktjr5YCg==" length="13472400" />
+    </item>
+    <item>
       <title>T1K 0.1.16</title>
       <pubDate>Fri, 20 Nov 2026 13:17:49 +0200</pubDate>
       <sparkle:version>0.1.16</sparkle:version>
