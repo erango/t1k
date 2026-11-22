@@ -3,6 +3,16 @@
   <channel>
     <title>T1K</title>
     <item>
+      <title>T1K 0.1.18</title>
+      <pubDate>Mon, 23 Nov 2026 00:26:00 +0200</pubDate>
+      <sparkle:version>0.1.18</sparkle:version>
+      <sparkle:shortVersionString>0.1.18</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/erango/t1k/releases/tag/v0.1.18</sparkle:fullReleaseNotesLink>
+      <description><![CDATA[<ul><li>T1K now counts launches anonymously through Sentry: each launch reports the version and whether it ended cleanly, tied to a random install id. Nothing else, and never terminal contents. It follows the crash reports switch in Settings › Advanced › Privacy and T1K_TELEMETRY=off.</li></ul>]]></description>
+      <enclosure url="https://github.com/erango/t1k/releases/download/v0.1.18/T1K-0.1.18.zip" type="application/octet-stream" sparkle:edSignature="3Xu/dng6MQ+00TqrjdYaTk4iPjsYgpTFaKgVXJeatEqd163THj/g5MFCspk0vY6bSMT6acm1I/zHmDy1xYUtBQ==" length="13485330" />
+    </item>
+    <item>
       <title>T1K 0.1.17</title>
       <pubDate>Mon, 23 Nov 2026 00:24:16 +0200</pubDate>
       <sparkle:version>0.1.17</sparkle:version>
