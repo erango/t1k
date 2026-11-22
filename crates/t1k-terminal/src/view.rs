@@ -657,6 +657,12 @@ impl TerminalView {
                 if let Some(head) = self.sel_head {
                     self.sel_head = self.terminal.extend_selection(head, dx, dy, m.alt, m.platform);
                     self.sync_offset(true);
+                    // With copy on select, the clipboard follows the selection as it changes.
+                    if self.style.copy_on_select {
+                        if let Some(text) = self.terminal.selection_text().filter(|t| !t.is_empty()) {
+                            cx.write_to_clipboard(ClipboardItem::new_string(text));
+                        }
+                    }
                     cx.stop_propagation();
                     cx.notify();
                     return;
@@ -844,6 +850,15 @@ impl TerminalView {
         }
         if self.mouse_reporting(ev.modifiers.shift) {
             self.report_mouse(0, col, row, true);
+            return;
+        }
+        // Shift-click moves the end of the selection there, as in any macOS text; dragging on
+        // keeps moving it, and the release copies the result.
+        if ev.click_count == 1 && ev.modifiers.shift && self.terminal.selection_text().is_some() {
+            self.press_cell = None;
+            self.terminal.update_selection(col, row, side);
+            self.sel_head = Some(self.terminal.grid_point(col, row));
+            cx.notify();
             return;
         }
         let ty = match ev.click_count {
