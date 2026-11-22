@@ -47,7 +47,7 @@ pub fn render(ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement {
         };
         let loud = matches!(a.status, Status::NeedsInput { .. } | Status::Error { .. });
         let marker = match a.status {
-            _ if watch.is_some() => div().size(px(11.)).child(crate::sidebar::watch_ring(ui.text_tertiary, ws.started, 4.25)),
+            _ if watch.is_some() => div().size(px(13.)).child(crate::sidebar::watch_ring(ui.text_tertiary, ws.started, 5.25)),
             Status::Working => div().size(px(10.)).child(crate::sidebar::spinner_sized(ui.status_working, ws.started, 3.6)),
             Status::Idle | Status::Ended => div().size(px(8.)).rounded_full().border_1().border_color(tone),
             // Loud states get a soft halo.

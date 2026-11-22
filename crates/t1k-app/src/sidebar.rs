@@ -694,7 +694,7 @@ fn row(ws: &Workspace, ix: usize, cx: &mut Context<Workspace>) -> AnyElement {
             .items_center()
             .gap(px(5.))
             .child(div().text_size(px(10.5 * k)).font_family("JetBrains Mono").text_color(ui.text_tertiary).child(time))
-            .child(div().size(px(12.)).flex_none().child(watch_ring(ui.text_tertiary, ws.started, 4.75)))
+            .child(div().size(px(13.)).flex_none().child(watch_ring(ui.text_tertiary, ws.started, 5.25)))
     });
     let unseen = tab.unread || tab.reminder_due;
     // A pending reminder shows a quiet clock after the title.
@@ -1475,20 +1475,23 @@ pub fn spinner(color: gpui::Hsla, started: Instant) -> impl IntoElement {
 }
 
 /// The working ring at radius `r` (it fills its parent).
-/// Watching (canvas v3-ax): a ring of 8 dots in no color, one brighter dot going round
-/// slowly (a step a second: it repaints with the poll, not an animation loop).
+/// Watching (canvas v3-ax, sized by v3-ax′): a ring of 8 dots in no color, one brighter and
+/// slightly bigger dot going round slowly (a step a second: it repaints with the poll, not an
+/// animation loop). With Reduce Motion no dot is lit and all sit a little brighter.
 pub fn watch_ring(color: gpui::Hsla, started: Instant, r: f32) -> gpui::Canvas<()> {
-    let lit = if crate::platform::reduce_motion() { usize::MAX } else { (started.elapsed().as_secs() % 8) as usize };
+    let still = crate::platform::reduce_motion();
+    let lit = if still { usize::MAX } else { (started.elapsed().as_secs() % 8) as usize };
+    let unlit = if still { 0.55 } else { 0.4 };
     gpui::canvas(
         |_, _, _| {},
         move |bounds, _, window, _| {
             let c = bounds.center();
             for i in 0..8 {
                 let a = i as f32 / 8. * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
-                let d = if r < 4. { 1.4 } else { 1.8 };
+                let d = if i == lit { 2.6 } else { 2.2 };
                 let p = gpui::point(c.x + px(r * a.cos() - d / 2.), c.y + px(r * a.sin() - d / 2.));
                 let q = gpui::Bounds::new(p, gpui::size(px(d), px(d)));
-                window.paint_quad(gpui::fill(q, color.opacity(if i == lit { 1. } else { 0.5 })).corner_radii(px(d / 2.)));
+                window.paint_quad(gpui::fill(q, color.opacity(if i == lit { 1. } else { unlit })).corner_radii(px(d / 2.)));
             }
         },
     )
