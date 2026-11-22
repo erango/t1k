@@ -364,6 +364,7 @@ pub fn quit(cx: &mut gpui::App) {
     crate::windows::set_quitting();
     ALLOW_QUIT.store(true, std::sync::atomic::Ordering::SeqCst);
     crate::session::mark_quit();
+    crate::telemetry::end_session();
     cx.quit();
 }
 

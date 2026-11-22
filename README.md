@@ -138,7 +138,7 @@ A build without a Developer ID certificate is signed ad-hoc and runs on your own
 
 ## Privacy
 
-- **Crash reports.** Release builds send crash reports and error messages to the developers through [Sentry](https://sentry.io). They never include terminal contents. Before anything is sent, your home folder becomes `~`, and email addresses, URL query strings and text a crash quotes are removed ([`telemetry.rs`](crates/t1k-app/src/telemetry.rs)). It's on by default; turn it off in Settings › Advanced › Privacy (`privacy.crash_reports = false`) or with `T1K_TELEMETRY=off`. Builds from source send nothing unless you give them your own DSN.
+- **Crash reports.** Release builds send crash reports and error messages to the developers through [Sentry](https://sentry.io). They also count launches: each launch reports the version and whether it ended cleanly, tied to a random install id made on first launch, so we can see how many installs run each release. They never include terminal contents. Before anything is sent, your home folder becomes `~`, and email addresses, URL query strings and text a crash quotes are removed ([`telemetry.rs`](crates/t1k-app/src/telemetry.rs)). It's on by default; turn it off in Settings › Advanced › Privacy (`privacy.crash_reports = false`) or with `T1K_TELEMETRY=off`. Builds from source send nothing unless you give them your own DSN.
 - **Updates.** The update check fetches [`appcast.xml`](appcast.xml) from this repo once a day; turn it off in Settings › Advanced › Updates.
 - **Helper.** Off by default. When on, it sends a session's prompts and the last lines on its screen (and, for ⌘↵ search, each tab's title, project, branch and status line) to the agent CLI you chose, which runs on your own account.
 

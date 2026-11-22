@@ -9,6 +9,10 @@
 //! log them. Before sending, the home folder becomes `~`, other `/Users/<name>` paths lose
 //! the name, email addresses become `<email>`, URL query strings are dropped, and text a
 //! panic quotes in backticks is redacted.
+//!
+//! Release health: each launch is one anonymous session (version, whether it ended cleanly
+//! or crashed), tied to a random install id kept in the support folder, so Sentry can count
+//! installs per release. The id is made up on first launch and means nothing else.
 
 use std::borrow::Cow;
 use std::collections::VecDeque;
@@ -34,6 +38,26 @@ fn dsn() -> Option<String> {
         .ok()
         .or(option_env!("T1K_SENTRY_DSN").map(String::from))
         .filter(|d| !d.trim().is_empty())
+}
+
+/// A random id for this install, made on first launch (`<support>/install-id`).
+fn install_id() -> Option<String> {
+    let path = crate::session::support_dir()?.join("install-id");
+    if let Ok(s) = std::fs::read_to_string(&path) {
+        let s = s.trim();
+        if uuid::Uuid::parse_str(s).is_ok() {
+            return Some(s.to_string());
+        }
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    std::fs::create_dir_all(path.parent()?).ok()?;
+    std::fs::write(&path, &id).ok()?;
+    Some(id)
+}
+
+/// Ends this launch's session as a clean exit (a crash ends it on its own).
+pub fn end_session() {
+    sentry::end_session();
 }
 
 /// True when this build can send reports at all (Settings hides the toggle otherwise).
@@ -62,7 +86,13 @@ pub fn init(allowed: bool) -> Option<Guard> {
             scrub_breadcrumb(&mut b);
             Some(b)
         }));
-        sentry::init((dsn, opts))
+        let guard = sentry::init((dsn, opts));
+        // One session per launch, counted against this install's id.
+        sentry::configure_scope(|scope| {
+            scope.set_user(install_id().map(|id| sentry::User { id: Some(id), ..Default::default() }));
+        });
+        sentry::start_session();
+        guard
     });
 
     let dest = Recorder(env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).build());

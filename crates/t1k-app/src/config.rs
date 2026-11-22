@@ -166,8 +166,8 @@ channel = "stable"
 feed = ""
 
 [privacy]
-# Send crash reports and errors to T1K's developers (Sentry). Never terminal contents;
-# paths are shortened to ~ and email addresses removed. Applies at the next launch.
+# Send crash reports, errors and an anonymous count of launches (a random install id and
+# the version) to T1K's developers (Sentry). Never terminal contents; paths are shortened to ~ and email addresses removed. Applies at the next launch.
 crash_reports = true
 
 [helper]
