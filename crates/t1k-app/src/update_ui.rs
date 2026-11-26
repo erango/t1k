@@ -1,8 +1,9 @@
 //! What T1K shows for updates (canvas board V3Updates): the mercury Update pill, the update
 //! dialog, and the quit prompt. Sparkle does the work; `updater` holds the state.
 //!
-//! The rule behind all of it: restarting a terminal stops every shell and agent in it, so T1K
-//! never restarts on its own and always says what a restart would interrupt.
+//! The rule behind all of it: T1K never restarts on its own. With the session daemon running
+//! the tabs, a restart interrupts nothing and says so (canvas v3-be); without it (shells in
+//! the app), it says what a restart would stop.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::SystemTime;
@@ -132,7 +133,11 @@ pub fn pill(ws: &Workspace, cx: &mut Context<Workspace>) -> Option<AnyElement> {
             .hover(move |d| d.bg(ui.accent.opacity(0.26)))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_click(cx.listener(|this, _, window, cx| this.open_update(window, cx)))
-            .tooltip(crate::tooltip::text(ui, if v.is_empty() { "An update is ready" } else { "A new version is ready" }))
+            .tooltip(crate::tooltip::text(ui, match (v.is_empty(), crate::windows::daemon().is_some()) {
+                (_, true) => "A new version is ready · restarting keeps your tabs running",
+                (true, false) => "An update is ready",
+                (false, false) => "A new version is ready",
+            }))
             .child("Update")
             .into_any_element(),
     )
@@ -296,8 +301,10 @@ pub fn dialog(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
             .child(heading(ws, if s.phase == Phase::Extracting { format!("Verifying {v}…") } else { format!("Installing {v}…") }, None))
             .child(row().justify_end().child(button(ws, "upd-hide", "Hide", false).on_click(cx.listener(|this, _, window, cx| this.close_overlay(window, cx))))),
         Phase::Ready => {
-            let busy = running(ws);
-            // With agents working, the safe choice is the default.
+            // Tabs run in the session daemon: a restart stops nothing, so it's always the
+            // default. Without it, agents at work make waiting for quit the safe default.
+            let keeps = crate::windows::daemon().is_some();
+            let busy = if keeps { None } else { running(ws) };
             let restart_primary = busy.is_none();
             card(ws)
                 .child(heading(ws, format!("T1K {v} is ready"), Some(format!("You have {CURRENT} · downloaded and verified"))))
@@ -326,6 +333,16 @@ pub fn dialog(ws: &Workspace, cx: &mut Context<Workspace>) -> AnyElement {
                             cx.notify();
                         }))),
                 )
+                .when(keeps, |d| {
+                    d.child(
+                        div()
+                            .flex()
+                            .justify_end()
+                            .text_size(px(11.5))
+                            .text_color(ui.text_tertiary)
+                            .child("Your tabs and programs keep running through the restart."),
+                    )
+                })
         }
     };
     body.into_any_element()

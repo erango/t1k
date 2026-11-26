@@ -353,6 +353,38 @@ pub fn reduce_motion() -> bool {
 
 // ---- quitting from outside T1K -----------------------------------------------------------------
 
+/// Give the app menu's item titled `title` a second line (NSMenuItem.subtitle, macOS 14+;
+/// older systems show the item without it).
+#[cfg(target_os = "macos")]
+pub fn menu_subtitle(title: &str, subtitle: &str) {
+    use cocoa::base::{id, nil};
+    use cocoa::foundation::NSString;
+    use objc::{class, msg_send, sel, sel_impl};
+    unsafe {
+        let app: id = msg_send![class!(NSApplication), sharedApplication];
+        let main: id = msg_send![app, mainMenu];
+        if main == nil {
+            return;
+        }
+        let first: id = msg_send![main, itemAtIndex: 0isize];
+        if first == nil {
+            return;
+        }
+        let menu: id = msg_send![first, submenu];
+        if menu == nil {
+            return;
+        }
+        let item: id = msg_send![menu, itemWithTitle: NSString::alloc(nil).init_str(title)];
+        let ok: bool = item != nil && msg_send![item, respondsToSelector: sel!(setSubtitle:)];
+        if ok {
+            let _: () = msg_send![item, setSubtitle: NSString::alloc(nil).init_str(subtitle)];
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn menu_subtitle(_: &str, _: &str) {}
+
 /// T1K's own quit paths set this just before quitting, after they've asked about running tabs.
 pub static ALLOW_QUIT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// macOS asked T1K to quit (Dock › Quit, logout, another app): the workspace turns it into ⌘Q.

@@ -74,4 +74,9 @@ pub fn install(cx: &mut App) {
                 ],
             },
         ]);
+        // Restart T1K keeps every tab running when the session daemon runs them; macOS 14+
+        // shows that as the item's second line (canvas v3-be).
+        if crate::windows::daemon().is_some() {
+            crate::platform::menu_subtitle("Restart T1K", "Tabs keep running");
+        }
 }

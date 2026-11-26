@@ -34,6 +34,7 @@ When ten or thirty agent sessions run side by side (Claude Code, Codex, Antigrav
 
   <img src="docs/screenshots/overview.png" alt="Overview: every agent as a card with its state, branch, PR and last lines" width="720">
 
+- **Tabs that outlive the app.** Every tab's shell runs in a small background process, so updating T1K, Restart T1K (in the T1K menu) or even a crash doesn't stop what's running: the app comes back to the same shells and screens. Quitting still ends them.
 - **Outputs.** ⌘⇧O lists what each session produced: PRs with their CI checks and review state, artifacts, docs, tickets, deploys and edited files.
 
   <img src="docs/screenshots/outputs.png" alt="The outputs panel with two PRs, an artifact, a ticket, a deploy and four edited files" width="720">
