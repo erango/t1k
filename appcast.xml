@@ -3,6 +3,16 @@
   <channel>
     <title>T1K</title>
     <item>
+      <title>T1K 0.1.20</title>
+      <pubDate>Fri, 27 Nov 2026 00:00:01 +0200</pubDate>
+      <sparkle:version>0.1.20</sparkle:version>
+      <sparkle:shortVersionString>0.1.20</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/erango/t1k/releases/tag/v0.1.20</sparkle:fullReleaseNotesLink>
+      <description><![CDATA[<ul><li>Fixed T1K freezing for good when macOS stops handing it a frame to draw into, as can happen under heavy memory or graphics load. It now skips that frame and carries on.</li><li>Warnings and errors now go to ~/Library/Logs/T1K/t1k.log, so a freeze or crash leaves a trail.</li></ul>]]></description>
+      <enclosure url="https://github.com/erango/t1k/releases/download/v0.1.20/T1K-0.1.20.zip" type="application/octet-stream" sparkle:edSignature="Mf5nTVzWIIsVk4xeHgRDY9MaI8qCy8NQN1gIl5ZIUWTRgGi/RMDKRMwtJddT00WLbu9g6qgqFyVNptaYc8YLCQ==" length="13480234" />
+    </item>
+    <item>
       <title>T1K 0.1.19</title>
       <pubDate>Mon, 23 Nov 2026 01:38:59 +0200</pubDate>
       <sparkle:version>0.1.19</sparkle:version>
