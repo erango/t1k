@@ -1,6 +1,6 @@
-<p align="center"><img src="resources/brand/readme-header.png" alt="T1K" width="600"></p>
+<p align="center"><img src="resources/brand/readme-header.png" alt="T1K Terminal" width="600"></p>
 
-<p align="center"><b>A macOS terminal for running many coding agents at once.</b><br>
+<p align="center"><b>T1K Terminal is a native macOS terminal for running many coding agents at once.</b><br>
 See which one needs you, without switching tabs.</p>
 
 <p align="center">
