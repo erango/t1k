@@ -60,6 +60,8 @@ pub struct SpawnOptions {
     pub command: Option<Vec<String>>,
     /// Answer the kitty keyboard protocol's query and honor its modes.
     pub kitty_keyboard: bool,
+    /// Run the shell in the session daemon, so it outlives this app. None runs it here.
+    pub daemon: Option<Arc<crate::remote::Daemon>>,
 }
 
 pub struct Terminal {
@@ -68,8 +70,13 @@ pub struct Terminal {
     pub size: GridSize,
     pub title: Option<String>,
     pub exited: bool,
-    /// Master side of the pty (owned by the event loop; valid while it runs).
+    /// Picked up still running from the session daemon, rather than started now.
+    pub resumed: bool,
+    /// Master side of the pty (owned by the event loop, or `_master` for a daemon's tab).
     pty_fd: RawFd,
+    _master: Option<std::os::fd::OwnedFd>,
+    /// For a daemon's tab: set to leave it running when this terminal goes (`detach`).
+    keep: Option<Arc<std::sync::atomic::AtomicBool>>,
     shell_pid: i32,
     /// Prompt gravity: bottom (blank rows under the cursor are hidden, see `gravity_shift`).
     pub bottom_gravity: bool,
@@ -130,7 +137,7 @@ pub fn gravity_hidden<T: EventListener>(term: &Term<T>) -> usize {
 /// Mirrors alacritty's macOS default (`login -flp user zsh -fc 'exec -a -<shell> <shell>'`) but
 /// always passes `-q`, as Ghostty and Terminal.app do. `-q` also hides the `tty??` that `login`
 /// prints when the pty isn't in utmp.
-fn login_shell() -> Option<tty::Shell> {
+pub(crate) fn login_shell() -> Option<tty::Shell> {
     if !cfg!(target_os = "macos") {
         return None;
     }
@@ -144,7 +151,38 @@ fn login_shell() -> Option<tty::Shell> {
     ))
 }
 
+/// What a new grid starts with: blank lines for prompt gravity at the bottom, and the
+/// scrollback saved from the last run.
+fn start<T: EventListener>(term: &mut Term<T>, at_bottom: bool, restore: Option<&[u8]>) {
+    if at_bottom {
+        // Feed blank lines before the shell prints anything: the cursor reaches the last row
+        // and the rest scroll into history, so when the pane grows to its real height the
+        // resize pulls those blanks back down and the cursor stays on the bottom row.
+        use alacritty_terminal::vte::ansi::Handler;
+        for _ in 0..400 {
+            term.linefeed();
+        }
+    }
+    if let Some(bytes) = restore {
+        let mut p: alacritty_terminal::vte::ansi::Processor<alacritty_terminal::vte::ansi::StdSyncHandler> = Default::default();
+        p.advance(term, bytes);
+    }
+}
+
 impl Terminal {
+    /// Leave the shell running in the session daemon when this terminal goes (Restart T1K,
+    /// updates). No-op for a shell this process runs itself.
+    pub fn detach(&self) {
+        if let Some(k) = &self.keep {
+            k.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    /// The shell runs in the session daemon.
+    pub fn in_daemon(&self) -> bool {
+        self.keep.is_some()
+    }
+
     /// Spawn the user's login shell in a new pty. Returns the terminal and the event stream.
     pub fn spawn(opts: SpawnOptions) -> anyhow::Result<(Self, UnboundedReceiver<AlacEvent>)> {
         let size = GridSize { cols: 80, rows: 24, cell_width: 8.0, cell_height: 16.0 };
@@ -156,39 +194,11 @@ impl Terminal {
         env.insert("COLORTERM".into(), "truecolor".into());
         env.insert("TERM_PROGRAM".into(), "t1k".into());
         env.insert("TERM_PROGRAM_VERSION".into(), env!("CARGO_PKG_VERSION").into());
-        env.insert("T1K_TAB_ID".into(), opts.tab_id);
+        let tab_id = opts.tab_id;
+        env.insert("T1K_TAB_ID".into(), tab_id.clone());
 
-        let pty_opts = tty::Options {
-            shell: match opts.command {
-                Some(c) if !c.is_empty() => Some(tty::Shell::new(c[0].clone(), c[1..].to_vec())),
-                _ => login_shell(),
-            },
-            working_directory: opts.working_directory,
-            drain_on_exit: true,
-            env,
-        };
-        let pty = tty::new(&pty_opts, size.window_size(), 0)?;
-        let pty_fd = pty.file().as_raw_fd();
-        let shell_pid = pty.child().id() as i32;
-
-        // kitty_keyboard: answer CSI ? u and track the modes programs push (input.rs encodes).
         let config = Config { scrolling_history: 10_000, kitty_keyboard: opts.kitty_keyboard, ..Config::default() };
-        let term = Term::new(config, &TermSize::new(size.cols, size.rows), listener.clone());
-        let mut term = term;
-        if opts.start_at_bottom {
-            // Feed blank lines before the shell prints anything: the cursor reaches the last row
-            // and the rest scroll into history, so when the pane grows to its real height the
-            // resize pulls those blanks back down and the cursor stays on the bottom row.
-            use alacritty_terminal::vte::ansi::Handler;
-            for _ in 0..400 {
-                term.linefeed();
-            }
-        }
-        if let Some(bytes) = opts.restore.as_deref().filter(|b| !b.is_empty()) {
-            let mut p: alacritty_terminal::vte::ansi::Processor<alacritty_terminal::vte::ansi::StdSyncHandler> = Default::default();
-            p.advance(&mut term, bytes);
-        }
-        let term = Arc::new(FairMutex::new(term));
+        let restore = opts.restore.filter(|b| !b.is_empty());
 
         // Programs' own notifications (OSC 9 / 777) arrive through the event channel, then a
         // Wakeup so the view looks at them now.
@@ -205,13 +215,65 @@ impl Terminal {
             })
         };
         let tap = Arc::new(crate::notify_scan::LineTap::default());
-        let pty = crate::notify_scan::ScanPty::new(pty, sink, tap.clone())?;
+        let bottom_gravity = opts.start_at_bottom;
+
+        if let Some(daemon) = opts.daemon {
+            let spawn = crate::daemon::Spawn {
+                cwd: opts.working_directory,
+                env,
+                command: opts.command,
+                start_at_bottom: opts.start_at_bottom,
+                restore: restore.as_ref().map(|r| String::from_utf8_lossy(r).into_owned()),
+                kitty_keyboard: opts.kitty_keyboard,
+            };
+            let want = crate::daemon::Size { cols: size.cols as u16, rows: size.rows as u16, cell_width: size.cell_width as u16, cell_height: size.cell_height as u16 };
+            let (reply, master, stream) = daemon.open(&tab_id, want, spawn)?;
+            // A tab that was already running comes with its own size; the daemon's copy of it
+            // arrives first on the connection and needs a grid that size to land right.
+            let size = match reply.size.filter(|_| !reply.new) {
+                Some(s) => GridSize { cols: s.cols as usize, rows: s.rows as usize, cell_width: s.cell_width as f32, cell_height: s.cell_height as f32 },
+                None => size,
+            };
+            let mut term = Term::new(config, &TermSize::new(size.cols, size.rows), listener.clone());
+            if reply.new {
+                start(&mut term, opts.start_at_bottom, restore.as_deref());
+            }
+            let term = Arc::new(FairMutex::new(term));
+            let (pty, reader) = crate::remote::RemotePty::new(daemon, tab_id, stream)?;
+            let keep = pty.keep.clone();
+            let pty = crate::notify_scan::ScanPty::new(pty, Box::new(reader), sink, tap.clone())?;
+            let event_loop = EventLoop::new(term.clone(), listener, pty, true, false)?;
+            let notifier = Notifier(event_loop.channel());
+            event_loop.spawn();
+            let pty_fd = master.as_raw_fd();
+            return Ok((Self { term, notifier, size, title: None, exited: false, resumed: !reply.new, pty_fd, _master: Some(master), keep: Some(keep), shell_pid: reply.pid, bottom_gravity, shift: Default::default(), notices, exits, tap }, rx));
+        }
+
+        let pty_opts = tty::Options {
+            shell: match opts.command {
+                Some(c) if !c.is_empty() => Some(tty::Shell::new(c[0].clone(), c[1..].to_vec())),
+                _ => login_shell(),
+            },
+            working_directory: opts.working_directory,
+            drain_on_exit: true,
+            env,
+        };
+        let pty = tty::new(&pty_opts, size.window_size(), 0)?;
+        let pty_fd = pty.file().as_raw_fd();
+        let shell_pid = pty.child().id() as i32;
+
+        // kitty_keyboard: answer CSI ? u and track the modes programs push (input.rs encodes).
+        let mut term = Term::new(config, &TermSize::new(size.cols, size.rows), listener.clone());
+        start(&mut term, opts.start_at_bottom, restore.as_deref());
+        let term = Arc::new(FairMutex::new(term));
+
+        let file = Box::new(pty.file().try_clone()?);
+        let pty = crate::notify_scan::ScanPty::new(pty, file, sink, tap.clone())?;
         let event_loop = EventLoop::new(term.clone(), listener, pty, true, false)?;
         let notifier = Notifier(event_loop.channel());
         event_loop.spawn();
 
-        let bottom_gravity = opts.start_at_bottom;
-        Ok((Self { term, notifier, size, title: None, exited: false, pty_fd, shell_pid, bottom_gravity, shift: Default::default(), notices, exits, tap }, rx))
+        Ok((Self { term, notifier, size, title: None, exited: false, resumed: false, pty_fd, _master: None, keep: None, shell_pid, bottom_gravity, shift: Default::default(), notices, exits, tap }, rx))
     }
 
     /// Exit statuses of commands that finished since the last call.

@@ -800,14 +800,19 @@ impl Workspace {
                     this.restore_next = t.scrollback.as_ref().zip(dir.as_ref()).and_then(|(f, d)| std::fs::read(d.join(f)).ok()).map(restored_banner);
                 }
                 let missing = t.cwd.as_ref().is_some_and(|p| !p.is_dir());
-                this.open_tab(t.cwd.filter(|p| p.is_dir()), t.manual_title, window, cx);
+                this.open_tab_as(t.id.clone(), t.cwd.filter(|p| p.is_dir()), t.manual_title, window, cx);
                 let tab = this.tabs.last_mut().unwrap();
-                if missing {
+                // Still running in the session daemon (a restart, an update, a crash): its
+                // screen, draft and agent are as they were, so nothing is typed into it.
+                let live = tab.view.read(cx).terminal.resumed;
+                if missing && !live {
                     failed.push((tab.id.clone(), "Folder missing"));
                 }
                 tab.reminder_at = t.reminder_at.map(|s| UNIX_EPOCH + Duration::from_secs(s));
                 tab.unread = t.unread;
-                tab.draft = t.draft.clone().filter(|d| !d.trim().is_empty()).map(|d| (d, Instant::now(), None));
+                if !live {
+                    tab.draft = t.draft.clone().filter(|d| !d.trim().is_empty()).map(|d| (d, Instant::now(), None));
+                }
                 if let Some(u) = t.updated {
                     tab.updated = UNIX_EPOCH + Duration::from_secs(u);
                 }
@@ -822,7 +827,8 @@ impl Workspace {
                     }
                 }
                 // Claude was mid-session when T1K quit: pick it back up.
-                if t.agent_live && this.config.terminal.resume_agents && !missing {
+                if live {
+                } else if t.agent_live && this.config.terminal.resume_agents && !missing {
                     if let Some(sid) = &t.last_session {
                         tab.view.read(cx).terminal.write(format!("claude --resume {sid}\r").into_bytes());
                         resuming.insert(tab.id.clone());
@@ -1244,7 +1250,19 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let id = uuid::Uuid::new_v4().to_string();
+        self.open_tab_as(None, cwd, manual_title, window, cx);
+    }
+
+    /// `id`: a saved tab's, so its shell is picked back up if the session daemon still runs it.
+    pub fn open_tab_as(
+        &mut self,
+        id: Option<String>,
+        cwd: Option<PathBuf>,
+        manual_title: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let id = id.filter(|i| !i.is_empty() && !self.tabs.iter().any(|t| &t.id == i)).unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let cwd = cwd.or_else(|| std::env::var_os("HOME").map(Into::into));
         let view = self.spawn_view(cwd.clone(), id.clone(), window, cx);
         self.push_tab(id, view, cwd, manual_title, window, cx);
@@ -1372,7 +1390,7 @@ impl Workspace {
             }
         }
         let command = crate::demo::on().then(crate::demo::command);
-        let opts = SpawnOptions { working_directory: cwd, env, tab_id, start_at_bottom: self.config.terminal.prompt_gravity != "top", restore, command, kitty_keyboard: self.config.terminal.kitty_keyboard };
+        let opts = SpawnOptions { working_directory: cwd, env, tab_id, start_at_bottom: self.config.terminal.prompt_gravity != "top", restore, command, kitty_keyboard: self.config.terminal.kitty_keyboard, daemon: crate::windows::daemon() };
         let palette = self.theme.palette();
         let style = self.terminal_style();
         cx.new(|cx| {
@@ -2804,6 +2822,7 @@ impl Workspace {
             tabs: self.visual_order().iter().map(|&i| {
                 let t = &self.tabs[i];
                 SavedTab {
+                    id: Some(t.id.clone()),
                     cwd: t.cwd.clone(),
                     manual_title: t.manual_title.clone(),
                     reminder_at: t.reminder_at.and_then(|r| r.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_secs()),

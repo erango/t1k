@@ -364,6 +364,7 @@ pub fn quit(cx: &mut gpui::App) {
     crate::windows::set_quitting();
     ALLOW_QUIT.store(true, std::sync::atomic::Ordering::SeqCst);
     crate::session::mark_quit();
+    crate::windows::end_daemon();
     crate::telemetry::end_session();
     cx.quit();
 }
@@ -380,7 +381,13 @@ pub fn guard_terminate() {
         use std::sync::atomic::Ordering;
         // An update installing (Sparkle quits the app to swap it) always goes through.
         let installing = crate::updater::snapshot().phase == crate::updater::Phase::Installing;
-        if ALLOW_QUIT.load(Ordering::SeqCst) || installing {
+        if installing {
+            // The new version picks the tabs back up from the session daemon.
+            t1k_terminal::remote::detach_all();
+            crate::session::mark_quit();
+            return 1; // NSTerminateNow
+        }
+        if ALLOW_QUIT.load(Ordering::SeqCst) {
             1 // NSTerminateNow
         } else {
             QUIT_REQUESTED.store(true, Ordering::SeqCst);

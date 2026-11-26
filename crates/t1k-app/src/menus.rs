@@ -26,6 +26,7 @@ pub fn install(cx: &mut App) {
                     MenuItem::separator(),
                     MenuItem::action("New Tab", NewTab),
                     MenuItem::action("New Window", NewWindow),
+                    MenuItem::action("Restart T1K", RestartApp),
                     MenuItem::action("Quit T1K", Quit),
                 ],
             },

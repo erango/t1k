@@ -121,6 +121,7 @@ fn main() {
             windows::quit_next(None, cx);
         }
         cx.on_action(|_: &OpenRepo, cx| cx.open_url(brand::REPO));
+        cx.on_action(|_: &RestartApp, cx| cx.defer(windows::restart));
         // Remove this process's hook socket on the way out.
         cx.on_app_quit(|_| async {
             if let Some(d) = session::support_dir() {
@@ -173,5 +174,22 @@ fn main() {
         if !background {
             cx.activate(true);
         }
+        // Debug aid: T1K_DEBUG_RESTART=restart|quit runs Restart T1K / ⌘Q 4 s after launch.
+        if let Ok(what) = std::env::var("T1K_DEBUG_RESTART") {
+            cx.spawn(async move |cx| {
+                cx.background_executor().timer(std::time::Duration::from_secs(4)).await;
+                let _ = cx.update(|cx| match what.as_str() {
+                    "quit" => cx.dispatch_action(&Quit),
+                    _ => windows::restart(cx),
+                });
+            })
+            .detach();
+        }
+        // Once every window has its tabs, the daemon ends shells no tab claims any more.
+        cx.spawn(async move |cx| {
+            cx.background_executor().timer(std::time::Duration::from_secs(5)).await;
+            let _ = cx.update(windows::prune_daemon);
+        })
+        .detach();
     });
 }

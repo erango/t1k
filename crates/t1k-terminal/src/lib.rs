@@ -1,9 +1,12 @@
 pub mod blocks;
+pub mod daemon;
 pub mod glyphs;
 pub mod input;
 pub mod links;
 pub mod palette;
 pub mod process;
+pub mod remote;
+pub mod replay;
 pub mod scrollbar;
 pub mod notify_scan;
 pub mod search;

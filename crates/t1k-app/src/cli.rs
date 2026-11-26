@@ -12,6 +12,20 @@ pub fn run(args: &[String]) -> bool {
             hook(&args[2..]);
             true
         }
+        // The session daemon (started by the app): runs every tab's shell for that support
+        // folder so tabs outlive the app (restarts, updates, crashes).
+        Some("daemon") => {
+            let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).format_timestamp_secs().try_init();
+            match args.get(2) {
+                Some(dir) => {
+                    if let Err(e) = t1k_terminal::daemon::run(std::path::Path::new(dir)) {
+                        log::error!("session daemon: {e}");
+                    }
+                }
+                None => eprintln!("usage: t1k daemon <support folder>"),
+            }
+            true
+        }
         Some("statusline") => {
             statusline(&args[2..]);
             true

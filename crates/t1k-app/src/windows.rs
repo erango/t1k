@@ -65,6 +65,9 @@ struct Hub {
     quitting: bool,
     /// Only this window is closing (its close button, with other windows open).
     closing: Option<EntityId>,
+    /// The session daemon that runs every tab's shell (None: shells run in this process).
+    daemon: Option<std::sync::Arc<t1k_terminal::remote::Daemon>>,
+    daemon_tried: bool,
 }
 
 static HUB: LazyLock<Mutex<Hub>> = LazyLock::new(|| Mutex::new(Hub::default()));
@@ -88,7 +91,14 @@ pub fn socket() -> Option<PathBuf> {
                 match t1k_agent::server::serve(&path, tx, || {}) {
                     Ok(()) => {
                         h.rx = Some(rx);
-                        h.socket = Some(path);
+                        // Shells get a path that outlives this process: `t1k.sock`, a link
+                        // to this process's socket. A shell the session daemon kept through
+                        // a restart then reaches the new app's socket.
+                        let link = dir.join("t1k.sock");
+                        let tmp = dir.join(format!("t1k.sock.{}", std::process::id()));
+                        let _ = std::fs::remove_file(&tmp);
+                        let linked = path.file_name().is_some_and(|name| std::os::unix::fs::symlink(name, &tmp).is_ok() && std::fs::rename(&tmp, &link).is_ok());
+                        h.socket = Some(if linked { link } else { path });
                     }
                     Err(e) => log::error!("agent socket {}: {e}", path.display()),
                 }
@@ -96,6 +106,106 @@ pub fn socket() -> Option<PathBuf> {
         }
     }
     h.socket.clone()
+}
+
+/// The session daemon (started if needed), unless shells run in this process: in the demo,
+/// with `T1K_DAEMON=off`, or when it can't be reached.
+pub fn daemon() -> Option<std::sync::Arc<t1k_terminal::remote::Daemon>> {
+    let mut h = hub();
+    if !h.daemon_tried {
+        h.daemon_tried = true;
+        let off = crate::demo::on() || std::env::var("T1K_DAEMON").is_ok_and(|v| v == "off" || v == "0");
+        if !off {
+            if let (Some(dir), Ok(exe)) = (session::support_dir(), std::env::current_exe()) {
+                match t1k_terminal::remote::Daemon::connect(&dir, &exe) {
+                    Ok(d) => h.daemon = Some(std::sync::Arc::new(d)),
+                    Err(e) => log::error!("session daemon: {e}; shells run in the app"),
+                }
+            }
+        }
+    }
+    h.daemon.clone()
+}
+
+/// The terminal ids every window has now (tabs and their panes).
+fn terminal_ids(cx: &App) -> Vec<String> {
+    let handles: Vec<_> = hub().wins.iter().map(|w| w.handle).collect();
+    let mut ids = Vec::new();
+    for w in handles {
+        if let Ok(ws) = w.read(cx) {
+            for t in &ws.tabs {
+                ids.push(t.id.clone());
+                for h in &t.panes.helpers {
+                    ids.push(format!("{}-p{}", t.id, h.id));
+                }
+            }
+        }
+    }
+    ids
+}
+
+/// After launch: end shells the daemon still runs for tabs no window has any more (closed
+/// while the app was gone, or a quick terminal).
+pub fn prune_daemon(cx: &mut App) {
+    let Some(d) = hub().daemon.clone() else { return };
+    let ids = terminal_ids(cx);
+    if !ids.is_empty() {
+        std::thread::spawn(move || d.keep(ids));
+    }
+}
+
+/// Quitting for real: end every shell the daemon runs (unless this is a restart, which keeps
+/// them for the next launch).
+pub fn end_daemon() {
+    if t1k_terminal::remote::detaching() {
+        return;
+    }
+    if let Some(d) = hub().daemon.clone() {
+        d.quit();
+    }
+}
+
+/// Restart T1K: with the session daemon, every tab keeps running and the next launch picks
+/// them up; without it, it's a quit (with its questions) and a relaunch.
+pub fn restart(cx: &mut App) {
+    let handles: Vec<_> = hub().wins.iter().map(|w| w.handle).collect();
+    for w in &handles {
+        let _ = w.update(cx, |ws, _, _| ws.save());
+    }
+    if daemon().is_none() {
+        relaunch_after_exit();
+        quit_cancelled();
+        quit_next(None, cx);
+        return;
+    }
+    t1k_terminal::remote::detach_all();
+    relaunch_after_exit();
+    set_quitting();
+    crate::platform::quit(cx);
+}
+
+/// Open T1K again once this process is gone.
+fn relaunch_after_exit() {
+    let Ok(exe) = std::env::current_exe() else { return };
+    // In the app bundle, `open` the bundle (Contents/MacOS/t1k → T1K.app); a dev build runs
+    // the binary again.
+    let bundle = exe.ancestors().nth(3).filter(|a| a.extension().is_some_and(|e| e == "app")).map(|a| a.to_path_buf());
+    let pid = std::process::id().to_string();
+    let mut cmd = std::process::Command::new("/bin/sh");
+    let script = r#"while kill -0 "$1" 2>/dev/null; do sleep 0.1; done; if [ -n "$3" ]; then open "$3"; else "$2" & fi"#;
+    cmd.arg("-c").arg(script).arg("t1k-relaunch").arg(&pid).arg(&exe).arg(bundle.as_deref().unwrap_or(std::path::Path::new("")));
+    cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    cmd.env_remove("T1K_DEBUG_RESTART");
+    unsafe {
+        use std::os::unix::process::CommandExt;
+        cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    if let Err(e) = cmd.spawn() {
+        log::error!("restart: couldn't schedule the relaunch: {e}");
+    }
 }
 
 pub fn register(id: EntityId, handle: WindowHandle<Workspace>) {

@@ -6,7 +6,7 @@ use std::io::{self, Read};
 use std::sync::Arc;
 
 use alacritty_terminal::event::{OnResize, WindowSize};
-use alacritty_terminal::tty::{ChildEvent, EventedPty, EventedReadWrite, Pty};
+use alacritty_terminal::tty::{ChildEvent, EventedPty, EventedReadWrite};
 use polling::{Event, PollMode, Poller};
 
 /// A notification a program asked for.
@@ -236,14 +236,15 @@ fn parse(payload: &[u8]) -> Option<Notice> {
 }
 
 /// The pty, with its output scanned for notifications. Reads go through a second handle on
-/// the same file, so polling and writes still use the original.
-pub struct ScanPty {
-    inner: Pty,
+/// the same file (or, for a tab the session daemon runs, the socket), so polling and writes
+/// still use the original.
+pub struct ScanPty<P> {
+    inner: P,
     reader: ScanReader,
 }
 
 pub struct ScanReader {
-    file: std::fs::File,
+    file: Box<dyn Read + Send>,
     scan: Scanner,
     found: Vec<Seen>,
     sink: Arc<dyn Fn(Seen) + Send + Sync>,
@@ -278,9 +279,9 @@ impl Read for ScanReader {
     }
 }
 
-impl ScanPty {
-    pub fn new(inner: Pty, sink: Arc<dyn Fn(Seen) + Send + Sync>, tap: Arc<LineTap>) -> io::Result<Self> {
-        let file = inner.file().try_clone()?;
+impl<P> ScanPty<P> {
+    /// `file` reads what `inner` polls for.
+    pub fn new(inner: P, file: Box<dyn Read + Send>, sink: Arc<dyn Fn(Seen) + Send + Sync>, tap: Arc<LineTap>) -> io::Result<Self> {
         Ok(Self {
             inner,
             reader: ScanReader { file, scan: Scanner::default(), found: Vec::new(), sink, tap, split: LineSplitter::default(), lines: Vec::new() },
@@ -288,9 +289,9 @@ impl ScanPty {
     }
 }
 
-impl EventedReadWrite for ScanPty {
+impl<P: EventedReadWrite> EventedReadWrite for ScanPty<P> {
     type Reader = ScanReader;
-    type Writer = std::fs::File;
+    type Writer = P::Writer;
 
     unsafe fn register(&mut self, poll: &Arc<Poller>, interest: Event, mode: PollMode) -> io::Result<()> {
         unsafe { self.inner.register(poll, interest, mode) }
@@ -304,18 +305,18 @@ impl EventedReadWrite for ScanPty {
     fn reader(&mut self) -> &mut ScanReader {
         &mut self.reader
     }
-    fn writer(&mut self) -> &mut std::fs::File {
+    fn writer(&mut self) -> &mut P::Writer {
         self.inner.writer()
     }
 }
 
-impl EventedPty for ScanPty {
+impl<P: EventedPty> EventedPty for ScanPty<P> {
     fn next_child_event(&mut self) -> Option<ChildEvent> {
         self.inner.next_child_event()
     }
 }
 
-impl OnResize for ScanPty {
+impl<P: OnResize> OnResize for ScanPty<P> {
     fn on_resize(&mut self, size: WindowSize) {
         self.inner.on_resize(size)
     }

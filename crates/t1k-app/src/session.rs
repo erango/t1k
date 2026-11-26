@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Default, Debug, Clone)]
 pub struct SavedTab {
+    /// The tab's id, so a relaunch finds its shell still running in the session daemon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     pub cwd: Option<PathBuf>,
     #[serde(default)]
     pub manual_title: Option<String>,
