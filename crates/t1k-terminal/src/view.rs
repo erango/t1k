@@ -301,6 +301,11 @@ impl TerminalView {
         .detach();
         cx.on_blur(&focus_handle, window, |this, _, cx| {
             this.terminal.set_focused(false);
+            // Typing in the find bar ends when focus leaves; coming back types into the
+            // terminal until the bar is clicked or ⌘F is pressed again.
+            if let Some(s) = this.search.as_mut() {
+                s.idle = true;
+            }
             cx.notify();
         })
         .detach();
@@ -526,6 +531,7 @@ impl TerminalView {
             s.current = None;
         }
         s.dirty = true;
+        s.idle = false;
         cx.notify();
     }
 
@@ -601,7 +607,7 @@ impl TerminalView {
         if k.modifiers.platform || k.modifiers.control {
             return false;
         }
-        let Some(s) = self.search.as_mut() else { return false };
+        let Some(s) = self.search.as_mut().filter(|s| !s.idle) else { return false };
         match k.key.as_str() {
             "escape" => {
                 self.close_search(cx);
@@ -828,12 +834,20 @@ impl TerminalView {
     }
 
     pub fn open_find(&mut self, cx: &mut Context<Self>) {
-        self.search.get_or_insert_with(Default::default).dirty = true;
+        let s = self.search.get_or_insert_with(Default::default);
+        s.dirty = true;
+        s.idle = false;
         cx.notify();
     }
 
     fn on_mouse_down(&mut self, ev: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if self.hints.take().is_some() {
+            cx.notify();
+        }
+        // A click in the terminal takes typing back from the find bar, which stays open
+        // with its matches until closed or clicked again.
+        if let Some(s) = self.search.as_mut().filter(|s| !s.idle) {
+            s.idle = true;
             cx.notify();
         }
         window.focus(&self.focus_handle);
@@ -2137,7 +2151,7 @@ fn find_bar(s: &crate::search::Search, palette: &Palette, cx: &mut Context<Termi
         .rounded(px(8.))
         .bg(raised)
         .border_1()
-        .border_color(fg.opacity(0.14))
+        .border_color(fg.opacity(if s.idle { 0.08 } else { 0.14 }))
         .shadow_lg()
         .flex()
         .items_center()
@@ -2151,13 +2165,25 @@ fn find_bar(s: &crate::search::Search, palette: &Palette, cx: &mut Context<Termi
                 .min_w_0()
                 .truncate()
                 .text_color(if empty { quiet } else { fg })
-                .child(if empty { "Find".to_string() } else { format!("{}▏", s.query) }),
+                // The caret shows only while typing goes to the bar.
+                .child(match (empty, s.idle) {
+                    (true, _) => "Find".to_string(),
+                    (false, true) => s.query.clone(),
+                    (false, false) => format!("{}▏", s.query),
+                }),
         )
         .child(div().flex_none().text_size(px(12.)).text_color(if none { gpui::red().opacity(0.8) } else { quiet }).child(s.label()))
         .child(button("find-prev", "↑").on_click(cx.listener(|v, _, _, cx| v.search_step(false, cx))))
         .child(button("find-next", "↓").on_click(cx.listener(|v, _, _, cx| v.search_step(true, cx))))
         .child(button("find-close", "✕").on_click(cx.listener(|v, _, _, cx| v.close_search(cx))))
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_mouse_down(MouseButton::Left, cx.listener(|v, _, _, cx| {
+            // A click in the bar gives it the typing back.
+            if let Some(s) = v.search.as_mut() {
+                s.idle = false;
+            }
+            cx.stop_propagation();
+            cx.notify();
+        }))
 }
 
 fn paint_frame(

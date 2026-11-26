@@ -16,6 +16,9 @@ pub struct Search {
     pub current: Option<usize>,
     /// Content changed since the last scan.
     pub dirty: bool,
+    /// The bar stays open but typing goes to the terminal: set by a click in the terminal,
+    /// cleared by a click in the bar or ⌘F.
+    pub idle: bool,
 }
 
 /// Escape regex syntax so the query matches literally.
