@@ -20,3 +20,9 @@ env_logger = "0.11"
 debug = "line-tables-only"
 split-debuginfo = "packed"
 strip = "symbols"
+
+# GPUI 0.2.2 with one fix: nextDrawable may time out instead of freezing the app
+# (see vendor/gpui/src/platform/mac/metal_renderer.rs, "T1K patch"). Drop when a gpui
+# release includes zed-industries/zed#67486.
+[patch.crates-io]
+gpui = { path = "vendor/gpui" }

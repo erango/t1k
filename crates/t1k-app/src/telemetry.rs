@@ -4,7 +4,7 @@
 //! the official release sets; or set at runtime), and only while `privacy.crash_reports` is
 //! true. `T1K_TELEMETRY=off` always wins. Source builds without a DSN send nothing.
 //!
-//! What leaves the machine: panics, `log::error!` lines (with the warn/info lines before them
+//! What leaves the machine: panics, `log::error!` lines (T1K's own, and GPUI's renderer) (with the warn/info lines before them
 //! as breadcrumbs), the app version and macOS details. Never terminal contents: T1K doesn't
 //! log them. Before sending, the home folder becomes `~`, other `/Users/<name>` paths lose
 //! the name, email addresses become `<email>`, URL query strings are dropped, and text a
@@ -65,7 +65,7 @@ pub fn available() -> bool {
     dsn().is_some()
 }
 
-/// Set up logging (stderr, `RUST_LOG`) and, when allowed, Sentry. Keep the guard for the
+/// Set up logging (stderr, `RUST_LOG`, `~/Library/Logs/T1K/t1k.log`) and, when allowed, Sentry. Keep the guard for the
 /// life of the process so pending events flush on exit.
 pub fn init(allowed: bool) -> Option<Guard> {
     let guard = dsn().filter(|_| allowed).map(|dsn| {
@@ -102,7 +102,7 @@ pub fn init(allowed: bool) -> Option<Guard> {
         // error! becomes a Sentry event, warn!/info! breadcrumbs on it (from T1K's crates
         // only; dependencies stay out).
         let logger = sentry::integrations::log::SentryLogger::with_dest(dest).filter(|md| {
-            if !md.target().starts_with("t1k") {
+            if !kept(md.target()) {
                 return sentry::integrations::log::LogFilter::Ignore;
             }
             match md.level() {
@@ -133,8 +133,9 @@ impl<L: log::Log> log::Log for Recorder<L> {
 
     fn log(&self, record: &log::Record<'_>) {
         // Only T1K's crates, as for Sentry: a dependency could quote terminal output.
-        if record.level() <= log::Level::Warn && record.target().starts_with("t1k") {
+        if record.level() <= log::Level::Warn && kept(record.target()) {
             let line = log_line(&clock(), record.level().as_str(), record.target(), &record.args().to_string());
+            write_file(&line);
             if let Ok(mut r) = RECENT.lock() {
                 if r.len() == RECENT_MAX {
                     r.pop_front();
@@ -150,6 +151,51 @@ impl<L: log::Log> log::Log for Recorder<L> {
     fn flush(&self) {
         self.0.flush();
     }
+}
+
+/// Targets whose records are kept (memory, log file, Sentry): T1K's own crates, and GPUI's
+/// Metal renderer, whose messages carry only sizes and counts. Other dependencies stay out,
+/// since one could quote terminal output.
+fn kept(target: &str) -> bool {
+    target.starts_with("t1k") || target.starts_with("gpui::platform::mac::metal_renderer")
+}
+
+/// Largest the log file grows before it is moved to `t1k.log.1` at the next launch.
+const LOG_FILE_MAX: u64 = 1024 * 1024;
+
+static LOG_FILE: Mutex<Option<std::fs::File>> = Mutex::new(None);
+
+/// `~/Library/Logs/T1K/t1k.log`: the kept warnings and errors, scrubbed, so a freeze or crash
+/// leaves a trail. Opened on first use; a large file rolls over to `t1k.log.1`.
+fn open_log_file() -> Option<std::fs::File> {
+    let dir = std::path::PathBuf::from(std::env::var_os("HOME")?).join("Library/Logs/T1K");
+    std::fs::create_dir_all(&dir).ok()?;
+    let path = dir.join("t1k.log");
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > LOG_FILE_MAX) {
+        let _ = std::fs::rename(&path, dir.join("t1k.log.1"));
+    }
+    std::fs::OpenOptions::new().create(true).append(true).open(path).ok()
+}
+
+fn write_file(line: &str) {
+    use std::io::Write;
+    static TRIED: std::sync::Once = std::sync::Once::new();
+    let Ok(mut file) = LOG_FILE.lock() else { return };
+    TRIED.call_once(|| *file = open_log_file());
+    if let Some(f) = file.as_mut() {
+        let _ = writeln!(f, "{} {line}", today());
+    }
+}
+
+/// Local date, YYYY-MM-DD.
+fn today() -> String {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) as libc::time_t;
+    // SAFETY: localtime_r only writes the tm we own.
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    if unsafe { libc::localtime_r(&now, &mut tm) }.is_null() {
+        return "----------".into();
+    }
+    format!("{:04}-{:02}-{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday)
 }
 
 /// "14:02:40 ERROR hooks: Codex hook timed out", scrubbed like a Sentry report. `target` is
