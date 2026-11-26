@@ -6412,6 +6412,8 @@ dependencies = [
  "objc",
  "polling",
  "psl",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
