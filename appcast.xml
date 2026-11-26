@@ -3,6 +3,16 @@
   <channel>
     <title>T1K</title>
     <item>
+      <title>T1K 0.1.21</title>
+      <pubDate>Fri, 27 Nov 2026 00:38:44 +0200</pubDate>
+      <sparkle:version>0.1.21</sparkle:version>
+      <sparkle:shortVersionString>0.1.21</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/erango/t1k/releases/tag/v0.1.21</sparkle:fullReleaseNotesLink>
+      <description><![CDATA[<ul><li>Tabs now outlive the app. Each tab&#x27;s shell runs in a small background process, so installing an update, Restart T1K or a crash no longer stops what&#x27;s running; T1K comes back to the same shells, screens and agents.</li><li>New: Restart T1K in the T1K menu. Your tabs keep running.</li><li>Updates no longer warn that restarting stops your agents, and Restart now is always the default.</li><li>Quitting T1K still ends every tab, as before.</li></ul>]]></description>
+      <enclosure url="https://github.com/erango/t1k/releases/download/v0.1.21/T1K-0.1.21.zip" type="application/octet-stream" sparkle:edSignature="svG4HcZNhKlW+mChQPJh33wCNc+xG+MuqRxQ6poQ8Aplo2oPD728dLcpNypPBv0FAjPvPW5uvdHtwtChuPH5Ag==" length="13703187" />
+    </item>
+    <item>
       <title>T1K 0.1.20</title>
       <pubDate>Fri, 27 Nov 2026 00:00:01 +0200</pubDate>
       <sparkle:version>0.1.20</sparkle:version>
