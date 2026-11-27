@@ -222,8 +222,8 @@ impl Tab {
     }
 }
 
-/// One spinner frame (60 a second).
-const SPIN_FRAME: Duration = Duration::from_micros(16_667);
+/// Housekeeping cadence.
+const TICK: Duration = Duration::from_millis(100);
 
 pub struct Workspace {
     pub tabs: Vec<Tab>,
@@ -527,26 +527,12 @@ impl Workspace {
 
         // Agent socket: one for the app; each window takes the messages for its own tabs.
         let socket = crate::windows::socket();
-        // Fast loop, at 60 frames a second: working spinners turn smoothly, but only while the
-        // window is in front (each frame redraws the whole window; behind other windows they
-        // hold still and the row still says Working). Every sixth pass (100 ms) drains agent
-        // messages and does the housekeeping in `tick`.
-        let fast = cx.spawn_in(window, async move |this, cx| {
-            let mut n: u32 = 0;
-            loop {
-                cx.background_executor().timer(SPIN_FRAME).await;
-                n = n.wrapping_add(1);
-                let alive = this.update_in(cx, |ws, window, cx| {
-                    if n.is_multiple_of(6) {
-                        ws.tick(window, cx);
-                    }
-                    if !ws.window_inactive && ws.sidebar_open && ws.tabs.iter().any(|t| t.status() == Some(&Status::Working)) {
-                        cx.notify();
-                    }
-                });
-                if alive.is_err() {
-                    break;
-                }
+        // Housekeeping loop, every 100 ms: drains agent messages and does the housekeeping in
+        // `tick`. Spinners don't need it: Core Animation turns them (see `spin`).
+        let fast = cx.spawn_in(window, async move |this, cx| loop {
+            cx.background_executor().timer(TICK).await;
+            if this.update_in(cx, |ws, window, cx| ws.tick(window, cx)).is_err() {
+                break;
             }
         });
 
@@ -2350,7 +2336,7 @@ impl Workspace {
         }
     }
 
-    /// Every 100 ms: apply agent messages; keep spinners moving while anything works.
+    /// Every 100 ms: apply agent messages and housekeeping.
     fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.triggers_tick(window, cx);
         // The ask bar's countdown moves.
@@ -2491,8 +2477,7 @@ impl Workspace {
             crate::platform::set_dock_icon(&icon.0, icon.1);
             self.dock_icon = Some(icon);
         }
-        // The usage meter's countdowns and staleness move with the clock. (Spinners are the
-        // fast loop's: it redraws for them only while the window is in front.)
+        // The usage meter's countdowns and staleness move with the clock.
         let minute = crate::usage::now() / 60;
         let tick = !self.usage.is_empty() && std::mem::replace(&mut self.usage_minute, minute) != minute;
         if changed || tick {
@@ -3563,6 +3548,7 @@ impl Render for Workspace {
         })
         .children(readout)
         .children(overlay)
+        .child(crate::spin::sync())
     }
 }
 

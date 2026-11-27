@@ -3297,6 +3297,12 @@ impl Window {
         bounds
     }
 
+    /// T1K patch: the topmost hitbox at a point in the frame being drawn, for elements that
+    /// need to know whether something painted later covers them. Valid during paint.
+    pub fn topmost_hitbox_at(&self, position: Point<Pixels>) -> Option<HitboxId> {
+        self.next_frame.hit_test(position).ids.first().copied()
+    }
+
     /// This method should be called during `prepaint`. You can use
     /// the returned [Hitbox] during `paint` or in an event handler
     /// to determine whether the inserted hitbox was the topmost.

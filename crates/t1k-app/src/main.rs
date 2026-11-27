@@ -2,6 +2,7 @@
 
 mod actions;
 mod demo;
+mod spin;
 mod import;
 mod import_ui;
 mod match_term;

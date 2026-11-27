@@ -1498,25 +1498,8 @@ pub fn watch_ring(color: gpui::Hsla, started: Instant, r: f32) -> gpui::Canvas<(
     .size_full()
 }
 
-pub fn spinner_sized(color: gpui::Hsla, started: Instant, r: f32) -> gpui::Canvas<()> {
-    let turn = (started.elapsed().as_millis() % 900) as f32 / 900. * std::f32::consts::TAU;
-    gpui::canvas(
-        |_, _, _| {},
-        move |bounds, _, window, _| {
-            let c = bounds.center();
-            let mut b = gpui::PathBuilder::stroke(px(1.5));
-            let steps = 24;
-            for i in 0..=steps {
-                let a = turn + i as f32 / steps as f32 * std::f32::consts::TAU * 0.75;
-                let p = gpui::point(c.x + px(r * a.cos()), c.y + px(r * a.sin()));
-                if i == 0 { b.move_to(p) } else { b.line_to(p) }
-            }
-            if let Ok(path) = b.build() {
-                window.paint_path(path, color);
-            }
-        },
-    )
-    .size_full()
+pub fn spinner_sized(color: gpui::Hsla, started: Instant, r: f32) -> gpui::Canvas<gpui::Hitbox> {
+    crate::spin::spinner(color, started, r)
 }
 
 /// "5m", "3h", "2d" since a unix time.
