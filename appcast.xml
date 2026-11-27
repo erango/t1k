@@ -3,6 +3,16 @@
   <channel>
     <title>T1K</title>
     <item>
+      <title>T1K 0.1.23</title>
+      <pubDate>Fri, 27 Nov 2026 03:09:47 +0200</pubDate>
+      <sparkle:version>0.1.23</sparkle:version>
+      <sparkle:shortVersionString>0.1.23</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/erango/t1k/releases/tag/v0.1.23</sparkle:fullReleaseNotesLink>
+      <description><![CDATA[<ul><li>Much lower CPU while agents work. Working spinners used to redraw the whole window 60 times a second (around 40% CPU with a few agents busy); macOS now turns them itself, so T1K sits near idle and the spinners stay smooth, in background windows too.</li></ul>]]></description>
+      <enclosure url="https://github.com/erango/t1k/releases/download/v0.1.23/T1K-0.1.23.zip" type="application/octet-stream" sparkle:edSignature="ox4HvjRmCK5u5OBB85uhvdO7AsI+hOF+FXEq+TpYNQ7YLFF1n8N4sAeL95tIHQI2JtLrBC6ldAAYv5JuiDgCCQ==" length="13658576" />
+    </item>
+    <item>
       <title>T1K 0.1.22</title>
       <pubDate>Fri, 27 Nov 2026 01:13:03 +0200</pubDate>
       <sparkle:version>0.1.22</sparkle:version>
